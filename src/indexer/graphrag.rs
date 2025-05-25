@@ -1560,3 +1560,20 @@ pub fn graphrag_nodes_to_markdown(nodes: &[CodeNode]) -> String {
 
 	markdown
 }
+
+// GraphRAG implementation for searching
+pub struct GraphRAG {
+	config: Config,
+}
+
+impl GraphRAG {
+	pub fn new(config: Config) -> Self {
+		Self { config }
+	}
+
+	pub async fn search(&self, query: &str) -> Result<String> {
+		let builder = GraphBuilder::new(self.config.clone()).await?;
+		let nodes = builder.search_nodes(query).await?;
+		Ok(graphrag_nodes_to_markdown(&nodes))
+	}
+}

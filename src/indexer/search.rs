@@ -1,6 +1,7 @@
 // Module for search functionality
 
 use crate::store::{Store, CodeBlock};
+use crate::config::Config;
 use anyhow::Result;
 use std::collections::HashSet;
 
@@ -148,4 +149,225 @@ pub async fn expand_symbols(store: &Store, code_blocks: Vec<CodeBlock>) -> Resul
 	expanded_blocks.extend(additional_blocks);
 
 	Ok(expanded_blocks)
+}
+
+// Search function for MCP server - returns formatted markdown results
+pub async fn search_codebase(query: &str, mode: &str, config: &Config) -> Result<String> {
+	// Initialize store
+	let store = Store::new().await?;
+	
+	// Generate embeddings for the query
+	let embeddings = crate::indexer::generate_embeddings(query, true, config).await?;
+	
+	// Perform the search based on mode
+	match mode {
+		"code" => {
+			let results = store.get_code_blocks(embeddings).await?;
+			Ok(format_code_search_results_as_markdown(&results))
+		},
+		"text" => {
+			let results = store.get_text_blocks(embeddings).await?;
+			Ok(format_text_search_results_as_markdown(&results))
+		},
+		"docs" => {
+			let results = store.get_document_blocks(embeddings).await?;
+			Ok(format_doc_search_results_as_markdown(&results))
+		},
+		_ => {
+			// "all" mode - search across all types
+			let code_results = store.get_code_blocks(embeddings.clone()).await?;
+			let text_results = store.get_text_blocks(embeddings.clone()).await?;
+			let doc_results = store.get_document_blocks(embeddings).await?;
+			
+			// Format combined results
+			Ok(format_combined_search_results_as_markdown(&code_results, &text_results, &doc_results))
+		}
+	}
+}
+
+// Format code search results as markdown for MCP
+fn format_code_search_results_as_markdown(blocks: &[CodeBlock]) -> String {
+	if blocks.is_empty() {
+		return "No code results found.".to_string();
+	}
+
+	let mut output = String::new();
+	output.push_str(&format!("# Code Search Results\n\nFound {} code blocks:\n\n", blocks.len()));
+
+	// Group blocks by file path for better organization
+	let mut blocks_by_file: std::collections::HashMap<String, Vec<&CodeBlock>> = std::collections::HashMap::new();
+
+	for block in blocks {
+		blocks_by_file
+			.entry(block.path.clone())
+			.or_default()
+			.push(block);
+	}
+
+	// Format results organized by file
+	for (file_path, file_blocks) in blocks_by_file.iter() {
+		output.push_str(&format!("## File: {}\n\n", file_path));
+
+		for (idx, block) in file_blocks.iter().enumerate() {
+			output.push_str(&format!("### Block {} of {} in file\n\n", idx + 1, file_blocks.len()));
+			output.push_str(&format!("- **Language**: {}\n", block.language));
+			output.push_str(&format!("- **Lines**: {}-{}\n", block.start_line, block.end_line));
+
+			// Show relevance score if available
+			if let Some(distance) = block.distance {
+				output.push_str(&format!("- **Relevance**: {:.4}\n", distance));
+			}
+
+			if !block.symbols.is_empty() {
+				output.push_str("- **Symbols**: ");
+				// Deduplicate symbols in display
+				let mut display_symbols = block.symbols.clone();
+				display_symbols.sort();
+				display_symbols.dedup();
+
+				let relevant_symbols: Vec<String> = display_symbols.iter()
+					.filter(|symbol| !symbol.contains("_"))
+					.cloned()
+					.collect();
+				
+				if !relevant_symbols.is_empty() {
+					output.push_str(&relevant_symbols.join(", "));
+				}
+				output.push('\n');
+			}
+
+			output.push_str("\n**Content:**\n\n");
+			output.push_str("```");
+			output.push_str(&block.language);
+			output.push('\n');
+			output.push_str(&block.content);
+			output.push_str("\n```\n\n");
+		}
+	}
+
+	output
+}
+
+// Format text search results as markdown for MCP
+fn format_text_search_results_as_markdown(blocks: &[crate::store::TextBlock]) -> String {
+	if blocks.is_empty() {
+		return "No text results found.".to_string();
+	}
+
+	let mut output = String::new();
+	output.push_str(&format!("# Text Search Results\n\nFound {} text blocks:\n\n", blocks.len()));
+
+	// Group blocks by file path for better organization
+	let mut blocks_by_file: std::collections::HashMap<String, Vec<&crate::store::TextBlock>> = std::collections::HashMap::new();
+
+	for block in blocks {
+		blocks_by_file
+			.entry(block.path.clone())
+			.or_default()
+			.push(block);
+	}
+
+	// Format results organized by file
+	for (file_path, file_blocks) in blocks_by_file.iter() {
+		output.push_str(&format!("## File: {}\n\n", file_path));
+
+		for (idx, block) in file_blocks.iter().enumerate() {
+			output.push_str(&format!("### Block {} of {} in file\n\n", idx + 1, file_blocks.len()));
+			output.push_str(&format!("- **Language**: {}\n", block.language));
+			output.push_str(&format!("- **Lines**: {}-{}\n", block.start_line, block.end_line));
+
+			// Show relevance score if available
+			if let Some(distance) = block.distance {
+				output.push_str(&format!("- **Relevance**: {:.4}\n", distance));
+			}
+
+			output.push_str("\n**Content:**\n\n");
+			output.push_str("```");
+			output.push_str(&block.language);
+			output.push('\n');
+			output.push_str(&block.content);
+			output.push_str("\n```\n\n");
+		}
+	}
+
+	output
+}
+
+// Format document search results as markdown for MCP
+fn format_doc_search_results_as_markdown(blocks: &[crate::store::DocumentBlock]) -> String {
+	if blocks.is_empty() {
+		return "No documentation results found.".to_string();
+	}
+
+	let mut output = String::new();
+	output.push_str(&format!("# Documentation Search Results\n\nFound {} documentation sections:\n\n", blocks.len()));
+
+	// Group blocks by file path for better organization
+	let mut blocks_by_file: std::collections::HashMap<String, Vec<&crate::store::DocumentBlock>> = std::collections::HashMap::new();
+
+	for block in blocks {
+		blocks_by_file
+			.entry(block.path.clone())
+			.or_default()
+			.push(block);
+	}
+
+	// Format results organized by file
+	for (file_path, file_blocks) in blocks_by_file.iter() {
+		output.push_str(&format!("## File: {}\n\n", file_path));
+
+		for (idx, block) in file_blocks.iter().enumerate() {
+			output.push_str(&format!("### Section {} of {} in file\n\n", idx + 1, file_blocks.len()));
+			output.push_str(&format!("- **Title**: {}\n", block.title));
+			output.push_str(&format!("- **Level**: {}\n", block.level));
+			output.push_str(&format!("- **Lines**: {}-{}\n", block.start_line, block.end_line));
+
+			// Show relevance score if available
+			if let Some(distance) = block.distance {
+				output.push_str(&format!("- **Relevance**: {:.4}\n", distance));
+			}
+
+			output.push_str("\n**Content:**\n\n");
+			output.push_str(&block.content);
+			output.push_str("\n\n");
+		}
+	}
+
+	output
+}
+
+// Format combined search results as markdown for MCP
+fn format_combined_search_results_as_markdown(
+	code_blocks: &[CodeBlock], 
+	text_blocks: &[crate::store::TextBlock], 
+	doc_blocks: &[crate::store::DocumentBlock]
+) -> String {
+	let mut output = String::new();
+	output.push_str("# Combined Search Results\n\n");
+
+	let total_results = code_blocks.len() + text_blocks.len() + doc_blocks.len();
+	if total_results == 0 {
+		return "No results found.".to_string();
+	}
+
+	output.push_str(&format!("Found {} total results:\n\n", total_results));
+
+	// Documentation Results
+	if !doc_blocks.is_empty() {
+		output.push_str(&format_doc_search_results_as_markdown(doc_blocks));
+		output.push('\n');
+	}
+
+	// Code Results
+	if !code_blocks.is_empty() {
+		output.push_str(&format_code_search_results_as_markdown(code_blocks));
+		output.push('\n');
+	}
+
+	// Text Results
+	if !text_blocks.is_empty() {
+		output.push_str(&format_text_search_results_as_markdown(text_blocks));
+	}
+
+	output
 }

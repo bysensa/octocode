@@ -2,7 +2,7 @@
 // Handles code indexing, embedding, and search functionality
 
 mod embed; // Embedding generation - moving from content.rs
-mod search; // Search functionality
+pub mod search; // Search functionality
 mod languages; // Language-specific processors
 pub mod graphrag; // GraphRAG generation for code relationships
 pub mod graph_optimization; // Task-focused graph extraction and optimization

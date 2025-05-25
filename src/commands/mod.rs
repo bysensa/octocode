@@ -5,6 +5,7 @@ pub mod watch;
 pub mod config;
 pub mod graphrag;
 pub mod clear;
+pub mod mcp;
 
 // Re-export all the command structs and enums
 pub use index::IndexArgs;
@@ -13,3 +14,4 @@ pub use view::ViewArgs;
 pub use watch::WatchArgs;
 pub use config::ConfigArgs;
 pub use graphrag::GraphRAGArgs;
+pub use mcp::McpArgs;

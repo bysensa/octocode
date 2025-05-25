@@ -35,6 +35,9 @@ enum Commands {
 	#[command(name = "graphrag")]
 	GraphRAG(commands::GraphRAGArgs),
 
+	/// Start MCP (Model Context Protocol) server
+	Mcp(commands::McpArgs),
+
 	/// Clear all database tables (useful for debugging)
 	Clear,
 }
@@ -49,6 +52,11 @@ async fn main() -> Result<(), anyhow::Error> {
 	// Handle the config command separately
 	if let Commands::Config(config_args) = &args.command {
 		return commands::config::execute(config_args, config);
+	}
+
+	// Handle the MCP command separately (doesn't need store)
+	if let Commands::Mcp(mcp_args) = &args.command {
+		return commands::mcp::run(mcp_args.clone()).await;
 	}
 
 	// Initialize the store
@@ -76,6 +84,7 @@ async fn main() -> Result<(), anyhow::Error> {
 			commands::clear::execute(&store).await?
 		},
 		Commands::Config(_) => unreachable!(), // Already handled above
+		Commands::Mcp(_) => unreachable!(), // Already handled above
 	}
 
 	Ok(())

@@ -46,7 +46,7 @@ fn default_max_results() -> usize {
 }
 
 fn default_database_path() -> String {
-    ".octocode/database.lance".to_string()
+    ".octocode/storage".to_string()
 }
 
 fn default_similarity_threshold() -> f32 {
@@ -76,7 +76,7 @@ pub enum EmbeddingProvider {
 pub struct FastEmbedConfig {
     #[serde(default = "default_embedding_model")]
     pub code_model: String,
-    
+
     #[serde(default = "default_embedding_model")]
     pub text_model: String,
 }
@@ -94,7 +94,7 @@ impl Default for FastEmbedConfig {
 pub struct JinaConfig {
     #[serde(default = "default_embedding_model")]
     pub code_model: String,
-    
+
     #[serde(default = "default_embedding_model")]
     pub text_model: String,
 }
@@ -112,10 +112,10 @@ impl Default for JinaConfig {
 pub struct GraphRAGConfig {
     #[serde(default = "default_graphrag_enabled")]
     pub enabled: bool,
-    
+
     #[serde(default = "default_model")]
     pub description_model: String,
-    
+
     #[serde(default = "default_model")]
     pub relationship_model: String,
 }
@@ -134,13 +134,13 @@ impl Default for GraphRAGConfig {
 pub struct OpenRouterConfig {
     #[serde(default = "default_model")]
     pub model: String,
-    
+
     #[serde(default = "default_base_url")]
     pub base_url: String,
-    
+
     #[serde(default = "default_timeout")]
     pub timeout: u64,
-    
+
     pub api_key: Option<String>,
 }
 
@@ -159,19 +159,19 @@ impl Default for OpenRouterConfig {
 pub struct IndexConfig {
     #[serde(default = "default_chunk_size")]
     pub chunk_size: usize,
-    
+
     #[serde(default = "default_chunk_overlap")]
     pub chunk_overlap: usize,
-    
+
     #[serde(default = "default_embedding_model")]
     pub embedding_model: String,
-    
+
     #[serde(default = "default_embeddings_batch_size")]
     pub embeddings_batch_size: usize,
-    
+
     #[serde(default = "default_graphrag_enabled")]
     pub graphrag_enabled: bool,
-    
+
     #[serde(default)]
     pub ignore_patterns: Vec<String>,
 }
@@ -198,19 +198,19 @@ impl Default for IndexConfig {
 pub struct SearchConfig {
     #[serde(default = "default_max_results")]
     pub max_results: usize,
-    
+
     #[serde(default = "default_similarity_threshold")]
     pub similarity_threshold: f32,
-    
+
     #[serde(default = "default_top_k")]
     pub top_k: usize,
-    
+
     #[serde(default = "default_output_format")]
     pub output_format: String,
-    
+
     #[serde(default = "default_max_files")]
     pub max_files: usize,
-    
+
     #[serde(default = "default_context_lines")]
     pub context_lines: usize,
 }
@@ -246,28 +246,28 @@ impl Default for DatabaseConfig {
 pub struct Config {
     #[serde(default)]
     pub openrouter: OpenRouterConfig,
-    
+
     #[serde(default)]
     pub index: IndexConfig,
-    
+
     #[serde(default)]
     pub search: SearchConfig,
-    
+
     #[serde(default)]
     pub database: DatabaseConfig,
-    
+
     #[serde(default)]
     pub embedding_provider: EmbeddingProvider,
-    
+
     #[serde(default)]
     pub fastembed: FastEmbedConfig,
-    
+
     #[serde(default)]
     pub jina: JinaConfig,
-    
+
     #[serde(default)]
     pub graphrag: GraphRAGConfig,
-    
+
     pub jina_api_key: Option<String>,
 }
 
@@ -275,7 +275,7 @@ impl Config {
     pub fn load() -> Result<Self> {
         let config_dir = Self::ensure_config_dir()?;
         let config_path = config_dir.join("config.toml");
-        
+
         let mut config = if config_path.exists() {
             let content = fs::read_to_string(&config_path)?;
             toml::from_str(&content)?
@@ -297,16 +297,16 @@ impl Config {
 
         Ok(config)
     }
-    
+
     pub fn save(&self) -> Result<()> {
         let config_dir = Self::ensure_config_dir()?;
         let config_path = config_dir.join("config.toml");
-        
+
         let toml_content = toml::to_string_pretty(self)?;
         fs::write(config_path, toml_content)?;
         Ok(())
     }
-    
+
     fn ensure_config_dir() -> Result<PathBuf> {
         let config_dir = std::env::current_dir()?.join(".octocode");
         if !config_dir.exists() {
@@ -314,7 +314,7 @@ impl Config {
         }
         Ok(config_dir)
     }
-    
+
     pub fn get_database_path(&self) -> PathBuf {
         if Path::new(&self.database.path).is_absolute() {
             PathBuf::from(&self.database.path)
@@ -324,15 +324,15 @@ impl Config {
                 .join(&self.database.path)
         }
     }
-    
+
     pub fn get_model(&self) -> &str {
         &self.openrouter.model
     }
-    
+
     pub fn get_base_url(&self) -> &str {
         &self.openrouter.base_url
     }
-    
+
     pub fn get_timeout(&self) -> u64 {
         self.openrouter.timeout
     }
