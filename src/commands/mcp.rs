@@ -16,6 +16,10 @@ pub struct McpArgs {
     /// Enable debug logging for MCP server
     #[arg(long)]
     pub debug: bool,
+
+    /// Path to the directory to serve (defaults to current directory)
+    #[arg(long, default_value = ".")]
+    pub path: String,
 }
 
 // MCP Protocol types
@@ -59,11 +63,12 @@ pub struct McpServer {
     config: Config,
     graphrag: Option<GraphRAG>,
     debug: bool,
+    working_directory: std::path::PathBuf,
     watcher_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl McpServer {
-    pub fn new(config: Config, debug: bool) -> Self {
+    pub fn new(config: Config, debug: bool, working_directory: std::path::PathBuf) -> Self {
         let graphrag = if config.graphrag.enabled {
             Some(GraphRAG::new(config.clone()))
         } else {
@@ -74,6 +79,7 @@ impl McpServer {
             config,
             graphrag,
             debug,
+            working_directory,
             watcher_handle: None,
         }
     }
@@ -119,10 +125,11 @@ impl McpServer {
 
     async fn start_watcher(&mut self) -> Result<()> {
         let (tx, mut rx) = mpsc::channel(100);
+        let working_dir = self.working_directory.clone();
         
         // Start watcher in background
         let watcher_handle = tokio::spawn(async move {
-            if let Err(e) = run_watcher(tx).await {
+            if let Err(e) = run_watcher(tx, working_dir).await {
                 eprintln!("Watcher error: {}", e);
             }
         });
@@ -399,12 +406,21 @@ impl McpServer {
         }
 
         if self.debug {
-            eprintln!("Executing search: query='{}', mode='{}'", query, mode);
+            eprintln!("Executing search: query='{}', mode='{}' in directory '{}'", 
+                query, mode, self.working_directory.display());
         }
 
+        // Change to the working directory for the search
+        let _original_dir = std::env::current_dir()?;
+        std::env::set_current_dir(&self.working_directory)?;
+
         // Use the search functionality from the existing codebase
-        let results = search_codebase(query, mode, &self.config).await?;
-        Ok(results)
+        let results = search_codebase(query, mode, &self.config).await;
+
+        // Restore original directory
+        std::env::set_current_dir(&_original_dir)?;
+
+        results
     }
 
     async fn execute_search_graphrag(&self, arguments: &Value) -> Result<String> {
@@ -424,10 +440,20 @@ impl McpServer {
         match &self.graphrag {
             Some(graphrag) => {
                 if self.debug {
-                    eprintln!("Executing GraphRAG search: query='{}'", query);
+                    eprintln!("Executing GraphRAG search: query='{}' in directory '{}'", 
+                        query, self.working_directory.display());
                 }
+
+                // Change to the working directory for the search
+                let _original_dir = std::env::current_dir()?;
+                std::env::set_current_dir(&self.working_directory)?;
                 
-                let results = graphrag.search(query).await?;
+                let results = graphrag.search(query).await;
+
+                // Restore original directory
+                std::env::set_current_dir(&_original_dir)?;
+
+                let results = results?;
                 Ok(format_graphrag_results_as_markdown(results))
             }
             None => Err(anyhow::anyhow!("GraphRAG is not enabled in the current configuration. Please enable GraphRAG in octodev.toml to use relationship-aware search.")),
@@ -436,10 +462,9 @@ impl McpServer {
 }
 
 // Helper functions
-async fn run_watcher(tx: mpsc::Sender<()>) -> Result<()> {
+async fn run_watcher(tx: mpsc::Sender<()>, working_dir: std::path::PathBuf) -> Result<()> {
     use notify::RecursiveMode;
     use notify_debouncer_mini::{new_debouncer, DebouncedEvent};
-    use std::path::Path;
     use std::time::Duration;
 
     let (debouncer_tx, mut debouncer_rx) = mpsc::channel(100);
@@ -453,7 +478,7 @@ async fn run_watcher(tx: mpsc::Sender<()>) -> Result<()> {
         }
     })?;
 
-    debouncer.watcher().watch(Path::new("."), RecursiveMode::Recursive)?;
+    debouncer.watcher().watch(&working_dir, RecursiveMode::Recursive)?;
 
     while let Some(_) = debouncer_rx.recv().await {
         let _ = tx.send(()).await;
@@ -485,6 +510,20 @@ fn format_graphrag_results_as_markdown(results: String) -> String {
 
 pub async fn run(args: McpArgs) -> Result<()> {
     let config = Config::load()?;
-    let mut server = McpServer::new(config, args.debug);
+    
+    // Convert path to absolute PathBuf
+    let working_directory = std::path::Path::new(&args.path).canonicalize()
+        .map_err(|e| anyhow::anyhow!("Invalid path '{}': {}", args.path, e))?;
+    
+    // Verify the path exists and is a directory
+    if !working_directory.is_dir() {
+        return Err(anyhow::anyhow!("Path '{}' is not a directory", working_directory.display()));
+    }
+
+    if args.debug {
+        eprintln!("MCP Server starting with working directory: {}", working_directory.display());
+    }
+
+    let mut server = McpServer::new(config, args.debug, working_directory);
     server.run().await
 }
