@@ -80,17 +80,17 @@ impl Bash {
 				let child = cursor.node();
 
 				if child.kind() == "variable_assignment" {
-    						for var_child in child.children(&mut child.walk()) {
-    							if var_child.kind() == "variable_name" {
-    								if let Ok(name) = var_child.utf8_text(contents.as_bytes()) {
-    									if !symbols.contains(&name.to_string()) {
-    										symbols.push(name.to_string());
-    									}
-    								}
-    								break;
-    							}
-    						}
-    					}
+					for var_child in child.children(&mut child.walk()) {
+						if var_child.kind() == "variable_name" {
+							if let Ok(name) = var_child.utf8_text(contents.as_bytes()) {
+								if !symbols.contains(&name.to_string()) {
+									symbols.push(name.to_string());
+								}
+							}
+							break;
+						}
+					}
+				}
 
 				// Continue traversing for nested assignments
 				self.extract_identifiers(child, contents, symbols);

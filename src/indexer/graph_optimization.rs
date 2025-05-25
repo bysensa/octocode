@@ -16,9 +16,9 @@ pub struct TaskFocusedSubgraph {
 }
 
 impl Default for TaskFocusedSubgraph {
-    fn default() -> Self {
-        Self::new()
-    }
+	fn default() -> Self {
+		Self::new()
+	}
 }
 
 impl TaskFocusedSubgraph {

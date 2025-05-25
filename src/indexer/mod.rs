@@ -763,7 +763,7 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 
 	// First pass: count all files to be processed
 	let total_files = count_indexable_files(&current_dir)?;
-	
+
 	{
 		let mut state_guard = state.write();
 		state_guard.total_files = total_files;
@@ -923,7 +923,7 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 // Helper function to count indexable files
 fn count_indexable_files(current_dir: &std::path::Path) -> Result<usize> {
 	let mut count = 0;
-	
+
 	let walker = ignore::WalkBuilder::new(current_dir)
 		.hidden(false)
 		.git_ignore(true)

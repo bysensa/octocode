@@ -155,10 +155,10 @@ pub async fn expand_symbols(store: &Store, code_blocks: Vec<CodeBlock>) -> Resul
 pub async fn search_codebase(query: &str, mode: &str, config: &Config) -> Result<String> {
 	// Initialize store
 	let store = Store::new().await?;
-	
+
 	// Generate embeddings for the query
 	let embeddings = crate::indexer::generate_embeddings(query, true, config).await?;
-	
+
 	// Perform the search based on mode
 	match mode {
 		"code" => {
@@ -178,7 +178,7 @@ pub async fn search_codebase(query: &str, mode: &str, config: &Config) -> Result
 			let code_results = store.get_code_blocks(embeddings.clone()).await?;
 			let text_results = store.get_text_blocks(embeddings.clone()).await?;
 			let doc_results = store.get_document_blocks(embeddings).await?;
-			
+
 			// Format combined results
 			Ok(format_combined_search_results_as_markdown(&code_results, &text_results, &doc_results))
 		}
@@ -229,7 +229,7 @@ fn format_code_search_results_as_markdown(blocks: &[CodeBlock]) -> String {
 					.filter(|symbol| !symbol.contains("_"))
 					.cloned()
 					.collect();
-				
+
 				if !relevant_symbols.is_empty() {
 					output.push_str(&relevant_symbols.join(", "));
 				}
@@ -338,8 +338,8 @@ fn format_doc_search_results_as_markdown(blocks: &[crate::store::DocumentBlock])
 
 // Format combined search results as markdown for MCP
 fn format_combined_search_results_as_markdown(
-	code_blocks: &[CodeBlock], 
-	text_blocks: &[crate::store::TextBlock], 
+	code_blocks: &[CodeBlock],
+	text_blocks: &[crate::store::TextBlock],
 	doc_blocks: &[crate::store::DocumentBlock]
 ) -> String {
 	let mut output = String::new();
