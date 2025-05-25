@@ -6,6 +6,7 @@ use std::sync::Arc;
 pub struct IndexState {
 	pub current_directory: PathBuf,
 	pub indexed_files: usize,
+	pub total_files: usize,
 	pub embedding_calls: usize,
 	pub indexing_complete: bool,
 	pub status_message: String,
@@ -13,6 +14,8 @@ pub struct IndexState {
 	// GraphRAG state tracking
 	pub graphrag_enabled: bool,
 	pub graphrag_blocks: usize,
+	// File counting state
+	pub counting_files: bool,
 }
 
 pub type SharedState = Arc<RwLock<IndexState>>;

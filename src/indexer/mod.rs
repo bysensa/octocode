@@ -757,8 +757,21 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 		let mut state_guard = state.write();
 		state_guard.graphrag_enabled = config.graphrag.enabled;
 		state_guard.graphrag_blocks = 0;
+		state_guard.counting_files = true;
+		state_guard.status_message = "Counting files...".to_string();
 	}
 
+	// First pass: count all files to be processed
+	let total_files = count_indexable_files(&current_dir)?;
+	
+	{
+		let mut state_guard = state.write();
+		state_guard.total_files = total_files;
+		state_guard.counting_files = false;
+		state_guard.status_message = "".to_string(); // Clear the status message
+	}
+
+	// Second pass: actually process the files
 	// Use the ignore crate to respect .gitignore files
 	let walker = ignore::WalkBuilder::new(&current_dir)
 		.hidden(false)  // Don't ignore hidden files (unless in .gitignore)
@@ -784,9 +797,6 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 			if let Ok(contents) = fs::read_to_string(entry.path()) {
 				if language == "markdown" {
 					// Handle markdown files specially - index as document blocks
-					if cfg!(debug_assertions) {
-						println!("Indexing markdown file as documents: {}", file_path);
-					}
 					process_markdown_file(
 						store,
 						&contents,
@@ -797,9 +807,6 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 					).await?;
 				} else {
 					// Handle code files - index as semantic code blocks only
-					if cfg!(debug_assertions) {
-						println!("Indexing code file as code blocks: {} ({})", file_path, language);
-					}
 					let ctx = ProcessFileContext {
 						store,
 						config,
@@ -843,9 +850,6 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 				if let Ok(contents) = fs::read_to_string(entry.path()) {
 					// Only process files that are likely to contain readable text
 					if is_text_file(&contents) {
-						if cfg!(debug_assertions) {
-							println!("Indexing allowed text file as chunks: {}", file_path);
-						}
 						process_text_file(
 							store,
 							&contents,
@@ -865,8 +869,6 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 						}
 					}
 				}
-			} else if cfg!(debug_assertions) {
-				println!("Skipping file with unsupported extension: {}", file_path);
 			}
 		}
 	}
@@ -916,6 +918,37 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 	store.flush().await?;
 
 	Ok(())
+}
+
+// Helper function to count indexable files
+fn count_indexable_files(current_dir: &std::path::Path) -> Result<usize> {
+	let mut count = 0;
+	
+	let walker = ignore::WalkBuilder::new(current_dir)
+		.hidden(false)
+		.git_ignore(true)
+		.git_global(true)
+		.git_exclude(true)
+		.build();
+
+	for result in walker {
+		let entry = match result {
+			Ok(entry) => entry,
+			Err(_) => continue,
+		};
+
+		// Skip directories, only count files
+		if !entry.file_type().is_some_and(|ft| ft.is_file()) {
+			continue;
+		}
+
+		// Check if this file would be indexed
+		if detect_language(entry.path()).is_some() || is_allowed_text_extension(entry.path()) {
+			count += 1;
+		}
+	}
+
+	Ok(count)
 }
 
 // Function to handle file changes (for watch mode)
