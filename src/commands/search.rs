@@ -102,10 +102,10 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 			if args.json {
 				indexer::render_results_json(&results)?
 			} else if args.md {
-				let markdown = indexer::code_blocks_to_markdown(&results);
+				let markdown = indexer::code_blocks_to_markdown_with_config(&results, config);
 				println!("{}", markdown);
 			} else {
-				indexer::render_code_blocks(&results);
+				indexer::render_code_blocks_with_config(&results, config);
 			}
 		},
 		"docs" => {
@@ -136,11 +136,11 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 				let json = serde_json::to_string_pretty(&results)?;
 				println!("{}", json);
 			} else if args.md {
-				let markdown = indexer::document_blocks_to_markdown(&results);
+				let markdown = indexer::document_blocks_to_markdown_with_config(&results, config);
 				println!("{}", markdown);
 			} else {
 				// Render documents in a readable format
-				render_document_blocks(&results);
+				render_document_blocks_with_config(&results, config);
 			}
 		},
 		"text" => {
@@ -171,11 +171,11 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 				let json = serde_json::to_string_pretty(&results)?;
 				println!("{}", json);
 			} else if args.md {
-				let markdown = indexer::text_blocks_to_markdown(&results);
+				let markdown = indexer::text_blocks_to_markdown_with_config(&results, config);
 				println!("{}", markdown);
 			} else {
 				// Render text blocks in a readable format
-				render_text_blocks(&results);
+				render_text_blocks_with_config(&results, config);
 			}
 		},
 		"all" => {
@@ -286,19 +286,19 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 
 				if !doc_results.is_empty() {
 					combined_markdown.push_str("# Documentation Results\n\n");
-					combined_markdown.push_str(&indexer::document_blocks_to_markdown(&doc_results));
+					combined_markdown.push_str(&indexer::document_blocks_to_markdown_with_config(&doc_results, config));
 					combined_markdown.push('\n');
 				}
 
 				if !final_code_results.is_empty() {
 					combined_markdown.push_str("# Code Results\n\n");
-					combined_markdown.push_str(&indexer::code_blocks_to_markdown(&final_code_results));
+					combined_markdown.push_str(&indexer::code_blocks_to_markdown_with_config(&final_code_results, config));
 					combined_markdown.push('\n');
 				}
 
 				if !text_results.is_empty() {
 					combined_markdown.push_str("# Text Results\n\n");
-					combined_markdown.push_str(&indexer::text_blocks_to_markdown(&text_results));
+					combined_markdown.push_str(&indexer::text_blocks_to_markdown_with_config(&text_results, config));
 				}
 
 				if combined_markdown.is_empty() {
@@ -310,19 +310,19 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 				// Render all sections in text format
 				if !doc_results.is_empty() {
 					println!("=== DOCUMENTATION RESULTS ===\n");
-					render_document_blocks(&doc_results);
+					render_document_blocks_with_config(&doc_results, config);
 					println!("\n");
 				}
 
 				if !final_code_results.is_empty() {
 					println!("=== CODE RESULTS ===\n");
-					indexer::render_code_blocks(&final_code_results);
+					indexer::render_code_blocks_with_config(&final_code_results, config);
 					println!("\n");
 				}
 
 				if !text_results.is_empty() {
 					println!("=== TEXT RESULTS ===\n");
-					render_text_blocks(&text_results);
+					render_text_blocks_with_config(&text_results, config);
 				}
 
 				if doc_results.is_empty() && final_code_results.is_empty() && text_results.is_empty() {
@@ -336,7 +336,7 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 	Ok(())
 }
 
-fn render_text_blocks(blocks: &[octocode::store::TextBlock]) {
+fn render_text_blocks_with_config(blocks: &[octocode::store::TextBlock], config: &Config) {
 	if blocks.is_empty() {
 		println!("No text blocks found.");
 		return;
@@ -371,23 +371,18 @@ fn render_text_blocks(blocks: &[octocode::store::TextBlock]) {
 			println!("║");
 			println!("║ Content:");
 
+			// Use smart truncation based on configuration
+			let max_chars = config.search.search_block_max_characters;
+			let (content, was_truncated) = indexer::truncate_content_smartly(&block.content, max_chars);
+			
 			// Display content with proper indentation
-			let lines: Vec<&str> = block.content.lines().collect();
-			if lines.len() > 15 {
-				// Show first 10 lines
-				for line in lines.iter().take(10) {
-					println!("║   {}", line);
-				}
-				println!("║   ... ({} more lines omitted)", lines.len() - 15);
-				// Show last 5 lines
-				for line in lines.iter().skip(lines.len() - 5) {
-					println!("║   {}", line);
-				}
-			} else {
-				// If not too long, show all lines
-				for line in lines {
-					println!("║   {}", line);
-				}
+			for line in content.lines() {
+				println!("║   {}", line);
+			}
+
+			// Add note if content was truncated
+			if was_truncated {
+				println!("║   [Content truncated - limit: {} chars]", max_chars);
 			}
 		}
 
@@ -395,7 +390,7 @@ fn render_text_blocks(blocks: &[octocode::store::TextBlock]) {
 	}
 }
 
-fn render_document_blocks(blocks: &[octocode::store::DocumentBlock]) {
+fn render_document_blocks_with_config(blocks: &[octocode::store::DocumentBlock], config: &Config) {
 	if blocks.is_empty() {
 		println!("No documentation blocks found.");
 		return;
@@ -430,23 +425,18 @@ fn render_document_blocks(blocks: &[octocode::store::DocumentBlock]) {
 			println!("║");
 			println!("║ Content:");
 
+			// Use smart truncation based on configuration
+			let max_chars = config.search.search_block_max_characters;
+			let (content, was_truncated) = indexer::truncate_content_smartly(&block.content, max_chars);
+			
 			// Display content with proper indentation
-			let lines: Vec<&str> = block.content.lines().collect();
-			if lines.len() > 10 {
-				// Show first 7 lines
-				for line in lines.iter().take(7) {
-					println!("║   {}", line);
-				}
-				println!("║   ... ({} more lines omitted)", lines.len() - 10);
-				// Show last 3 lines
-				for line in lines.iter().skip(lines.len() - 3) {
-					println!("║   {}", line);
-				}
-			} else {
-				// If not too long, show all lines
-				for line in lines {
-					println!("║   {}", line);
-				}
+			for line in content.lines() {
+				println!("║   {}", line);
+			}
+
+			// Add note if content was truncated
+			if was_truncated {
+				println!("║   [Content truncated - limit: {} chars]", max_chars);
 			}
 		}
 

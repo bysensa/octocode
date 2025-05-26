@@ -7,6 +7,11 @@ use std::collections::HashSet;
 
 // Render code blocks in a user-friendly format
 pub fn render_code_blocks(blocks: &[CodeBlock]) {
+	render_code_blocks_with_config(blocks, &Config::default());
+}
+
+// Render code blocks in a user-friendly format with configuration
+pub fn render_code_blocks_with_config(blocks: &[CodeBlock], config: &Config) {
 	if blocks.is_empty() {
 		println!("No code blocks found for the query.");
 		return;
@@ -44,9 +49,21 @@ pub fn render_code_blocks(blocks: &[CodeBlock]) {
 
 		println!("║ Content:");
 		println!("║ ┌────────────────────────────────────");
-		for line in block.content.lines() {
+
+		// Use smart truncation based on configuration
+		let max_chars = config.search.search_block_max_characters;
+		let (content, was_truncated) = crate::indexer::truncate_content_smartly(&block.content, max_chars);
+		
+		// Display content with proper indentation
+		for line in content.lines() {
 			println!("║ │ {}", line);
 		}
+
+		// Add note if content was truncated
+		if was_truncated {
+			println!("║ │ [Content truncated - limit: {} chars]", max_chars);
+		}
+
 		println!("║ └────────────────────────────────────");
 		println!("╚════════════════════════════════════════\n");
 	}

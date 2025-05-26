@@ -373,6 +373,115 @@ pub fn render_to_markdown<T: std::fmt::Display>(_title: &str, content: T) -> Str
 	format!("{}", content)
 }
 
+/// Smart content truncation that preserves beginning and end when content is too long
+/// Returns (truncated_content, was_truncated)
+pub fn truncate_content_smartly(content: &str, max_characters: usize) -> (String, bool) {
+	// If max_characters is 0, return full content (disabled)
+	if max_characters == 0 {
+		return (content.to_string(), false);
+	}
+
+	// If content fits within limit, return as-is
+	if content.len() <= max_characters {
+		return (content.to_string(), false);
+	}
+
+	let lines: Vec<&str> = content.lines().collect();
+
+	// If it's just one long line, truncate it differently
+	if lines.len() == 1 {
+		let chars: Vec<char> = content.chars().collect();
+		if chars.len() <= max_characters {
+			return (content.to_string(), false);
+		}
+
+		// For single long line, show first and last parts
+		let show_start = max_characters / 3;
+		let show_end = max_characters / 3;
+		let start_part: String = chars.iter().take(show_start).collect();
+		let end_part: String = chars.iter().skip(chars.len() - show_end).collect();
+
+		let truncated = format!("{}\n[... {} characters omitted ...]\n{}",
+			start_part.trim_end(),
+			chars.len() - show_start - show_end,
+			end_part.trim_start());
+		return (truncated, true);
+	}
+
+	// For multi-line content, work with lines
+	let mut current_length = 0;
+	let mut start_lines = Vec::new();
+	let mut end_lines = Vec::new();
+
+	// Reserve space for the middle message
+	let middle_message_size = 50; // Approximate size of "[... X lines omitted ...]"
+	let target_size = max_characters.saturating_sub(middle_message_size);
+	let start_target = target_size / 2;
+	let end_target = target_size / 2;
+
+	// Collect start lines
+	for line in &lines {
+		let line_len = line.len() + 1; // +1 for newline
+		if current_length + line_len <= start_target {
+			start_lines.push(*line);
+			current_length += line_len;
+		} else {
+			break;
+		}
+	}
+
+	// Collect end lines (working backwards)
+	current_length = 0;
+	for line in lines.iter().rev() {
+		let line_len = line.len() + 1; // +1 for newline
+		if current_length + line_len <= end_target {
+			end_lines.insert(0, *line);
+			current_length += line_len;
+		} else {
+			break;
+		}
+	}
+
+	// Ensure we don't overlap
+	let start_count = start_lines.len();
+	let end_count = end_lines.len();
+	let total_lines = lines.len();
+
+	if start_count + end_count >= total_lines {
+		// If we would show most lines anyway, just show all
+		return (content.to_string(), false);
+	}
+
+	let omitted_lines = total_lines - start_count - end_count;
+
+	// Build the truncated content
+	let mut result = String::new();
+
+	// Add start lines
+	for line in &start_lines {
+		result.push_str(line);
+		result.push('\n');
+	}
+
+	// Add truncation message
+	if omitted_lines > 0 {
+		result.push_str(&format!("[... {} more lines ...]\n", omitted_lines));
+	}
+
+	// Add end lines
+	for line in &end_lines {
+		result.push_str(line);
+		result.push('\n');
+	}
+
+	// Remove trailing newline
+	if result.ends_with('\n') {
+		result.pop();
+	}
+
+	(result, true)
+}
+
 /// Render signatures as markdown string
 pub fn signatures_to_markdown(signatures: &[FileSignature]) -> String {
 	let mut markdown = String::new();
@@ -449,6 +558,11 @@ pub fn signatures_to_markdown(signatures: &[FileSignature]) -> String {
 
 /// Render code blocks (search results) as markdown string
 pub fn code_blocks_to_markdown(blocks: &[CodeBlock]) -> String {
+	code_blocks_to_markdown_with_config(blocks, &Config::default())
+}
+
+/// Render code blocks (search results) as markdown string with configuration
+pub fn code_blocks_to_markdown_with_config(blocks: &[CodeBlock], config: &Config) -> String {
 	let mut markdown = String::new();
 
 	if blocks.is_empty() {
@@ -505,28 +619,20 @@ pub fn code_blocks_to_markdown(blocks: &[CodeBlock]) -> String {
 			}
 			markdown.push('\n');
 
-			// Get the lines and determine if we need to truncate
-			let lines: Vec<&str> = block.content.lines().collect();
-			if lines.len() > 15 {
-				// Show first 10 lines
-				for line in lines.iter().take(10) {
-					markdown.push_str(line.as_ref());
-					markdown.push('\n');
-				}
-				// Note how many lines are omitted
-				markdown.push_str(&format!("// ... {} more lines omitted\n", lines.len() - 15));
-				// Show last 5 lines
-				for line in lines.iter().skip(lines.len() - 5) {
-					markdown.push_str(line.as_ref());
-					markdown.push('\n');
-				}
-			} else {
-				// If not too long, show all lines
-				for line in lines {
-					markdown.push_str(line);
-					markdown.push('\n');
-				}
+			// Use smart truncation based on configuration
+			let max_chars = config.search.search_block_max_characters;
+			let (content, was_truncated) = truncate_content_smartly(&block.content, max_chars);
+
+			markdown.push_str(&content);
+			if !content.ends_with('\n') {
+				markdown.push('\n');
 			}
+
+			// Add note if content was truncated
+			if was_truncated {
+				markdown.push_str(&format!("// Content truncated (limit: {} chars)\n", max_chars));
+			}
+
 			markdown.push_str("```\n\n");
 		}
 
@@ -538,6 +644,11 @@ pub fn code_blocks_to_markdown(blocks: &[CodeBlock]) -> String {
 
 /// Render text blocks (text search results) as markdown string
 pub fn text_blocks_to_markdown(blocks: &[TextBlock]) -> String {
+	text_blocks_to_markdown_with_config(blocks, &Config::default())
+}
+
+/// Render text blocks (text search results) as markdown string with configuration
+pub fn text_blocks_to_markdown_with_config(blocks: &[TextBlock], config: &Config) -> String {
 	let mut markdown = String::new();
 
 	if blocks.is_empty() {
@@ -572,25 +683,20 @@ pub fn text_blocks_to_markdown(blocks: &[TextBlock]) -> String {
 			}
 			markdown.push_str("\n\n");
 
-			// Get the lines and determine if we need to truncate
-			let lines: Vec<&str> = block.content.lines().collect();
-			if lines.len() > 20 {
-				// Show first 15 lines
-				for line in lines.iter().take(15) {
-					markdown.push_str(&format!("{}\n", line));
-				}
-				// Note how many lines are omitted
-				markdown.push_str(&format!("...\n*({} more lines omitted)*\n\n", lines.len() - 20));
-				// Show last 5 lines
-				for line in lines.iter().skip(lines.len() - 5) {
-					markdown.push_str(&format!("{}\n", line));
-				}
-			} else {
-				// If not too long, show all lines
-				for line in lines {
-					markdown.push_str(&format!("{}\n", line));
-				}
+			// Use smart truncation based on configuration
+			let max_chars = config.search.search_block_max_characters;
+			let (content, was_truncated) = truncate_content_smartly(&block.content, max_chars);
+
+			markdown.push_str(&content);
+			if !content.ends_with('\n') {
+				markdown.push('\n');
 			}
+
+			// Add note if content was truncated
+			if was_truncated {
+				markdown.push_str(&format!("\n*Content truncated (limit: {} chars)*\n", max_chars));
+			}
+
 			markdown.push('\n');
 		}
 
@@ -602,6 +708,11 @@ pub fn text_blocks_to_markdown(blocks: &[TextBlock]) -> String {
 
 /// Render document blocks (documentation search results) as markdown string
 pub fn document_blocks_to_markdown(blocks: &[DocumentBlock]) -> String {
+	document_blocks_to_markdown_with_config(blocks, &Config::default())
+}
+
+/// Render document blocks (documentation search results) as markdown string with configuration
+pub fn document_blocks_to_markdown_with_config(blocks: &[DocumentBlock], config: &Config) -> String {
 	let mut markdown = String::new();
 
 	if blocks.is_empty() {
@@ -636,25 +747,20 @@ pub fn document_blocks_to_markdown(blocks: &[DocumentBlock]) -> String {
 			}
 			markdown.push_str("\n\n");
 
-			// Get the lines and determine if we need to truncate
-			let lines: Vec<&str> = block.content.lines().collect();
-			if lines.len() > 20 {
-				// Show first 15 lines
-				for line in lines.iter().take(15) {
-					markdown.push_str(&format!("{}\n", line));
-				}
-				// Note how many lines are omitted
-				markdown.push_str(&format!("...\n*({} more lines omitted)*\n\n", lines.len() - 20));
-				// Show last 5 lines
-				for line in lines.iter().skip(lines.len() - 5) {
-					markdown.push_str(&format!("{}\n", line));
-				}
-			} else {
-				// If not too long, show all lines
-				for line in lines {
-					markdown.push_str(&format!("{}\n", line));
-				}
+			// Use smart truncation based on configuration
+			let max_chars = config.search.search_block_max_characters;
+			let (content, was_truncated) = truncate_content_smartly(&block.content, max_chars);
+
+			markdown.push_str(&content);
+			if !content.ends_with('\n') {
+				markdown.push('\n');
 			}
+
+			// Add note if content was truncated
+			if was_truncated {
+				markdown.push_str(&format!("\n*Content truncated (limit: {} chars)*\n", max_chars));
+			}
+
 			markdown.push('\n');
 		}
 
@@ -1180,33 +1286,6 @@ fn extract_meaningful_regions(
 		let (combined_content, start_line) = combine_with_preceding_comments(node, contents);
 		let end_line = node.end_position().row;
 		let symbols = lang_impl.extract_symbols(node, contents);
-
-		// Safety check: Skip overly large code blocks to maintain semantic indexing
-		const MAX_LINES: usize = 100;  // Maximum lines per code block
-		const MAX_CHARS: usize = 8000; // Maximum characters per code block
-		
-		let line_count = end_line.saturating_sub(start_line) + 1;
-		let char_count = combined_content.len();
-		
-		if line_count > MAX_LINES || char_count > MAX_CHARS {
-			// Log a warning for debugging
-			eprintln!("Warning: Skipping large {} block in {} ({} lines, {} chars)", 
-				node_kind, 
-				"<current_file>",  // We don't have file path here, but this is for debugging
-				line_count, 
-				char_count
-			);
-			
-			// For large blocks, try to extract individual children instead
-			let mut cursor = node.walk();
-			if cursor.goto_first_child() {
-				loop {
-					extract_meaningful_regions(cursor.node(), contents, lang_impl, regions);
-					if !cursor.goto_next_sibling() { break; }
-				}
-			}
-			return;
-		}
 
 		// Only create a region if we have meaningful content
 		if !combined_content.trim().is_empty() {

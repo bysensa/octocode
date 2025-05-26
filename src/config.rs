@@ -31,6 +31,10 @@ fn default_context_lines() -> usize {
 	3
 }
 
+fn default_search_block_max_characters() -> usize {
+	1000
+}
+
 fn default_chunk_size() -> usize {
 	2000
 }
@@ -181,6 +185,11 @@ pub struct SearchConfig {
 
 	#[serde(default = "default_context_lines")]
 	pub context_lines: usize,
+
+	/// Maximum characters to display per code/text/doc block in search results.
+	/// If 0, displays full content. Default: 1000
+	#[serde(default = "default_search_block_max_characters")]
+	pub search_block_max_characters: usize,
 }
 
 impl Default for SearchConfig {
@@ -192,6 +201,7 @@ impl Default for SearchConfig {
 			output_format: default_output_format(),
 			max_files: default_max_files(),
 			context_lines: default_context_lines(),
+			search_block_max_characters: default_search_block_max_characters(),
 		}
 	}
 }
