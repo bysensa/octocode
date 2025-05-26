@@ -1,0 +1,60 @@
+# Cargo configuration for cross-compilation and optimization
+
+[build]
+# Use all available CPU cores for compilation (omit for auto-detection)
+# jobs = 0
+
+[target.x86_64-unknown-linux-musl]
+linker = "x86_64-linux-musl-gcc"
+rustflags = [
+    "-C", "target-feature=+crt-static",
+    "-C", "link-arg=-static"
+]
+
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc"
+rustflags = [
+    "-C", "target-feature=+crt-static",
+    "-C", "link-arg=-static-libgcc"
+]
+
+[target.aarch64-apple-darwin]
+rustflags = [
+    "-C", "link-arg=-undefined",
+    "-C", "link-arg=dynamic_lookup"
+]
+
+[target.x86_64-apple-darwin]
+rustflags = [
+    "-C", "link-arg=-undefined", 
+    "-C", "link-arg=dynamic_lookup"
+]
+
+# Registry configuration
+[registry]
+default = "crates-io"
+
+[registry.crates-io]
+protocol = "sparse"
+
+# Net configuration for better performance
+[net]
+retry = 2
+git-fetch-with-cli = true
+
+# Source replacement for faster builds (uncomment if needed)
+# [source.crates-io]
+# replace-with = "vendored-sources"
+
+# [source.vendored-sources]
+# directory = "vendor"
+
+# Profile configuration for different build types
+[profile.dev]
+# Development profile optimizations
+split-debuginfo = "unpacked"
+
+[profile.release]
+# Additional release optimizations
+debug = false
+debug-assertions = false
