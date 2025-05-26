@@ -96,7 +96,7 @@ pub async fn generate_embeddings(contents: &str, is_code: bool, config: &Config)
 			};
 
 			generate_fastembed_embeddings(contents, model, is_code).await
-		}
+		},
 	}
 }
 

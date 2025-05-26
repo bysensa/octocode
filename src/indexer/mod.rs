@@ -478,9 +478,9 @@ pub fn code_blocks_to_markdown(blocks: &[CodeBlock]) -> String {
 			markdown.push_str(&format!("**Language:** {}  ", block.language));
 			markdown.push_str(&format!("**Lines:** {}-{}  ", block.start_line, block.end_line));
 
-			// Show relevance score if available
+			// Show similarity score if available
 			if let Some(distance) = block.distance {
-				markdown.push_str(&format!("**Relevance:** {:.4}  ", distance));
+				markdown.push_str(&format!("**Similarity:** {:.4}  ", 1.0 - distance));
 			}
 			markdown.push('\n');
 
@@ -569,7 +569,7 @@ pub fn text_blocks_to_markdown(blocks: &[TextBlock]) -> String {
 
 			// Show relevance score if available
 			if let Some(distance) = block.distance {
-				markdown.push_str(&format!("**Relevance:** {:.4}  ", distance));
+				markdown.push_str(&format!("**Relevance:** {:.4}  ", 1.0 - distance));
 			}
 			markdown.push_str("\n\n");
 
@@ -633,7 +633,7 @@ pub fn document_blocks_to_markdown(blocks: &[DocumentBlock]) -> String {
 
 			// Show relevance score if available
 			if let Some(distance) = block.distance {
-				markdown.push_str(&format!("**Relevance:** {:.4}  ", distance));
+				markdown.push_str(&format!("**Relevance:** {:.4}  ", 1.0 - distance));
 			}
 			markdown.push_str("\n\n");
 

@@ -14,54 +14,40 @@ pub fn render_code_blocks(blocks: &[CodeBlock]) {
 
 	println!("Found {} code blocks:\n", blocks.len());
 
-	// Group blocks by file path for better organization
-	let mut blocks_by_file: std::collections::HashMap<String, Vec<&CodeBlock>> = std::collections::HashMap::new();
+	// Display results in their sorted order (most relevant first)
+	for (idx, block) in blocks.iter().enumerate() {
+		println!("╔══════════════════ File: {} ══════════════════", block.path);
+		println!("║");
+		println!("║ Result {} of {}", idx + 1, blocks.len());
+		println!("║ Language: {}", block.language);
+		println!("║ Lines: {}-{}", block.start_line, block.end_line);
 
-	for block in blocks {
-		blocks_by_file
-			.entry(block.path.clone())
-			.or_default()
-			.push(block);
-	}
-
-	// Print results organized by file
-	for (file_path, file_blocks) in blocks_by_file.iter() {
-		println!("╔══════════════════ File: {} ══════════════════", file_path);
-
-		for (idx, block) in file_blocks.iter().enumerate() {
-			println!("║");
-			println!("║ Block {} of {} in file", idx + 1, file_blocks.len());
-			println!("║ Language: {}", block.language);
-			println!("║ Lines: {}-{}", block.start_line, block.end_line);
-
-			// Show relevance score if available
-			if let Some(distance) = block.distance {
-				println!("║ Relevance: {:.4}", distance);
-			}
-
-			if !block.symbols.is_empty() {
-				println!("║ Symbols:");
-				// Deduplicate symbols in display
-				let mut display_symbols = block.symbols.clone();
-				display_symbols.sort();
-				display_symbols.dedup();
-
-				for symbol in display_symbols {
-					// Only show non-type symbols to users
-					if !symbol.contains("_") {
-						println!("║   • {}", symbol);
-					}
-				}
-			}
-
-			println!("║ Content:");
-			println!("║ ┌────────────────────────────────────");
-			for line in block.content.lines() {
-				println!("║ │ {}", line);
-			}
-			println!("║ └────────────────────────────────────");
+		// Show similarity score if available
+		if let Some(distance) = block.distance {
+			println!("║ Similarity: {:.4}", 1.0 - distance);
 		}
 
+		if !block.symbols.is_empty() {
+			println!("║ Symbols:");
+			// Deduplicate symbols in display
+			let mut display_symbols = block.symbols.clone();
+			display_symbols.sort();
+			display_symbols.dedup();
+
+			for symbol in display_symbols {
+				// Only show non-type symbols to users
+				if !symbol.contains("_") {
+					println!("║   • {}", symbol);
+				}
+			}
+		}
+
+		println!("║ Content:");
+		println!("║ ┌────────────────────────────────────");
+		for line in block.content.lines() {
+			println!("║ │ {}", line);
+		}
+		println!("║ └────────────────────────────────────");
 		println!("╚════════════════════════════════════════\n");
 	}
 }
@@ -157,27 +143,55 @@ pub async fn search_codebase(query: &str, mode: &str, config: &Config) -> Result
 	let store = Store::new().await?;
 
 	// Generate embeddings for the query
-	let embeddings = crate::indexer::generate_embeddings(query, true, config).await?;
+	let embeddings = match mode {
+		"code" => crate::indexer::generate_embeddings(query, true, config).await?,
+		"docs" | "text" => crate::indexer::generate_embeddings(query, false, config).await?,
+		_ => crate::indexer::generate_embeddings(query, true, config).await?, // Default to code model for "all"
+	};
 
 	// Perform the search based on mode
 	match mode {
 		"code" => {
-			let results = store.get_code_blocks(embeddings).await?;
+			let results = store.get_code_blocks_with_config(
+				embeddings, 
+				Some(config.search.max_results), 
+				Some(config.search.similarity_threshold)
+			).await?;
 			Ok(format_code_search_results_as_markdown(&results))
 		},
 		"text" => {
-			let results = store.get_text_blocks(embeddings).await?;
+			let results = store.get_text_blocks_with_config(
+				embeddings, 
+				Some(config.search.max_results), 
+				Some(config.search.similarity_threshold)
+			).await?;
 			Ok(format_text_search_results_as_markdown(&results))
 		},
 		"docs" => {
-			let results = store.get_document_blocks(embeddings).await?;
+			let results = store.get_document_blocks_with_config(
+				embeddings, 
+				Some(config.search.max_results), 
+				Some(config.search.similarity_threshold)
+			).await?;
 			Ok(format_doc_search_results_as_markdown(&results))
 		},
 		_ => {
 			// "all" mode - search across all types
-			let code_results = store.get_code_blocks(embeddings.clone()).await?;
-			let text_results = store.get_text_blocks(embeddings.clone()).await?;
-			let doc_results = store.get_document_blocks(embeddings).await?;
+			let code_results = store.get_code_blocks_with_config(
+				embeddings.clone(), 
+				Some(config.search.max_results), 
+				Some(config.search.similarity_threshold)
+			).await?;
+			let text_results = store.get_text_blocks_with_config(
+				embeddings.clone(), 
+				Some(config.search.max_results), 
+				Some(config.search.similarity_threshold)
+			).await?;
+			let doc_results = store.get_document_blocks_with_config(
+				embeddings, 
+				Some(config.search.max_results), 
+				Some(config.search.similarity_threshold)
+			).await?;
 
 			// Format combined results
 			Ok(format_combined_search_results_as_markdown(&code_results, &text_results, &doc_results))
@@ -213,9 +227,9 @@ fn format_code_search_results_as_markdown(blocks: &[CodeBlock]) -> String {
 			output.push_str(&format!("- **Language**: {}\n", block.language));
 			output.push_str(&format!("- **Lines**: {}-{}\n", block.start_line, block.end_line));
 
-			// Show relevance score if available
+			// Show similarity score if available
 			if let Some(distance) = block.distance {
-				output.push_str(&format!("- **Relevance**: {:.4}\n", distance));
+				output.push_str(&format!("- **Similarity**: {:.4}\n", 1.0 - distance));
 			}
 
 			if !block.symbols.is_empty() {
@@ -276,9 +290,9 @@ fn format_text_search_results_as_markdown(blocks: &[crate::store::TextBlock]) ->
 			output.push_str(&format!("- **Language**: {}\n", block.language));
 			output.push_str(&format!("- **Lines**: {}-{}\n", block.start_line, block.end_line));
 
-			// Show relevance score if available
+			// Show similarity score if available
 			if let Some(distance) = block.distance {
-				output.push_str(&format!("- **Relevance**: {:.4}\n", distance));
+				output.push_str(&format!("- **Similarity**: {:.4}\n", 1.0 - distance));
 			}
 
 			output.push_str("\n**Content:**\n\n");
@@ -322,9 +336,9 @@ fn format_doc_search_results_as_markdown(blocks: &[crate::store::DocumentBlock])
 			output.push_str(&format!("- **Level**: {}\n", block.level));
 			output.push_str(&format!("- **Lines**: {}-{}\n", block.start_line, block.end_line));
 
-			// Show relevance score if available
+			// Show similarity score if available
 			if let Some(distance) = block.distance {
-				output.push_str(&format!("- **Relevance**: {:.4}\n", distance));
+				output.push_str(&format!("- **Similarity**: {:.4}\n", 1.0 - distance));
 			}
 
 			output.push_str("\n**Content:**\n\n");

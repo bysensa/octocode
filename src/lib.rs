@@ -3,6 +3,7 @@ pub mod config;
 pub mod indexer;
 pub mod store;
 pub mod state;
+pub mod reranker;
 
 // Re-export commonly used items for convenience
 pub use config::Config;

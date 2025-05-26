@@ -3,6 +3,7 @@ use clap::Args;
 use octocode::config::Config;
 use octocode::store::Store;
 use octocode::indexer;
+use octocode::reranker::Reranker;
 
 #[derive(Args, Debug)]
 pub struct SearchArgs {
@@ -36,13 +37,6 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 		return Err(anyhow::anyhow!("No index found. Please run 'octodev index' first to create an index."));
 	}
 
-	println!("Searching for: {}", args.query);
-	println!("Using embedding provider: {:?}", config.embedding_provider);
-	println!("Search mode: {}", args.mode);
-
-	// Generate embeddings for the query
-	let embeddings = indexer::generate_embeddings(&args.query, true, config).await?;
-
 	// Validate search mode
 	let search_mode = match args.mode.as_str() {
 		"all" | "code" | "docs" | "text" => args.mode.as_str(),
@@ -51,11 +45,51 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 		}
 	};
 
+	// Generate embeddings for the query based on search mode
+	let embeddings = match search_mode {
+		"code" => {
+			// Use code model for code searches
+			indexer::generate_embeddings(&args.query, true, config).await?
+		},
+		"docs" | "text" => {
+			// Use text model for documents and text searches
+			indexer::generate_embeddings(&args.query, false, config).await?
+		},
+		"all" => {
+			// For "all" mode, use code model as it's typically more general
+			// This is a compromise since we're searching across different content types
+			indexer::generate_embeddings(&args.query, true, config).await?
+		},
+		_ => unreachable!(),
+	};
+
 	// Search based on mode
 	match search_mode {
 		"code" => {
-			// Search only code blocks
-			let mut results = store.get_code_blocks(embeddings).await?;
+			// Search only code blocks with higher limit for reranking
+			let mut results = store.get_code_blocks_with_config(
+				embeddings, 
+				Some(config.search.max_results * 2), // Get more results for reranking
+				Some(1.01) // Use a very permissive threshold initially
+			).await?;
+
+			// Apply reranking to improve relevance
+			results = Reranker::rerank_code_blocks(results, &args.query);
+			
+			// Apply tf-idf boost for better term matching
+			Reranker::tf_idf_boost(&mut results, &args.query);
+			
+			// Apply final similarity threshold after reranking
+			results.retain(|block| {
+				if let Some(distance) = block.distance {
+					distance <= config.search.similarity_threshold
+				} else {
+					true
+				}
+			});
+
+			// Limit to requested max_results
+			results.truncate(config.search.max_results);
 
 			// If expand flag is set, expand symbols in the results
 			if args.expand {
@@ -74,8 +108,27 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 			}
 		},
 		"docs" => {
-			// Search only document blocks
-			let results = store.get_document_blocks(embeddings).await?;
+			// Search only document blocks with reranking
+			let mut results = store.get_document_blocks_with_config(
+				embeddings, 
+				Some(config.search.max_results * 2), // Get more results for reranking
+				Some(1.01) // Use a more permissive threshold initially
+			).await?;
+
+			// Apply reranking to improve relevance
+			results = Reranker::rerank_document_blocks(results, &args.query);
+			
+			// Apply final similarity threshold after reranking
+			results.retain(|block| {
+				if let Some(distance) = block.distance {
+					distance <= config.search.similarity_threshold
+				} else {
+					true
+				}
+			});
+
+			// Limit to requested max_results
+			results.truncate(config.search.max_results);
 
 			// Output the results
 			if args.json {
@@ -90,8 +143,27 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 			}
 		},
 		"text" => {
-			// Search only text blocks
-			let results = store.get_text_blocks(embeddings).await?;
+			// Search only text blocks with reranking
+			let mut results = store.get_text_blocks_with_config(
+				embeddings, 
+				Some(config.search.max_results * 2), // Get more results for reranking
+				Some(1.01) // Use a more permissive threshold initially
+			).await?;
+
+			// Apply reranking to improve relevance
+			results = Reranker::rerank_text_blocks(results, &args.query);
+			
+			// Apply final similarity threshold after reranking
+			results.retain(|block| {
+				if let Some(distance) = block.distance {
+					distance <= config.search.similarity_threshold
+				} else {
+					true
+				}
+			});
+
+			// Limit to requested max_results
+			results.truncate(config.search.max_results);
 
 			// Output the results
 			if args.json {
@@ -106,16 +178,96 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 			}
 		},
 		"all" => {
-			// Search code, documents, and text blocks
-			let code_results = store.get_code_blocks(embeddings.clone()).await?;
-			let doc_results = store.get_document_blocks(embeddings.clone()).await?;
-			let text_results = store.get_text_blocks(embeddings).await?;
+			// Search code, documents, and text blocks with reranking
+			let mut code_results = store.get_code_blocks_with_config(
+				embeddings.clone(), 
+				Some(config.search.max_results * 2), // Get more results for reranking
+				Some(1.01) // Use a more permissive threshold initially
+			).await?;
+			let mut doc_results = store.get_document_blocks_with_config(
+				embeddings.clone(), 
+				Some(config.search.max_results * 2), // Get more results for reranking
+				Some(1.01) // Use a more permissive threshold initially
+			).await?;
+			let mut text_results = store.get_text_blocks_with_config(
+				embeddings, 
+				Some(config.search.max_results * 2), // Get more results for reranking
+				Some(1.01) // Use a more permissive threshold initially
+			).await?;
+
+			// Apply reranking to improve relevance
+			code_results = Reranker::rerank_code_blocks(code_results, &args.query);
+			doc_results = Reranker::rerank_document_blocks(doc_results, &args.query);
+			text_results = Reranker::rerank_text_blocks(text_results, &args.query);
+			
+			// Apply tf-idf boost for code results
+			Reranker::tf_idf_boost(&mut code_results, &args.query);
+			
+			// Apply final similarity threshold after reranking
+			code_results.retain(|block| {
+				if let Some(distance) = block.distance {
+					distance <= config.search.similarity_threshold
+				} else {
+					true
+				}
+			});
+			doc_results.retain(|block| {
+				if let Some(distance) = block.distance {
+					distance <= config.search.similarity_threshold
+				} else {
+					true
+				}
+			});
+			text_results.retain(|block| {
+				if let Some(distance) = block.distance {
+					distance <= config.search.similarity_threshold
+				} else {
+					true
+				}
+			});
 
 			// If expand flag is set, expand symbols in code results
 			let mut final_code_results = code_results;
 			if args.expand {
 				println!("Expanding symbols...");
 				final_code_results = indexer::expand_symbols(store, final_code_results).await?;
+			}
+
+			// Combine and sort all results by relevance for better display order
+			let mut all_results_with_scores: Vec<(f32, String, String)> = Vec::new();
+			
+			// Add code results
+			for block in &final_code_results {
+				if let Some(distance) = block.distance {
+					all_results_with_scores.push((distance, "code".to_string(), block.path.clone()));
+				}
+			}
+			
+			// Add document results
+			for block in &doc_results {
+				if let Some(distance) = block.distance {
+					all_results_with_scores.push((distance, "docs".to_string(), block.path.clone()));
+				}
+			}
+			
+			// Add text results
+			for block in &text_results {
+				if let Some(distance) = block.distance {
+					all_results_with_scores.push((distance, "text".to_string(), block.path.clone()));
+				}
+			}
+			
+			// Sort by relevance (distance) - lower distance means higher similarity
+			all_results_with_scores.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+			
+			// Print relevance info for debugging
+			if !all_results_with_scores.is_empty() {
+				println!("Found {} total results across all types. Showing most relevant first:", all_results_with_scores.len());
+				println!("Top 5 by relevance:");
+				for (i, (distance, block_type, path)) in all_results_with_scores.iter().take(5).enumerate() {
+					println!("  {}. {} ({}) - similarity: {:.4}", i + 1, path, block_type, 1.0 - distance);
+				}
+				println!();
 			}
 
 			// Output combined results
@@ -210,9 +362,9 @@ fn render_text_blocks(blocks: &[octocode::store::TextBlock]) {
 			println!("║ Block {} of {}: {}", idx + 1, file_blocks.len(), block.language);
 			println!("║ Lines: {}-{}", block.start_line, block.end_line);
 
-			// Show relevance score if available
+			// Show similarity score if available
 			if let Some(distance) = block.distance {
-				println!("║ Relevance: {:.4}", distance);
+				println!("║ Similarity: {:.4}", 1.0 - distance);
 			}
 
 			println!("║");
@@ -269,9 +421,9 @@ fn render_document_blocks(blocks: &[octocode::store::DocumentBlock]) {
 			println!("║ Section {} of {}: {}", idx + 1, file_blocks.len(), block.title);
 			println!("║ Level: {}  Lines: {}-{}", block.level, block.start_line, block.end_line);
 
-			// Show relevance score if available
+			// Show similarity score if available
 			if let Some(distance) = block.distance {
-				println!("║ Relevance: {:.4}", distance);
+				println!("║ Similarity: {:.4}", 1.0 - distance);
 			}
 
 			println!("║");

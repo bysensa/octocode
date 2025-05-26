@@ -862,6 +862,10 @@ impl Store {
 	}
 
 	pub async fn get_code_blocks(&self, embedding: Vec<f32>) -> Result<Vec<CodeBlock>> {
+		self.get_code_blocks_with_config(embedding, None, None).await
+	}
+
+	pub async fn get_code_blocks_with_config(&self, embedding: Vec<f32>, max_results: Option<usize>, similarity_threshold: Option<f32>) -> Result<Vec<CodeBlock>> {
 		// Check embedding dimension
 		if embedding.len() != self.vector_dim {
 			return Err(anyhow::anyhow!("Search embedding has dimension {} but expected {}",
@@ -880,16 +884,18 @@ impl Store {
 
 		// Check if index exists and create it if needed
 		let has_index = table.list_indices().await?.iter().any(|idx| idx.columns == vec!["embedding"]);
-		let row_count = table.count_rows(None).await?;
 		if !has_index && row_count > 256 {
 			table.create_index(&["embedding"], Index::Auto).execute().await?
 		}
+
+		// Use provided max_results or default to a reasonable number
+		let limit = max_results.unwrap_or(50);
 
 		// Perform vector search
 		let results = table
 			.query()
 			.nearest_to(embedding.as_slice())?  // Pass as slice instead of reference to Vec
-			.limit(5)
+			.limit(limit)
 			.execute()
 			.await?
 			.try_collect::<Vec<_>>()
@@ -914,12 +920,37 @@ impl Store {
 
 		// Convert results to CodeBlock structs
 		let converter = BatchConverter::new(self.vector_dim);
-		let code_blocks = converter.batch_to_code_blocks(&results[0], Some(distances))?;
+		let mut code_blocks = converter.batch_to_code_blocks(&results[0], Some(distances))?;
+
+		// Filter by similarity threshold if provided
+		if let Some(threshold) = similarity_threshold {
+			code_blocks.retain(|block| {
+				if let Some(distance) = block.distance {
+					distance <= threshold // Lower distance means higher similarity
+				} else {
+					true // Keep blocks without distance info
+				}
+			});
+		}
+
+		// Sort by relevance (distance) - lower distance means higher similarity, so sort ascending
+		code_blocks.sort_by(|a, b| {
+			match (a.distance, b.distance) {
+				(Some(dist_a), Some(dist_b)) => dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal),
+				(Some(_), None) => std::cmp::Ordering::Less,    // Items with distance come first
+				(None, Some(_)) => std::cmp::Ordering::Greater, // Items without distance come last
+				(None, None) => std::cmp::Ordering::Equal,      // Equal if both have no distance
+			}
+		});
 
 		Ok(code_blocks)
 	}
 
 	pub async fn get_document_blocks(&self, embedding: Vec<f32>) -> Result<Vec<DocumentBlock>> {
+		self.get_document_blocks_with_config(embedding, None, None).await
+	}
+
+	pub async fn get_document_blocks_with_config(&self, embedding: Vec<f32>, max_results: Option<usize>, similarity_threshold: Option<f32>) -> Result<Vec<DocumentBlock>> {
 		// Check embedding dimension
 		if embedding.len() != self.vector_dim {
 			return Err(anyhow::anyhow!("Search embedding has dimension {} but expected {}",
@@ -938,16 +969,18 @@ impl Store {
 
 		// Check if index exists and create it if needed
 		let has_index = table.list_indices().await?.iter().any(|idx| idx.columns == vec!["embedding"]);
-		let row_count = table.count_rows(None).await?;
 		if !has_index && row_count > 256 {
 			table.create_index(&["embedding"], Index::Auto).execute().await?
 		}
+
+		// Use provided max_results or default to a reasonable number
+		let limit = max_results.unwrap_or(50);
 
 		// Perform vector search
 		let results = table
 			.query()
 			.nearest_to(embedding.as_slice())?  // Pass as slice instead of reference to Vec
-			.limit(5)
+			.limit(limit)
 			.execute()
 			.await?
 			.try_collect::<Vec<_>>()
@@ -972,12 +1005,37 @@ impl Store {
 
 		// Convert results to DocumentBlock structs
 		let converter = BatchConverter::new(self.vector_dim);
-		let document_blocks = converter.batch_to_document_blocks(&results[0], Some(distances))?;
+		let mut document_blocks = converter.batch_to_document_blocks(&results[0], Some(distances))?;
+
+		// Filter by similarity threshold if provided
+		if let Some(threshold) = similarity_threshold {
+			document_blocks.retain(|block| {
+				if let Some(distance) = block.distance {
+					distance <= threshold // Lower distance means higher similarity
+				} else {
+					true // Keep blocks without distance info
+				}
+			});
+		}
+
+		// Sort by relevance (distance) - lower distance means higher similarity, so sort ascending
+		document_blocks.sort_by(|a, b| {
+			match (a.distance, b.distance) {
+				(Some(dist_a), Some(dist_b)) => dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal),
+				(Some(_), None) => std::cmp::Ordering::Less,    // Items with distance come first
+				(None, Some(_)) => std::cmp::Ordering::Greater, // Items without distance come last
+				(None, None) => std::cmp::Ordering::Equal,      // Equal if both have no distance
+			}
+		});
 
 		Ok(document_blocks)
 	}
 
 	pub async fn get_text_blocks(&self, embedding: Vec<f32>) -> Result<Vec<TextBlock>> {
+		self.get_text_blocks_with_config(embedding, None, None).await
+	}
+
+	pub async fn get_text_blocks_with_config(&self, embedding: Vec<f32>, max_results: Option<usize>, similarity_threshold: Option<f32>) -> Result<Vec<TextBlock>> {
 		// Check embedding dimension
 		if embedding.len() != self.vector_dim {
 			return Err(anyhow::anyhow!("Search embedding has dimension {} but expected {}",
@@ -996,16 +1054,18 @@ impl Store {
 
 		// Check if index exists and create it if needed
 		let has_index = table.list_indices().await?.iter().any(|idx| idx.columns == vec!["embedding"]);
-		let row_count = table.count_rows(None).await?;
 		if !has_index && row_count > 256 {
 			table.create_index(&["embedding"], Index::Auto).execute().await?
 		}
+
+		// Use provided max_results or default to a reasonable number
+		let limit = max_results.unwrap_or(50);
 
 		// Perform vector search
 		let results = table
 			.query()
 			.nearest_to(embedding.as_slice())?  // Pass as slice instead of reference to Vec
-			.limit(5)
+			.limit(limit)
 			.execute()
 			.await?
 			.try_collect::<Vec<_>>()
@@ -1030,7 +1090,28 @@ impl Store {
 
 		// Convert results to TextBlock structs
 		let converter = BatchConverter::new(self.vector_dim);
-		let text_blocks = converter.batch_to_text_blocks(&results[0], Some(distances))?;
+		let mut text_blocks = converter.batch_to_text_blocks(&results[0], Some(distances))?;
+
+		// Filter by similarity threshold if provided
+		if let Some(threshold) = similarity_threshold {
+			text_blocks.retain(|block| {
+				if let Some(distance) = block.distance {
+					distance <= threshold // Lower distance means higher similarity
+				} else {
+					true // Keep blocks without distance info
+				}
+			});
+		}
+
+		// Sort by relevance (distance) - lower distance means higher similarity, so sort ascending
+		text_blocks.sort_by(|a, b| {
+			match (a.distance, b.distance) {
+				(Some(dist_a), Some(dist_b)) => dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal),
+				(Some(_), None) => std::cmp::Ordering::Less,    // Items with distance come first
+				(None, Some(_)) => std::cmp::Ordering::Greater, // Items without distance come last
+				(None, None) => std::cmp::Ordering::Equal,      // Equal if both have no distance
+			}
+		});
 
 		Ok(text_blocks)
 	}
