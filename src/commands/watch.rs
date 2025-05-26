@@ -61,10 +61,10 @@ pub async fn execute(store: &Store, config: &Config, args: &WatchArgs) -> Result
 		move |res: Result<Vec<DebouncedEvent>, notify::Error>| {
 			match res {
 				Ok(events) => {
-					// Filter out events from .octodev directory to prevent reindexing loops
+					// Filter out events from .octocode directory to prevent reindexing loops
 					let relevant_events = events.iter().filter(|event| {
 						let path = event.path.to_string_lossy();
-						!path.contains(".octodev") && !path.contains("target/") && !path.contains(".git/")
+						!path.contains(".octocode") && !path.contains("target/") && !path.contains(".git/")
 					}).count();
 
 					if relevant_events > 0 {

@@ -456,7 +456,7 @@ impl McpServer {
 				let results = results?;
 				Ok(format_graphrag_results_as_markdown(results))
 			}
-			None => Err(anyhow::anyhow!("GraphRAG is not enabled in the current configuration. Please enable GraphRAG in octodev.toml to use relationship-aware search.")),
+			None => Err(anyhow::anyhow!("GraphRAG is not enabled in the current configuration. Please enable GraphRAG in octocode.toml to use relationship-aware search.")),
 		}
 	}
 }

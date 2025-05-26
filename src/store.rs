@@ -558,14 +558,14 @@ impl Store {
 		// Get current directory
 		let current_dir = std::env::current_dir()?;
 
-		// Create .octodev directory if it doesn't exist
-		let octodev_dir = current_dir.join(".octodev");
-		if !octodev_dir.exists() {
-			std::fs::create_dir_all(&octodev_dir)?
+		// Create .octocode directory if it doesn't exist
+		let octocode_dir = current_dir.join(".octocode");
+		if !octocode_dir.exists() {
+			std::fs::create_dir_all(&octocode_dir)?
 		}
 
 		// Create lancedb storage directory
-		let index_path = octodev_dir.join("storage");
+		let index_path = octocode_dir.join("storage");
 		if !index_path.exists() {
 			std::fs::create_dir_all(&index_path)?
 		}

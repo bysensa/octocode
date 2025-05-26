@@ -30,12 +30,12 @@ pub struct SearchArgs {
 
 pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Result<(), anyhow::Error> {
 	let current_dir = std::env::current_dir()?;
-	let octodev_dir = current_dir.join(".octodev");
-	let index_path = octodev_dir.join("storage");
+	let octocode_dir = current_dir.join(".octocode");
+	let index_path = octocode_dir.join("storage");
 
 	// Check if we have an index already; if not, inform the user but don't auto-index
 	if !index_path.exists() {
-		return Err(anyhow::anyhow!("No index found. Please run 'octodev index' first to create an index."));
+		return Err(anyhow::anyhow!("No index found. Please run 'octocode index' first to create an index."));
 	}
 
 	// Validate search mode

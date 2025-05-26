@@ -311,7 +311,7 @@ impl AIEnhancements {
 		let response = self.client
 			.post("https://openrouter.ai/api/v1/chat/completions")
 			.header("Authorization", format!("Bearer {}", api_key))
-			.header("HTTP-Referer", "https://github.com/muvon/octodev")
+			.header("HTTP-Referer", "https://github.com/muvon/octocode")
 			.header("X-Title", "Octodev")
 			.json(&request_body)
 			.send()

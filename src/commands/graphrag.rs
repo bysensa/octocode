@@ -58,8 +58,8 @@ pub async fn execute(_store: &Store, args: &GraphRAGArgs, config: &Config) -> Re
 	// Check if GraphRAG is enabled in the config
 	if !config.graphrag.enabled {
 		eprintln!("Error: GraphRAG is not enabled in your configuration.");
-		eprintln!("To enable it, run:\n  octodev config --graphrag-enable true");
-		eprintln!("Then run 'octodev index' to build the knowledge graph.");
+		eprintln!("To enable it, run:\n  octocode config --graphrag-enable true");
+		eprintln!("Then run 'octocode index' to build the knowledge graph.");
 		return Ok(());
 	}
 
@@ -84,7 +84,7 @@ pub async fn execute(_store: &Store, args: &GraphRAGArgs, config: &Config) -> Re
 	// If the graph is empty, advise to run indexing
 	if graph.nodes.is_empty() {
 		eprintln!("GraphRAG knowledge graph is empty.");
-		eprintln!("Run 'octodev index' to build the knowledge graph.");
+		eprintln!("Run 'octocode index' to build the knowledge graph.");
 		return Ok(());
 	}
 
@@ -96,7 +96,7 @@ pub async fn execute(_store: &Store, args: &GraphRAGArgs, config: &Config) -> Re
 				Some(q) => q,
 				None => {
 					eprintln!("Error: 'query' parameter is required for search operation.");
-					eprintln!("Example: octodev graphrag search --query \"find all database connections\"");
+					eprintln!("Example: octocode graphrag search --query \"find all database connections\"");
 					return Ok(());
 				}
 			};
@@ -136,7 +136,7 @@ pub async fn execute(_store: &Store, args: &GraphRAGArgs, config: &Config) -> Re
 				Some(id) => id,
 				None => {
 					eprintln!("Error: 'node_id' parameter is required for get_node operation.");
-					eprintln!("Example: octodev graphrag get-node --node_id \"src/main.rs/main\"");
+					eprintln!("Example: octocode graphrag get-node --node_id \"src/main.rs/main\"");
 					return Ok(());
 				}
 			};
@@ -169,7 +169,7 @@ pub async fn execute(_store: &Store, args: &GraphRAGArgs, config: &Config) -> Re
 				Some(id) => id,
 				None => {
 					eprintln!("Error: 'node_id' parameter is required for get_relationships operation.");
-					eprintln!("Example: octodev graphrag get-relationships --node_id \"src/main.rs/main\"");
+					eprintln!("Example: octocode graphrag get-relationships --node_id \"src/main.rs/main\"");
 					return Ok(());
 				}
 			};
@@ -241,7 +241,7 @@ pub async fn execute(_store: &Store, args: &GraphRAGArgs, config: &Config) -> Re
 				Some(id) => id,
 				None => {
 					eprintln!("Error: 'source_id' parameter is required for find_path operation.");
-					eprintln!("Example: octodev graphrag find-path --source-id \"src/main.rs/main\" --target-id \"src/config.rs/load\"");
+					eprintln!("Example: octocode graphrag find-path --source-id \"src/main.rs/main\" --target-id \"src/config.rs/load\"");
 					return Ok(());
 				}
 			};
@@ -250,7 +250,7 @@ pub async fn execute(_store: &Store, args: &GraphRAGArgs, config: &Config) -> Re
 				Some(id) => id,
 				None => {
 					eprintln!("Error: 'target_id' parameter is required for find_path operation.");
-					eprintln!("Example: octodev graphrag find-path --source-id \"src/main.rs/main\" --target-id \"src/config.rs/load\"");
+					eprintln!("Example: octocode graphrag find-path --source-id \"src/main.rs/main\" --target-id \"src/config.rs/load\"");
 					return Ok(());
 				}
 			};
