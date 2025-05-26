@@ -198,7 +198,7 @@ impl Reranker {
         let query_lower = query.to_lowercase();
         
         // Check filename
-        if let Some(filename) = path_lower.split('/').last() {
+        if let Some(filename) = path_lower.split('/').next_back() {
             if filename.contains(&query_lower) {
                 return 0.75;
             }
@@ -267,7 +267,7 @@ impl Reranker {
                 let tf = content_lower.matches(term).count() as f32;
                 
                 // Inverse document frequency
-                let df = doc_freq.get(&term.to_string()).unwrap_or(&1);
+                let df = doc_freq.get(*term).unwrap_or(&1);
                 let idf = (total_docs as f32 / *df as f32).ln();
                 
                 tf_idf_score += tf * idf;

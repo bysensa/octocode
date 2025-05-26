@@ -480,7 +480,7 @@ async fn run_watcher(tx: mpsc::Sender<()>, working_dir: std::path::PathBuf) -> R
 
 	debouncer.watcher().watch(&working_dir, RecursiveMode::Recursive)?;
 
-	while let Some(_) = debouncer_rx.recv().await {
+	while (debouncer_rx.recv().await).is_some() {
 		let _ = tx.send(()).await;
 	}
 

@@ -78,6 +78,45 @@ impl Language for Ruby {
 			}
 		}
 	}
+
+	fn are_node_types_equivalent(&self, type1: &str, type2: &str) -> bool {
+		// Direct match
+		if type1 == type2 {
+			return true;
+		}
+
+		// Ruby-specific semantic groups
+		let semantic_groups = [
+			// Methods and functions
+			&["method"] as &[&str],
+			// Classes and modules
+			&["class", "module"],
+			// Constants and variables
+			&["assignment", "multiple_assignment"],
+		];
+
+		// Check if both types belong to the same semantic group
+		for group in &semantic_groups {
+			let contains_type1 = group.contains(&type1);
+			let contains_type2 = group.contains(&type2);
+			
+			if contains_type1 && contains_type2 {
+				return true;
+			}
+		}
+
+		false
+	}
+
+	fn get_node_type_description(&self, node_type: &str) -> &'static str {
+		match node_type {
+			"method" => "method declarations",
+			"class" => "class declarations",
+			"module" => "module declarations",
+			"assignment" | "multiple_assignment" => "variable assignments",
+			_ => "declarations",
+		}
+	}
 }
 
 impl Ruby {

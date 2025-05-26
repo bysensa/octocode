@@ -84,17 +84,17 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 		"code" => {
 			// Search only code blocks with higher limit for reranking
 			let mut results = store.get_code_blocks_with_config(
-				embeddings, 
+				embeddings,
 				Some(config.search.max_results * 2), // Get more results for reranking
 				Some(1.01) // Use a very permissive threshold initially
 			).await?;
 
 			// Apply reranking to improve relevance
 			results = Reranker::rerank_code_blocks(results, &args.query);
-			
+
 			// Apply tf-idf boost for better term matching
 			Reranker::tf_idf_boost(&mut results, &args.query);
-			
+
 			// Apply final similarity threshold after reranking
 			results.retain(|block| {
 				if let Some(distance) = block.distance {
@@ -126,14 +126,14 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 		"docs" => {
 			// Search only document blocks with reranking
 			let mut results = store.get_document_blocks_with_config(
-				embeddings, 
+				embeddings,
 				Some(config.search.max_results * 2), // Get more results for reranking
 				Some(1.01) // Use a more permissive threshold initially
 			).await?;
 
 			// Apply reranking to improve relevance
 			results = Reranker::rerank_document_blocks(results, &args.query);
-			
+
 			// Apply final similarity threshold after reranking
 			results.retain(|block| {
 				if let Some(distance) = block.distance {
@@ -161,14 +161,14 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 		"text" => {
 			// Search only text blocks with reranking
 			let mut results = store.get_text_blocks_with_config(
-				embeddings, 
+				embeddings,
 				Some(config.search.max_results * 2), // Get more results for reranking
 				Some(1.01) // Use a more permissive threshold initially
 			).await?;
 
 			// Apply reranking to improve relevance
 			results = Reranker::rerank_text_blocks(results, &args.query);
-			
+
 			// Apply final similarity threshold after reranking
 			results.retain(|block| {
 				if let Some(distance) = block.distance {
@@ -196,17 +196,17 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 		"all" => {
 			// Search code, documents, and text blocks with reranking
 			let mut code_results = store.get_code_blocks_with_config(
-				embeddings.clone(), 
+				embeddings.clone(),
 				Some(config.search.max_results * 2), // Get more results for reranking
 				Some(1.01) // Use a more permissive threshold initially
 			).await?;
 			let mut doc_results = store.get_document_blocks_with_config(
-				embeddings.clone(), 
+				embeddings.clone(),
 				Some(config.search.max_results * 2), // Get more results for reranking
 				Some(1.01) // Use a more permissive threshold initially
 			).await?;
 			let mut text_results = store.get_text_blocks_with_config(
-				embeddings, 
+				embeddings,
 				Some(config.search.max_results * 2), // Get more results for reranking
 				Some(1.01) // Use a more permissive threshold initially
 			).await?;
@@ -215,10 +215,10 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 			code_results = Reranker::rerank_code_blocks(code_results, &args.query);
 			doc_results = Reranker::rerank_document_blocks(doc_results, &args.query);
 			text_results = Reranker::rerank_text_blocks(text_results, &args.query);
-			
+
 			// Apply tf-idf boost for code results
 			Reranker::tf_idf_boost(&mut code_results, &args.query);
-			
+
 			// Apply final similarity threshold after reranking
 			code_results.retain(|block| {
 				if let Some(distance) = block.distance {
@@ -251,40 +251,30 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 
 			// Combine and sort all results by relevance for better display order
 			let mut all_results_with_scores: Vec<(f32, String, String)> = Vec::new();
-			
+
 			// Add code results
 			for block in &final_code_results {
 				if let Some(distance) = block.distance {
 					all_results_with_scores.push((distance, "code".to_string(), block.path.clone()));
 				}
 			}
-			
+
 			// Add document results
 			for block in &doc_results {
 				if let Some(distance) = block.distance {
 					all_results_with_scores.push((distance, "docs".to_string(), block.path.clone()));
 				}
 			}
-			
+
 			// Add text results
 			for block in &text_results {
 				if let Some(distance) = block.distance {
 					all_results_with_scores.push((distance, "text".to_string(), block.path.clone()));
 				}
 			}
-			
+
 			// Sort by relevance (distance) - lower distance means higher similarity
 			all_results_with_scores.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-			
-			// Print relevance info for debugging
-			if !all_results_with_scores.is_empty() {
-				println!("Found {} total results across all types. Showing most relevant first:", all_results_with_scores.len());
-				println!("Top 5 by relevance:");
-				for (i, (distance, block_type, path)) in all_results_with_scores.iter().take(5).enumerate() {
-					println!("  {}. {} ({}) - similarity: {:.4}", i + 1, path, block_type, 1.0 - distance);
-				}
-				println!();
-			}
 
 			// Output combined results
 			if args.json {
@@ -389,7 +379,7 @@ fn render_text_blocks_with_config(blocks: &[octocode::store::TextBlock], config:
 			// Use smart truncation based on configuration
 			let max_chars = config.search.search_block_max_characters;
 			let (content, was_truncated) = indexer::truncate_content_smartly(&block.content, max_chars);
-			
+
 			// Display content with proper indentation
 			for line in content.lines() {
 				println!("║   {}", line);
@@ -443,7 +433,7 @@ fn render_document_blocks_with_config(blocks: &[octocode::store::DocumentBlock],
 			// Use smart truncation based on configuration
 			let max_chars = config.search.search_block_max_characters;
 			let (content, was_truncated) = indexer::truncate_content_smartly(&block.content, max_chars);
-			
+
 			// Display content with proper indentation
 			for line in content.lines() {
 				println!("║   {}", line);

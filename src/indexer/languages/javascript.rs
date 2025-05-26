@@ -105,6 +105,47 @@ impl Language for JavaScript {
 			}
 		}
 	}
+
+	fn are_node_types_equivalent(&self, type1: &str, type2: &str) -> bool {
+		// Direct match
+		if type1 == type2 {
+			return true;
+		}
+
+		// JavaScript-specific semantic groups
+		let semantic_groups = [
+			// Functions and methods
+			&["function_declaration", "method_definition", "arrow_function"] as &[&str],
+			// Classes and constructors
+			&["class_declaration", "method_definition"],
+			// Import/export statements
+			&["import_statement", "export_statement"],
+			// Variable declarations
+			&["variable_declaration", "lexical_declaration"],
+		];
+
+		// Check if both types belong to the same semantic group
+		for group in &semantic_groups {
+			let contains_type1 = group.contains(&type1);
+			let contains_type2 = group.contains(&type2);
+			
+			if contains_type1 && contains_type2 {
+				return true;
+			}
+		}
+
+		false
+	}
+
+	fn get_node_type_description(&self, node_type: &str) -> &'static str {
+		match node_type {
+			"function_declaration" | "method_definition" | "arrow_function" => "function declarations",
+			"class_declaration" => "class declarations",
+			"import_statement" | "export_statement" => "import/export statements",
+			"variable_declaration" | "lexical_declaration" => "variable declarations",
+			_ => "declarations",
+		}
+	}
 }
 
 impl JavaScript {

@@ -98,6 +98,49 @@ impl Language for Go {
 			}
 		}
 	}
+
+	fn are_node_types_equivalent(&self, type1: &str, type2: &str) -> bool {
+		// Direct match
+		if type1 == type2 {
+			return true;
+		}
+
+		// Go-specific semantic groups
+		let semantic_groups = [
+			// Functions and methods
+			&["function_declaration", "method_declaration"] as &[&str],
+			// Type definitions
+			&["type_declaration", "struct_type", "interface_type"],
+			// Variable and constant declarations
+			&["var_declaration", "const_declaration", "short_var_declaration"],
+			// Import statements
+			&["import_declaration"],
+		];
+
+		// Check if both types belong to the same semantic group
+		for group in &semantic_groups {
+			let contains_type1 = group.contains(&type1);
+			let contains_type2 = group.contains(&type2);
+			
+			if contains_type1 && contains_type2 {
+				return true;
+			}
+		}
+
+		false
+	}
+
+	fn get_node_type_description(&self, node_type: &str) -> &'static str {
+		match node_type {
+			"function_declaration" | "method_declaration" => "function declarations",
+			"type_declaration" => "type declarations",
+			"struct_type" => "struct definitions",
+			"interface_type" => "interface definitions",
+			"var_declaration" | "const_declaration" | "short_var_declaration" => "variable declarations",
+			"import_declaration" => "import statements",
+			_ => "declarations",
+		}
+	}
 }
 
 impl Go {

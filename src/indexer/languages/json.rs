@@ -64,6 +64,46 @@ impl Language for Json {
 			}
 		}
 	}
+
+	fn are_node_types_equivalent(&self, type1: &str, type2: &str) -> bool {
+		// Direct match
+		if type1 == type2 {
+			return true;
+		}
+
+		// JSON-specific semantic groups
+		let semantic_groups = [
+			// JSON structures
+			&["object", "array"] as &[&str],
+			// JSON values  
+			&["string", "number", "true", "false", "null"],
+		];
+
+		// Check if both types belong to the same semantic group
+		for group in &semantic_groups {
+			let contains_type1 = group.contains(&type1);
+			let contains_type2 = group.contains(&type2);
+			
+			if contains_type1 && contains_type2 {
+				return true;
+			}
+		}
+
+		false
+	}
+
+	fn get_node_type_description(&self, node_type: &str) -> &'static str {
+		match node_type {
+			"object" => "JSON objects",
+			"array" => "JSON arrays",
+			"string" => "JSON strings",
+			"number" => "JSON numbers",
+			"true" | "false" => "JSON booleans",
+			"null" => "JSON null values",
+			"pair" => "JSON key-value pairs",
+			_ => "JSON structures",
+		}
+	}
 }
 
 impl Json {

@@ -43,6 +43,36 @@ pub trait Language {
 
 	/// Extract identifiers from a node (helper method)
 	fn extract_identifiers(&self, node: Node, contents: &str, symbols: &mut Vec<String>);
+
+	/// Check if two node types are semantically equivalent for grouping
+	/// This allows each language to define its own semantic relationships
+	fn are_node_types_equivalent(&self, type1: &str, type2: &str) -> bool {
+		// Default implementation: only exact matches
+		type1 == type2
+	}
+
+	/// Get a descriptive name for a node type
+	/// This allows each language to provide user-friendly descriptions
+	fn get_node_type_description(&self, node_type: &str) -> &'static str {
+		// Default fallback descriptions
+		match node_type {
+			t if t.contains("function") => "function declarations",
+			t if t.contains("method") => "function declarations",
+			t if t.contains("class") => "class/interface declarations",
+			t if t.contains("struct") => "type definitions",
+			t if t.contains("enum") => "type definitions",
+			t if t.contains("mod") || t.contains("module") => "module declarations",
+			t if t.contains("const") => "constant declarations",
+			t if t.contains("var") || t.contains("let") => "variable declarations",
+			t if t.contains("type") => "type declarations",
+			t if t.contains("trait") => "trait declarations",
+			t if t.contains("impl") => "implementation blocks",
+			t if t.contains("macro") => "macro definitions",
+			t if t.contains("namespace") => "namespace declarations",
+			t if t.contains("comment") => "comments",
+			_ => "declarations",
+		}
+	}
 }
 
 /// Gets a language implementation by its name

@@ -297,7 +297,7 @@ impl GoogleProvider {
 
         for text in texts {
             let response = client
-                .post(&format!("https://generativelanguage.googleapis.com/v1beta/models/{}:embedContent?key={}", model, google_api_key))
+                .post(format!("https://generativelanguage.googleapis.com/v1beta/models/{}:embedContent?key={}", model, google_api_key))
                 .header("Content-Type", "application/json")
                 .json(&json!({
                     "content": {
