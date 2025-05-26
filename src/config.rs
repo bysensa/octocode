@@ -56,7 +56,7 @@ fn default_database_path() -> String {
 }
 
 fn default_similarity_threshold() -> f32 {
-	0.1
+	0.6
 }
 
 fn default_top_k() -> usize {

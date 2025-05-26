@@ -26,6 +26,11 @@ pub struct SearchArgs {
 	/// Search mode: all (default), code, docs, or text
 	#[arg(long, default_value = "all")]
 	pub mode: String,
+
+	/// Similarity threshold (0.0-1.0). Higher values = more strict matching. Lower values = more results.
+	/// Examples: 0.3 (broad results), 0.5 (balanced), 0.7 (high quality), 0.8 (very strict)
+	#[arg(long, short = 't', default_value = "0.5")]
+	pub threshold: f32,
 }
 
 pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Result<(), anyhow::Error> {
@@ -36,6 +41,11 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 	// Check if we have an index already; if not, inform the user but don't auto-index
 	if !index_path.exists() {
 		return Err(anyhow::anyhow!("No index found. Please run 'octocode index' first to create an index."));
+	}
+
+	// Validate similarity threshold
+	if args.threshold < 0.0 || args.threshold > 1.0 {
+		return Err(anyhow::anyhow!("Similarity threshold must be between 0.0 and 1.0, got: {}", args.threshold));
 	}
 
 	// Validate search mode
@@ -64,6 +74,11 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 		_ => unreachable!(),
 	};
 
+	// Convert similarity threshold to distance threshold once
+	// Distance = 1.0 - Similarity (for cosine distance)
+	// Use command-line parameter instead of config
+	let distance_threshold = 1.0 - args.threshold;
+
 	// Search based on mode
 	match search_mode {
 		"code" => {
@@ -83,7 +98,7 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 			// Apply final similarity threshold after reranking
 			results.retain(|block| {
 				if let Some(distance) = block.distance {
-					distance <= config.search.similarity_threshold
+					distance <= distance_threshold
 				} else {
 					true
 				}
@@ -122,7 +137,7 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 			// Apply final similarity threshold after reranking
 			results.retain(|block| {
 				if let Some(distance) = block.distance {
-					distance <= config.search.similarity_threshold
+					distance <= distance_threshold
 				} else {
 					true
 				}
@@ -157,7 +172,7 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 			// Apply final similarity threshold after reranking
 			results.retain(|block| {
 				if let Some(distance) = block.distance {
-					distance <= config.search.similarity_threshold
+					distance <= distance_threshold
 				} else {
 					true
 				}
@@ -207,21 +222,21 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 			// Apply final similarity threshold after reranking
 			code_results.retain(|block| {
 				if let Some(distance) = block.distance {
-					distance <= config.search.similarity_threshold
+					distance <= distance_threshold
 				} else {
 					true
 				}
 			});
 			doc_results.retain(|block| {
 				if let Some(distance) = block.distance {
-					distance <= config.search.similarity_threshold
+					distance <= distance_threshold
 				} else {
 					true
 				}
 			});
 			text_results.retain(|block| {
 				if let Some(distance) = block.distance {
-					distance <= config.search.similarity_threshold
+					distance <= distance_threshold
 				} else {
 					true
 				}
