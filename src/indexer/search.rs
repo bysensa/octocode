@@ -144,9 +144,9 @@ pub async fn search_codebase(query: &str, mode: &str, config: &Config) -> Result
 
 	// Generate embeddings for the query
 	let embeddings = match mode {
-		"code" => crate::indexer::generate_embeddings(query, true, config).await?,
-		"docs" | "text" => crate::indexer::generate_embeddings(query, false, config).await?,
-		_ => crate::indexer::generate_embeddings(query, true, config).await?, // Default to code model for "all"
+		"code" => crate::embedding::generate_embeddings(query, true, config).await?,
+		"docs" | "text" => crate::embedding::generate_embeddings(query, false, config).await?,
+		_ => crate::embedding::generate_embeddings(query, true, config).await?, // Default to code model for "all"
 	};
 
 	// Perform the search based on mode

@@ -4,6 +4,7 @@ use octocode::config::Config;
 use octocode::store::Store;
 use octocode::indexer;
 use octocode::reranker::Reranker;
+use octocode::embedding;
 
 #[derive(Args, Debug)]
 pub struct SearchArgs {
@@ -49,16 +50,16 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 	let embeddings = match search_mode {
 		"code" => {
 			// Use code model for code searches
-			indexer::generate_embeddings(&args.query, true, config).await?
+			embedding::generate_embeddings(&args.query, true, config).await?
 		},
 		"docs" | "text" => {
 			// Use text model for documents and text searches
-			indexer::generate_embeddings(&args.query, false, config).await?
+			embedding::generate_embeddings(&args.query, false, config).await?
 		},
 		"all" => {
 			// For "all" mode, use code model as it's typically more general
 			// This is a compromise since we're searching across different content types
-			indexer::generate_embeddings(&args.query, true, config).await?
+			embedding::generate_embeddings(&args.query, true, config).await?
 		},
 		_ => unreachable!(),
 	};

@@ -575,20 +575,8 @@ impl Store {
 
 		// Load the config to get the embedding provider and model info
 		let config = crate::config::Config::load()?;
-		let vector_dim = match config.embedding_provider {
-			crate::config::EmbeddingProvider::Jina => 1536, // Jina models typically use 1536 dimensions
-			crate::config::EmbeddingProvider::FastEmbed => {
-				// FastEmbed models - determine dimension based on model name
-				match config.fastembed.code_model.as_str() {
-					"all-MiniLM-L6-v2" => 384,
-					"all-MiniLM-L12-v2" => 384,
-					"multilingual-e5-small" => 384,
-					"multilingual-e5-base" => 768,
-					"multilingual-e5-large" => 1024,
-					_ => 384, // Default to 384 for unknown FastEmbed models
-				}
-			}
-		};
+		let embedding_provider = crate::embedding::EmbeddingProvider::from_config(&config)?;
+		let vector_dim = embedding_provider.get_vector_dimension(true); // Use code model for consistency
 
 		// Connect to LanceDB
 		let db = connect(storage_path).execute().await?;

@@ -1,7 +1,7 @@
 // GraphRAG core builder implementation
 
 use crate::config::Config;
-use crate::indexer::embed::calculate_unique_content_hash;
+use crate::embedding::calculate_unique_content_hash;
 use crate::indexer::graphrag::ai::AIEnhancements;
 use crate::indexer::graphrag::database::DatabaseOperations;
 use crate::indexer::graphrag::relationships::RelationshipDiscovery;

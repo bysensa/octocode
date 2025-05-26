@@ -1,5 +1,6 @@
 // Main lib.rs file that exports our modules
 pub mod config;
+pub mod embedding;
 pub mod indexer;
 pub mod store;
 pub mod state;

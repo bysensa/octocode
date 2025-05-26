@@ -1,13 +1,11 @@
 // Indexer module for Octodev
 // Handles code indexing, embedding, and search functionality
 
-mod embed; // Embedding generation - moving from content.rs
 pub mod search; // Search functionality
 mod languages; // Language-specific processors
 pub mod graphrag; // GraphRAG generation for code relationships (modular implementation)
 pub mod graph_optimization; // Task-focused graph extraction and optimization
 
-pub use embed::*;
 pub use search::*;
 pub use graphrag::*;
 pub use graph_optimization::*;
@@ -16,6 +14,7 @@ use crate::state::SharedState;
 use crate::state;
 use crate::store::{Store, CodeBlock, TextBlock, DocumentBlock};
 use crate::config::Config;
+use crate::embedding::calculate_unique_content_hash;
 use std::fs;
 // We're using ignore::WalkBuilder instead of walkdir::WalkDir
 use tree_sitter::{Parser, Node};
@@ -1234,21 +1233,21 @@ fn combine_with_preceding_comments(node: Node, contents: &str) -> (String, usize
 
 async fn process_code_blocks_batch(store: &Store, blocks: &[CodeBlock], config: &Config) -> Result<()> {
 	let contents: Vec<String> = blocks.iter().map(|b| b.content.clone()).collect();
-	let embeddings = generate_embeddings_batch(contents, true, config).await?;
+	let embeddings = crate::embedding::generate_embeddings_batch(contents, true, config).await?;
 	store.store_code_blocks(blocks, embeddings).await?;
 	Ok(())
 }
 
 async fn process_text_blocks_batch(store: &Store, blocks: &[TextBlock], config: &Config) -> Result<()> {
 	let contents: Vec<String> = blocks.iter().map(|b| b.content.clone()).collect();
-	let embeddings = generate_embeddings_batch(contents, false, config).await?;
+	let embeddings = crate::embedding::generate_embeddings_batch(contents, false, config).await?;
 	store.store_text_blocks(blocks, embeddings).await?;
 	Ok(())
 }
 
 async fn process_document_blocks_batch(store: &Store, blocks: &[DocumentBlock], config: &Config) -> Result<()> {
 	let contents: Vec<String> = blocks.iter().map(|b| b.content.clone()).collect();
-	let embeddings = generate_embeddings_batch(contents, false, config).await?;
+	let embeddings = crate::embedding::generate_embeddings_batch(contents, false, config).await?;
 	store.store_document_blocks(blocks, embeddings).await?;
 	Ok(())
 }

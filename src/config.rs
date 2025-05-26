@@ -4,6 +4,8 @@ use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 
+use crate::embedding::types::EmbeddingProviderConfig;
+
 // Default values functions
 fn default_model() -> String {
 	"openai/gpt-4.1-mini".to_string()
@@ -65,47 +67,9 @@ fn default_embeddings_batch_size() -> usize {
 	32
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub enum EmbeddingProvider {
-	#[default]
-	FastEmbed,
-	Jina,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FastEmbedConfig {
-	#[serde(default = "default_embedding_model")]
-	pub code_model: String,
-
-	#[serde(default = "default_embedding_model")]
-	pub text_model: String,
-}
-
-impl Default for FastEmbedConfig {
-	fn default() -> Self {
-		Self {
-			code_model: "all-MiniLM-L6-v2".to_string(),
-			text_model: "all-MiniLM-L6-v2".to_string(),
-		}
-	}
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct JinaConfig {
-	#[serde(default = "default_embedding_model")]
-	pub code_model: String,
-
-	#[serde(default = "default_embedding_model")]
-	pub text_model: String,
-}
-
-impl Default for JinaConfig {
-	fn default() -> Self {
-		Self {
-			code_model: "jina-embeddings-v3".to_string(),
-			text_model: "jina-embeddings-v3".to_string(),
-		}
-	}
+// Embedding configuration defaults
+fn default_embedding_config() -> EmbeddingProviderConfig {
+    EmbeddingProviderConfig::get_default_models()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -260,19 +224,11 @@ pub struct Config {
 	#[serde(default)]
 	pub database: DatabaseConfig,
 
-	#[serde(default)]
-	pub embedding_provider: EmbeddingProvider,
-
-	#[serde(default)]
-	pub fastembed: FastEmbedConfig,
-
-	#[serde(default)]
-	pub jina: JinaConfig,
+	#[serde(default = "default_embedding_config")]
+	pub embedding: EmbeddingProviderConfig,
 
 	#[serde(default)]
 	pub graphrag: GraphRAGConfig,
-
-	pub jina_api_key: Option<String>,
 }
 
 impl Config {
@@ -294,9 +250,6 @@ impl Config {
 		// Environment variables take precedence over config file values
 		if let Ok(api_key) = std::env::var("OPENROUTER_API_KEY") {
 			config.openrouter.api_key = Some(api_key);
-		}
-		if let Ok(jina_key) = std::env::var("JINA_API_KEY") {
-			config.jina_api_key = Some(jina_key);
 		}
 
 		Ok(config)
@@ -352,5 +305,6 @@ mod tests {
 		assert_eq!(config.openrouter.model, "openai/gpt-4.1-mini");
 		assert_eq!(config.index.chunk_size, 2000);
 		assert_eq!(config.search.max_results, 50);
+		assert_eq!(config.embedding.provider, crate::embedding::types::EmbeddingProviderType::FastEmbed);
 	}
 }
