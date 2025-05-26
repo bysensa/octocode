@@ -4,7 +4,7 @@
 mod embed; // Embedding generation - moving from content.rs
 pub mod search; // Search functionality
 mod languages; // Language-specific processors
-pub mod graphrag; // GraphRAG generation for code relationships
+pub mod graphrag; // GraphRAG generation for code relationships (modular implementation)
 pub mod graph_optimization; // Task-focused graph extraction and optimization
 
 pub use embed::*;
