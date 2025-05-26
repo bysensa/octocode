@@ -19,8 +19,9 @@ impl Language for Rust {
 			"function_item",
 			"struct_item",
 			"enum_item",
-			"impl_item",
-			"trait_item",
+			// Removed: "impl_item" - can be very large, not semantic
+			// Individual functions inside impl blocks will be captured separately
+			"trait_item", 
 			"mod_item",
 			"const_item",
 			"macro_definition",
@@ -41,7 +42,7 @@ impl Language for Rust {
 					}
 				}
 			}
-			"struct_item" | "enum_item" | "impl_item" | "trait_item" | "mod_item" | "const_item" | "macro_definition" => {
+			"struct_item" | "enum_item" | "trait_item" | "mod_item" | "const_item" | "macro_definition" => {
 				for child in node.children(&mut node.walk()) {
 					if child.kind() == "identifier" || child.kind().contains("name") {
 						if let Ok(n) = child.utf8_text(contents.as_bytes()) {

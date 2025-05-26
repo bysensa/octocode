@@ -18,8 +18,9 @@ impl Language for JavaScript {
 		vec![
 			"function_declaration",
 			"method_definition",
-			"class_declaration",
 			"arrow_function",
+			// Removed: "class_declaration" - too large, not semantic
+			// Individual methods inside classes will be captured via method_definition
 		]
 	}
 
@@ -27,8 +28,8 @@ impl Language for JavaScript {
 		let mut symbols = Vec::new();
 
 		match node.kind() {
-			"function_declaration" | "method_definition" | "class_declaration" => {
-				// Extract name of the function, method or class
+			"function_declaration" | "method_definition" => {
+				// Extract name of the function or method
 				for child in node.children(&mut node.walk()) {
 					if child.kind() == "identifier" || child.kind().contains("name") {
 						if let Ok(n) = child.utf8_text(contents.as_bytes()) {
@@ -38,7 +39,7 @@ impl Language for JavaScript {
 					}
 				}
 
-				// For JavaScript, look for variable declarations within the function/method body
+				// Look for variable declarations within the function/method body
 				for child in node.children(&mut node.walk()) {
 					if child.kind() == "statement_block" {
 						self.extract_js_variable_declarations(child, contents, &mut symbols);

@@ -17,7 +17,8 @@ impl Language for Python {
 	fn get_meaningful_kinds(&self) -> Vec<&'static str> {
 		vec![
 			"function_definition",
-			"class_definition",
+			// Removed: "class_definition" - too large, not semantic
+			// Individual methods inside classes will be extracted separately if needed
 		]
 	}
 
@@ -25,8 +26,8 @@ impl Language for Python {
 		let mut symbols = Vec::new();
 
 		match node.kind() {
-			"function_definition" | "class_definition" => {
-				// Find the identifier (name) node for the function or class
+			"function_definition" => {
+				// Find the identifier (name) node for the function
 				for child in node.children(&mut node.walk()) {
 					if child.kind() == "identifier" {
 						if let Ok(name) = child.utf8_text(contents.as_bytes()) {
@@ -36,13 +37,11 @@ impl Language for Python {
 					}
 				}
 
-				// If it's a function, extract variable assignments within it
-				if node.kind() == "function_definition" {
-					for child in node.children(&mut node.walk()) {
-						if child.kind() == "block" {
-							self.extract_python_variables(child, contents, &mut symbols);
-							break;
-						}
+				// Extract variable assignments within the function
+				for child in node.children(&mut node.walk()) {
+					if child.kind() == "block" {
+						self.extract_python_variables(child, contents, &mut symbols);
+						break;
 					}
 				}
 			}

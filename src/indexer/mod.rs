@@ -1166,6 +1166,7 @@ struct CodeRegion {
 }
 
 /// Recursively extracts meaningful regions based on node kinds.
+/// Includes size limits to prevent indexing overly large code blocks.
 fn extract_meaningful_regions(
 	node: Node,
 	contents: &str,
@@ -1179,6 +1180,33 @@ fn extract_meaningful_regions(
 		let (combined_content, start_line) = combine_with_preceding_comments(node, contents);
 		let end_line = node.end_position().row;
 		let symbols = lang_impl.extract_symbols(node, contents);
+
+		// Safety check: Skip overly large code blocks to maintain semantic indexing
+		const MAX_LINES: usize = 100;  // Maximum lines per code block
+		const MAX_CHARS: usize = 8000; // Maximum characters per code block
+		
+		let line_count = end_line.saturating_sub(start_line) + 1;
+		let char_count = combined_content.len();
+		
+		if line_count > MAX_LINES || char_count > MAX_CHARS {
+			// Log a warning for debugging
+			eprintln!("Warning: Skipping large {} block in {} ({} lines, {} chars)", 
+				node_kind, 
+				"<current_file>",  // We don't have file path here, but this is for debugging
+				line_count, 
+				char_count
+			);
+			
+			// For large blocks, try to extract individual children instead
+			let mut cursor = node.walk();
+			if cursor.goto_first_child() {
+				loop {
+					extract_meaningful_regions(cursor.node(), contents, lang_impl, regions);
+					if !cursor.goto_next_sibling() { break; }
+				}
+			}
+			return;
+		}
 
 		// Only create a region if we have meaningful content
 		if !combined_content.trim().is_empty() {

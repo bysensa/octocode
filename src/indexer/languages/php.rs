@@ -17,10 +17,10 @@ impl Language for Php {
 	fn get_meaningful_kinds(&self) -> Vec<&'static str> {
 		vec![
 			"function_definition",
-			"class_declaration",
 			"method_declaration",
-			"trait_declaration",
-			"interface_declaration",
+			// Removed: "class_declaration" - too large, not semantic
+			// Removed: "trait_declaration" - too large, not semantic  
+			// Removed: "interface_declaration" - too large, not semantic
 		]
 	}
 
@@ -28,9 +28,8 @@ impl Language for Php {
 		let mut symbols = Vec::new();
 
 		match node.kind() {
-			"function_definition" | "method_declaration" | "class_declaration" |
-			"trait_declaration" | "interface_declaration" => {
-				// Extract the name of the function, method, class, trait or interface
+			"function_definition" | "method_declaration" => {
+				// Extract the name of the function or method
 				for child in node.children(&mut node.walk()) {
 					if child.kind() == "name" {
 						if let Ok(name) = child.utf8_text(contents.as_bytes()) {

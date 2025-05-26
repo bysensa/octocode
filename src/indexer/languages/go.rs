@@ -18,9 +18,10 @@ impl Language for Go {
 		vec![
 			"function_declaration",
 			"method_declaration",
-			"type_declaration",
-			"struct_type",
-			"interface_type",
+			"type_declaration", // Keep for simple type aliases
+			// Removed: "struct_type" - can be large
+			// Removed: "interface_type" - can be large  
+			// Individual struct fields and interface methods are less useful than the functions that use them
 		]
 	}
 
