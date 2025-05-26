@@ -1,3 +1,7 @@
+// Octocode - Intelligent Code Indexer and Graph Builder
+// Copyright (c) 2025 Muvon Un Limited
+// Licensed under the MIT License
+
 use clap::{Parser, Subcommand};
 
 use octocode::config::Config;

@@ -2,6 +2,14 @@
 name = "octocode"
 version = "0.1.0"
 edition = "2021"
+authors = ["Muvon Un Limited <opensource@muvon.io>"]
+description = "Intelligent code indexer and graph builder with semantic search capabilities"
+homepage = "https://octocode.muvon.io"
+repository = "https://github.com/muvon/octocode"
+license = "MIT"
+keywords = ["code", "search", "indexer", "semantic", "graph"]
+categories = ["development-tools", "command-line-utilities"]
+readme = "README.md"
 
 # Enable static linking
 [profile.release]
@@ -43,6 +51,7 @@ toml = "0.8.14"
 lazy_static = "1.4.0"
 futures = "0.3.31"
 globset = "0.4.14"
+regex = "1.10.0"
 
 [profile.dev]
 opt-level = 1          # Basic optimizations without slowing compilation too much

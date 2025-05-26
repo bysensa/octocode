@@ -1,108 +1,291 @@
-# OctoCode - Code Indexer and Search Tool
+# Octocode - Intelligent Code Indexer and Graph Builder
 
-OctoCode is a smart code indexer and search tool extracted from the OctoDev project. It provides semantic search capabilities across your codebase using embedding models.
+**© 2025 Muvon Un Limited (Hong Kong)** | Contact: [opensource@muvon.io](mailto:opensource@muvon.io) | Website: [muvon.io](https://muvon.io) | Product: [octocode.muvon.io](https://octocode.muvon.io)
 
-## Features
+---
 
-- **Index Codebase**: Recursively index source code files with semantic embeddings
-- **Semantic Search**: Search your codebase using natural language queries
-- **Multiple Languages**: Support for Rust, Python, JavaScript, TypeScript, Go, PHP, C++, Ruby, JSON, and Bash
-- **FastEmbed/Jina Integration**: Uses FastEmbed or Jina AI for generating embeddings
-- **File Watching**: Automatically re-index files when they change
-- **Configuration**: Flexible configuration system
+Octocode is a smart code indexer and semantic search tool that builds intelligent knowledge graphs of your codebase. It provides powerful semantic search capabilities across multiple programming languages and creates file-level relationship graphs for better code understanding.
 
-## Installation
+## 🚀 Key Features
 
-Make sure you have Rust installed, then:
+### **Semantic Code Search**
+- **Natural Language Queries**: Search your codebase using plain English
+- **Multi-Language Support**: Rust, Python, JavaScript, TypeScript, Go, PHP, C++, Ruby, JSON, Bash, and Markdown
+- **Smart Indexing**: Automatic parsing and semantic understanding of code structure
 
+### **Knowledge Graph Generation (GraphRAG)**
+- **File-Level Relationships**: Understand how your modules and files connect
+- **Import/Export Tracking**: Automatic detection of dependencies between files
+- **Module Hierarchy**: Visualize parent-child and sibling module relationships
+- **AI-Powered Descriptions**: Intelligent summaries of what each file does
+
+### **Advanced Features**
+- **Real-time Watch Mode**: Auto-reindex when files change
+- **Multiple Embedding Providers**: FastEmbed (local) or Jina AI (cloud)
+- **OpenRouter Integration**: Use any LLM model for AI features
+- **Fast Vector Database**: Lance columnar database for efficient storage
+- **Gitignore Respect**: Only indexes files that should be tracked
+
+## 📦 Installation
+
+### Prerequisites
+- **Rust 1.70+** (install from [rustup.rs](https://rustup.rs/))
+
+### Build from Source
 ```bash
+git clone https://github.com/muvon/octocode.git
+cd octocode
 cargo build --release
 ```
 
-## Usage
+The binary will be available at `target/release/octocode`.
 
-### Basic Commands
-
+### Quick Start
 ```bash
+# Generate default configuration
+./target/release/octocode config
+
 # Index your current directory
-cargo run -- index
+./target/release/octocode index
 
 # Search your codebase
-cargo run -- search "function handling HTTP requests"
+./target/release/octocode search "HTTP request handling"
 
-# Watch for changes and auto-reindex
-cargo run -- watch
+# Enable GraphRAG for relationship building
+echo 'graphrag.enabled = true' >> .octocode/config.toml
+echo 'OPENROUTER_API_KEY="your-key-here"' > .env
 
-# View file signatures
-cargo run -- view
+# Rebuild index with GraphRAG
+./target/release/octocode index
 
-# Generate default config
-cargo run -- config
-
-# Clear the database
-cargo run -- clear
+# Search the knowledge graph
+./target/release/octocode graphrag search --query "authentication modules"
 ```
 
-### Configuration
+## ⚙️ Configuration
 
-OctoCode uses a configuration file at `.octocode/config.toml`. Run `cargo run -- config` to generate a default configuration.
-
-Key settings:
-- `openrouter.model`: OpenRouter model to use (default: "openai/gpt-4.1-mini")
-- `openrouter.api_key`: Your OpenRouter API key (or set `OPENROUTER_API_KEY` env var)
-- `embedding_provider`: Choose between "FastEmbed" (default) or "Jina"
-- `fastembed.code_model`: Model for code embeddings (default: "all-MiniLM-L6-v2")
-- `index.chunk_size`: Size of text chunks for indexing (default: 2000)
-- `search.max_results`: Maximum search results to return (default: 50)
-
-### OpenRouter Integration
-
-OctoCode uses OpenRouter for AI functionality. You can use any model available on OpenRouter:
+Octocode uses `.octocode/config.toml` for configuration. Generate it with:
 
 ```bash
-# Set your API key
-export OPENROUTER_API_KEY="your-api-key-here"
+octocode config
+```
 
-# Configure different models
-cargo run -- config --model "openai/gpt-4.1-mini"
-cargo run -- config --model "anthropic/claude-3.5-sonnet"
-cargo run -- config --model "google/gemini-2.5-flash-preview"
+### Key Configuration Options
+
+```toml
+[graphrag]
+enabled = true  # Enable file-level relationship graphs
+description_model = "openai/gpt-4o-mini"  # Model for file descriptions
+relationship_model = "openai/gpt-4o-mini"  # Model for relationship detection
+
+[openrouter]
+model = "openai/gpt-4o-mini"  # Default model for AI features
+api_key = "your-openrouter-key"  # Or set OPENROUTER_API_KEY env var
+
+[embedding_provider]
+provider = "FastEmbed"  # or "Jina"
+
+[fastembed]
+code_model = "all-MiniLM-L6-v2"  # Local embedding model
+
+[search]
+max_results = 50
+similarity_threshold = 0.1
+
+[index]
+chunk_size = 2000
+graphrag_enabled = true  # Same as graphrag.enabled
 ```
 
 ### Environment Variables
+```bash
+export OPENROUTER_API_KEY="your-openrouter-api-key"
+export JINA_API_KEY="your-jina-key"  # If using Jina embeddings
+```
 
-- `OPENROUTER_API_KEY`: Required for OpenRouter API access
-- `JINA_API_KEY`: Required if using Jina as embedding provider
+## 🔍 Usage Examples
 
-## Supported File Types
+### Basic Code Search
+```bash
+# Find HTTP-related code
+octocode search "HTTP client requests"
 
-- **Rust**: .rs
-- **Python**: .py
-- **JavaScript**: .js
-- **TypeScript**: .ts, .tsx, .jsx
-- **Go**: .go
-- **PHP**: .php
-- **C++**: .cpp, .cc, .cxx, .c++, .hpp, .h
-- **Ruby**: .rb
-- **JSON**: .json
-- **Bash**: .sh, .bash
-- **Markdown**: .md
+# Find error handling patterns
+octocode search "error handling and exceptions"
 
-## Database
+# Search for specific functions
+octocode search "authentication middleware"
+```
 
-OctoCode uses Lance (columnar database) to store embeddings and metadata. The database is stored in `.octocode/database.lance`.
+### Knowledge Graph Operations
+```bash
+# Search the relationship graph
+octocode graphrag search --query "database models"
 
-## Architecture
+# Get detailed information about a file
+octocode graphrag get-node --node-id "src/auth/mod.rs"
 
-- **Indexer**: Parses source code using Tree-sitter and generates embeddings
-- **Search**: Performs semantic similarity search using vector embeddings
-- **Store**: Manages database operations with Lance
-- **Languages**: Modular language support for different programming languages
+# Find relationships for a specific file
+octocode graphrag get-relationships --node-id "src/auth/mod.rs"
 
-## Contributing
+# Find connections between two modules
+octocode graphrag find-path --source-id "src/auth/mod.rs" --target-id "src/database/mod.rs"
 
-This is an extracted component from the larger OctoDev project. Each language parser is implemented as a separate module in `src/indexer/languages/`.
+# Get graph overview
+octocode graphrag overview
+```
 
-## License
+### File Signatures and Structure
+```bash
+# View code signatures in current directory
+octocode view
 
-[License information to be added]
+# Output in JSON format
+octocode view --json
+
+# Output in Markdown format
+octocode view --md
+```
+
+### Real-time Monitoring
+```bash
+# Watch for changes and auto-reindex
+octocode watch
+```
+
+## 🏗️ Architecture
+
+### Core Components
+
+1. **Indexer Engine**: Multi-language code parser using Tree-sitter
+2. **Embedding System**: FastEmbed or Jina AI for semantic vectors
+3. **Vector Database**: Lance columnar database for fast similarity search
+4. **GraphRAG Builder**: AI-powered file relationship extraction
+5. **Search Engine**: Semantic similarity with keyword boosting
+
+### Knowledge Graph Structure
+
+**Nodes** represent files/modules with:
+- File path and metadata
+- AI-generated descriptions
+- Extracted symbols (functions, classes, etc.)
+- Import/export lists
+- Vector embeddings
+
+**Relationships** represent connections:
+- `imports`: Direct import dependencies
+- `sibling_module`: Files in same directory
+- `parent_module` / `child_module`: Hierarchical relationships
+
+## 🌐 Supported Languages
+
+| Language    | Extensions            | Features                    |
+|-------------|----------------------|----------------------------|
+| **Rust**    | `.rs`                | Full AST parsing, pub/use detection |
+| **Python**  | `.py`                | Import/class/function extraction |
+| **JavaScript** | `.js`, `.jsx`     | ES6 imports/exports, functions |
+| **TypeScript** | `.ts`, `.tsx`     | Type definitions, modules |
+| **Go**      | `.go`                | Package/import analysis |
+| **PHP**     | `.php`               | Class/function extraction |
+| **C++**     | `.cpp`, `.hpp`, `.h` | Include analysis |
+| **Ruby**    | `.rb`                | Class/module extraction |
+| **JSON**    | `.json`              | Structure analysis |
+| **Bash**    | `.sh`, `.bash`       | Function and variable extraction |
+| **Markdown** | `.md`               | Document section indexing |
+
+## 🔧 Advanced Usage
+
+### Custom Models
+Use any OpenRouter-compatible model:
+
+```bash
+# Use Claude for better code understanding
+octocode config --model "anthropic/claude-3.5-sonnet"
+
+# Use local models via OpenRouter
+octocode config --model "local/llama-3.2-70b"
+
+# Different models for different tasks
+echo '[graphrag]
+description_model = "openai/gpt-4o"
+relationship_model = "anthropic/claude-3.5-sonnet"' >> .octocode/config.toml
+```
+
+### Batch Operations
+```bash
+# Clear and rebuild entire index
+octocode clear && octocode index
+
+# Force reindex all files
+octocode index --force
+```
+
+### Output Formats
+```bash
+# JSON output for programmatic use
+octocode search "API endpoints" --json
+
+# Markdown for documentation
+octocode graphrag overview --md > project-structure.md
+```
+
+## 🔒 Privacy & Security
+
+- **Local-First**: FastEmbed runs entirely offline
+- **API Security**: OpenRouter/Jina keys stored locally only
+- **No Code Upload**: Only file metadata and descriptions sent to AI APIs
+- **Gitignore Respect**: Never indexes sensitive files like `.env`, `secrets/`
+
+## 📊 Performance
+
+### Typical Performance Metrics
+- **Indexing Speed**: ~100-500 files/second (depending on file size)
+- **Search Latency**: <100ms for most queries
+- **Memory Usage**: ~50MB base + ~1KB per indexed file
+- **Storage**: ~10KB per file in Lance database
+
+### Optimization Tips
+```toml
+[index]
+chunk_size = 1000        # Smaller chunks for faster indexing
+embeddings_batch_size = 64  # Larger batches for better throughput
+
+[search]
+max_results = 20         # Limit results for faster response
+```
+
+## 🤝 Contributing
+
+We welcome contributions! This project is part of the larger Muvon ecosystem.
+
+### Development Setup
+```bash
+git clone https://github.com/muvon/octocode.git
+cd octocode
+cargo build
+cargo test
+```
+
+### Adding Language Support
+Language parsers are in `src/indexer/languages/`. Each language needs:
+1. Tree-sitter grammar dependency
+2. Language implementation in `src/indexer/languages/your_lang.rs`
+3. Registration in `src/indexer/languages/mod.rs`
+
+## 📞 Support & Contact
+
+- **Issues**: [GitHub Issues](https://github.com/muvon/octocode/issues)
+- **Email**: [opensource@muvon.io](mailto:opensource@muvon.io)
+- **Company**: Muvon Un Limited (Hong Kong)
+- **Website**: [muvon.io](https://muvon.io)
+- **Product Page**: [octocode.muvon.io](https://octocode.muvon.io)
+
+## ⚖️ License
+
+Copyright © 2025 Muvon Un Limited. All rights reserved.
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+**Built with ❤️ by the Muvon team in Hong Kong**

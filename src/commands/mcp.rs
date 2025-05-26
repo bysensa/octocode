@@ -490,7 +490,7 @@ async fn run_watcher(tx: mpsc::Sender<()>, working_dir: std::path::PathBuf) -> R
 async fn trigger_reindex() -> Result<()> {
 	// Run indexing in background process to avoid blocking MCP server
 	let mut child = Command::new(std::env::current_exe()?)
-		.args(&["index"])
+		.args(["index"])
 		.stdout(Stdio::null())
 		.stderr(Stdio::null())
 		.spawn()?;

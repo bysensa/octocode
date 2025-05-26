@@ -172,6 +172,9 @@ pub struct IndexConfig {
 	#[serde(default = "default_graphrag_enabled")]
 	pub graphrag_enabled: bool,
 
+	#[serde(default = "default_graphrag_enabled")]
+	pub llm_enabled: bool,
+
 	#[serde(default)]
 	pub ignore_patterns: Vec<String>,
 }
@@ -184,6 +187,7 @@ impl Default for IndexConfig {
 			embedding_model: default_embedding_model(),
 			embeddings_batch_size: default_embeddings_batch_size(),
 			graphrag_enabled: default_graphrag_enabled(),
+			llm_enabled: default_graphrag_enabled(),
 			ignore_patterns: vec![
 				".git/".to_string(),
 				"target/".to_string(),

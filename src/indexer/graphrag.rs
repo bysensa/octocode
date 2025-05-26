@@ -3,41 +3,60 @@
 
 use crate::config::Config;
 use crate::store::{Store, CodeBlock};
+use crate::indexer::embed::calculate_unique_content_hash;
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::array::Array;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use tokio::sync::RwLock;
 use std::sync::Arc;
 use reqwest::Client;
 use serde_json::json;
 use fastembed::{TextEmbedding, EmbeddingModel, InitOptions};
-use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use crate::state::SharedState;
 
-// A node in the code graph
+// A node in the code graph - represents a file/module with efficient storage
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodeNode {
-	pub id: String,           // Unique ID (typically the path + name)
-	pub name: String,         // Name of the code entity (function, class, etc.)
-	pub kind: String,         // Type of the node (function, class, struct, etc.)
-	pub path: String,         // File path
-	pub description: String,  // Description/summary of what the node does
-	pub symbols: Vec<String>, // Associated symbols
+	pub id: String,           // Relative path from project root (efficient storage)
+	pub name: String,         // File name or module name
+	pub kind: String,         // Type of the node (file, module, package, function)
+	pub path: String,         // Relative file path from project root
+	pub description: String,  // Description/summary of what the file/module does
+	pub symbols: Vec<String>, // All symbols from this file (functions, classes, etc.)
 	pub hash: String,         // Content hash to detect changes
-	pub embedding: Vec<f32>,  // Vector embedding of the node
+	pub embedding: Vec<f32>,  // Vector embedding of the file content
+	pub imports: Vec<String>, // List of imported modules (relative paths or external)
+	pub exports: Vec<String>, // List of exported symbols
+	pub functions: Vec<FunctionInfo>, // Function-level information for better granularity
+	pub size_lines: u32,      // Number of lines in the file
+	pub language: String,     // Programming language
 }
 
-// A relationship between code nodes
+// Function-level information for better granularity
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FunctionInfo {
+	pub name: String,         // Function name
+	pub signature: String,    // Function signature
+	pub start_line: u32,      // Starting line number
+	pub end_line: u32,        // Ending line number
+	pub calls: Vec<String>,   // Functions this function calls
+	pub called_by: Vec<String>, // Functions that call this function
+	pub parameters: Vec<String>, // Function parameters
+	pub return_type: Option<String>, // Return type if available
+}
+
+// A relationship between code nodes - simplified and more efficient
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodeRelationship {
-	pub source: String,      // Source node ID
-	pub target: String,      // Target node ID
-	pub relation_type: String, // Type of relationship (calls, imports, extends, etc.)
-	pub description: String, // Description of the relationship
-	pub confidence: f32,     // Confidence score of this relationship
+	pub source: String,      // Source node ID (relative path)
+	pub target: String,      // Target node ID (relative path)
+	pub relation_type: String, // Type: imports, calls, extends, implements, etc.
+	pub description: String, // Brief description
+	pub confidence: f32,     // Confidence score (0.0-1.0)
+	pub weight: f32,         // Relationship strength/frequency
 }
 
 // The full code graph
@@ -47,73 +66,7 @@ pub struct CodeGraph {
 	pub relationships: Vec<CodeRelationship>,
 }
 
-// A simple prompt template for extracting code descriptions
-const DESCRIPTION_PROMPT: &str = r#"You are an expert code summarizer.
-Your task is to provide a brief, clear description of what the following code does.
-Limit your response to 2 sentences maximum, focusing only on the main functionality.
-Don't list parameters or mention "this code" or "this function".
-Don't use codeblocks or formatting.
-
-Code:
-```
-{code}
-```
-
-Description:"#;
-
-// A prompt template for extracting relationships for a single pair
-const RELATIONSHIP_PROMPT: &str = r#"You are an expert code analyzer.
-Your task is to identify relationships between two code entities and return them in JSON format.
-
-Here are two code entities:
-
-Entity 1 (Source):
-Name: {source_name}
-Kind: {source_kind}
-Description: {source_description}
-Code: ```
-{source_code}
-```
-
-Entity 2 (Target):
-Name: {target_name}
-Kind: {target_kind}
-Description: {target_description}
-Code: ```
-{target_code}
-```
-
-Analyze these entities and detect possible relationships between them.
-Only respond with a JSON object containing the following fields:
-- relation_type: A simple relationship type like "calls", "imports", "extends", "implements", "uses", "defines", "references", etc.
-- description: A brief description of this relationship (max 1 sentence)
-- confidence: A number between 0.0 and 1.0 representing your confidence in this relationship
-- exists: Boolean indicating whether a relationship exists at all
-
-Only return the JSON response and nothing else. If you do not detect any relationship, set exists to false."#;
-
-// Define a constant for multi-relationship batching
-const MULTI_REL_BATCH_PROMPT: &str = r#"You are an expert code analyzer.
-Your task is to identify relationships between multiple pairs of code entities and return them in JSON format.
-
-I will provide you with multiple pairs of code entities to analyze. For each pair, determine if there's a relationship between them.
-
-Format your response as a JSON array where each element contains:
-- source_id: ID of the source entity
-- target_id: ID of the target entity
-- relation_type: A simple relationship type like "calls", "imports", "extends", "implements", "uses", "defines", "references", etc.
-- description: A brief description of this relationship (max 1 sentence)
-- confidence: A number between 0.0 and 1.0 representing your confidence in this relationship
-- exists: Boolean indicating whether a relationship exists at all
-
-Only include pairs where a relationship exists (exists=true).
-
-Here are the code entity pairs to analyze:
-
-{pairs}
-
-Respond with a JSON array of relationships.
-"#;
+// Note: Old AI prompts removed - using more targeted AI interactions now
 
 // Helper struct for batch relationship analysis request
 #[derive(Debug, Serialize, Deserialize)]
@@ -126,19 +79,23 @@ struct BatchRelationshipResult {
 	exists: bool,
 }
 
-// Manages the creation and storage of the code graph
+// Manages the creation and storage of the code graph with project-relative paths
 pub struct GraphBuilder {
 	config: Config,
 	graph: Arc<RwLock<CodeGraph>>,
 	client: Client,
 	embedding_model: Arc<TextEmbedding>,
 	store: Store,
+	project_root: PathBuf,  // Project root for relative path calculations
 }
 
 impl GraphBuilder {
 	pub async fn new(config: Config) -> Result<Self> {
+		// Detect project root (look for common indicators)
+		let project_root = Self::detect_project_root()?;
+		
 		// Initialize embedding model
-		let cache_dir = std::path::PathBuf::from(".octodev/fastembed");
+		let cache_dir = project_root.join(".octocode/fastembed");
 		std::fs::create_dir_all(&cache_dir).context("Failed to create FastEmbed cache directory")?;
 
 		let model = TextEmbedding::try_new(
@@ -151,7 +108,7 @@ impl GraphBuilder {
 		let store = Store::new().await?;
 
 		// Load existing graph from database
-		let graph = Arc::new(RwLock::new(Self::load_graph(&store).await?));
+		let graph = Arc::new(RwLock::new(Self::load_graph(&store, &project_root).await?));
 
 		Ok(Self {
 			config,
@@ -159,11 +116,70 @@ impl GraphBuilder {
 			client: Client::new(),
 			embedding_model: Arc::new(model),
 			store,
+			project_root,
 		})
 	}
 
+	// Legacy method for backward compatibility
+	pub async fn new_with_ai_enhancements(config: Config, _use_ai_enhancements: bool) -> Result<Self> {
+		// Note: _use_ai_enhancements parameter is ignored, using config.index.llm_enabled instead
+		Self::new(config).await
+	}
+
+	// Check if LLM enhancements are enabled
+	fn llm_enabled(&self) -> bool {
+		self.config.index.llm_enabled
+	}
+
+	// Detect project root by looking for common indicators
+	fn detect_project_root() -> Result<PathBuf> {
+		let current_dir = std::env::current_dir()?;
+		let mut dir = current_dir.as_path();
+		
+		// Look for common project root indicators
+		let indicators = [
+			"Cargo.toml", "package.json", ".git", "pyproject.toml", 
+			"go.mod", "pom.xml", "build.gradle", "composer.json"
+		];
+		
+		loop {
+			for indicator in &indicators {
+				if dir.join(indicator).exists() {
+					return Ok(dir.to_path_buf());
+				}
+			}
+			
+			match dir.parent() {
+				Some(parent) => dir = parent,
+				None => break,
+			}
+		}
+		
+		// Fallback to current directory if no indicators found
+		Ok(current_dir)
+	}
+
+	// Convert absolute path to relative path from project root
+	fn to_relative_path(&self, absolute_path: &str) -> Result<String> {
+		let abs_path = PathBuf::from(absolute_path);
+		let relative = abs_path.strip_prefix(&self.project_root)
+			.map_err(|_| anyhow::anyhow!("Path {} is not within project root {}", 
+				absolute_path, self.project_root.display()))?;
+		
+		Ok(relative.to_string_lossy().to_string())
+	}
+
+	// Generate an embedding for node content
+	async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>> {
+		let embeddings = self.embedding_model.embed(vec![text], None)?;
+		if embeddings.is_empty() {
+			return Err(anyhow::anyhow!("Failed to generate embedding"));
+		}
+		Ok(embeddings[0].clone())
+	}
+
 	// Load the existing graph from database
-	async fn load_graph(store: &Store) -> Result<CodeGraph> {
+	async fn load_graph(store: &Store, _project_root: &Path) -> Result<CodeGraph> {
 		let mut graph = CodeGraph::default();
 
 		// Check if the tables exist
@@ -189,6 +205,8 @@ impl GraphBuilder {
 		let path_array = node_batch.column_by_name("path").unwrap().as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
 		let description_array = node_batch.column_by_name("description").unwrap().as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
 		let symbols_array = node_batch.column_by_name("symbols").unwrap().as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
+		let imports_array = node_batch.column_by_name("imports").unwrap().as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
+		let exports_array = node_batch.column_by_name("exports").unwrap().as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
 		let hash_array = node_batch.column_by_name("hash").unwrap().as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
 
 		// Get the embedding fixed size list array
@@ -218,6 +236,20 @@ impl GraphBuilder {
 				serde_json::from_str(symbols_array.value(i)).unwrap_or_default()
 			};
 
+			// Parse imports JSON
+			let imports: Vec<String> = if imports_array.is_null(i) {
+				Vec::new()
+			} else {
+				serde_json::from_str(imports_array.value(i)).unwrap_or_default()
+			};
+
+			// Parse exports JSON
+			let exports: Vec<String> = if exports_array.is_null(i) {
+				Vec::new()
+			} else {
+				serde_json::from_str(exports_array.value(i)).unwrap_or_default()
+			};
+
 			let hash = hash_array.value(i).to_string();
 
 			// Extract the embedding for this node
@@ -237,6 +269,11 @@ impl GraphBuilder {
 				path,
 				description,
 				symbols,
+				imports,
+				exports,
+				functions: Vec::new(), // Default empty for nodes loaded from old schema
+				size_lines: 0, // Default for nodes loaded from old schema
+				language: "unknown".to_string(), // Default for nodes loaded from old schema
 				hash,
 				embedding,
 			};
@@ -265,6 +302,7 @@ impl GraphBuilder {
 					relation_type: type_array.value(i).to_string(),
 					description: desc_array.value(i).to_string(),
 					confidence: conf_array.value(i),
+					weight: 1.0, // Default weight for legacy relationships
 				};
 
 				// Add to graph
@@ -356,12 +394,12 @@ impl GraphBuilder {
 		Ok(())
 	}
 
-	// Convert nodes to a RecordBatch for database storage
+	// Convert nodes to a RecordBatch for database storage with updated schema
 	async fn nodes_to_batch(&self, nodes: &HashMap<String, CodeNode>) -> Result<arrow::record_batch::RecordBatch> {
 		// Get the vector dimension from the store
 		let vector_dim = self.store.get_vector_dim();
 
-		// Create schema
+		// Create updated schema with new fields
 		let schema = Arc::new(Schema::new(vec![
 			Field::new("id", DataType::Utf8, false),
 			Field::new("name", DataType::Utf8, false),
@@ -369,6 +407,11 @@ impl GraphBuilder {
 			Field::new("path", DataType::Utf8, false),
 			Field::new("description", DataType::Utf8, false),
 			Field::new("symbols", DataType::Utf8, true),  // JSON serialized
+			Field::new("imports", DataType::Utf8, true),  // JSON serialized
+			Field::new("exports", DataType::Utf8, true),  // JSON serialized
+			Field::new("functions", DataType::Utf8, true), // JSON serialized
+			Field::new("size_lines", DataType::UInt32, false),
+			Field::new("language", DataType::Utf8, false),
 			Field::new("hash", DataType::Utf8, false),
 			Field::new(
 				"embedding",
@@ -392,6 +435,11 @@ impl GraphBuilder {
 		let paths: Vec<&str> = nodes_vec.iter().map(|n| n.path.as_str()).collect();
 		let descriptions: Vec<&str> = nodes_vec.iter().map(|n| n.description.as_str()).collect();
 		let symbols: Vec<String> = nodes_vec.iter().map(|n| serde_json::to_string(&n.symbols).unwrap_or_default()).collect();
+		let imports: Vec<String> = nodes_vec.iter().map(|n| serde_json::to_string(&n.imports).unwrap_or_default()).collect();
+		let exports: Vec<String> = nodes_vec.iter().map(|n| serde_json::to_string(&n.exports).unwrap_or_default()).collect();
+		let functions: Vec<String> = nodes_vec.iter().map(|n| serde_json::to_string(&n.functions).unwrap_or_default()).collect();
+		let size_lines: Vec<u32> = nodes_vec.iter().map(|n| n.size_lines).collect();
+		let languages: Vec<&str> = nodes_vec.iter().map(|n| n.language.as_str()).collect();
 		let hashes: Vec<&str> = nodes_vec.iter().map(|n| n.hash.as_str()).collect();
 
 		// Create the embedding fixed size list array
@@ -426,6 +474,11 @@ impl GraphBuilder {
 				Arc::new(arrow::array::StringArray::from(paths)),
 				Arc::new(arrow::array::StringArray::from(descriptions)),
 				Arc::new(arrow::array::StringArray::from(symbols)),
+				Arc::new(arrow::array::StringArray::from(imports)),
+				Arc::new(arrow::array::StringArray::from(exports)),
+				Arc::new(arrow::array::StringArray::from(functions)),
+				Arc::new(arrow::array::UInt32Array::from(size_lines)),
+				Arc::new(arrow::array::StringArray::from(languages)),
 				Arc::new(arrow::array::StringArray::from(hashes)),
 				Arc::new(embedding_array),
 			],
@@ -436,7 +489,7 @@ impl GraphBuilder {
 
 	// Convert relationships to a RecordBatch for database storage
 	async fn relationships_to_batch(&self, relationships: &[CodeRelationship]) -> Result<arrow::record_batch::RecordBatch> {
-		// Create schema
+		// Create updated schema with weight field
 		let schema = Arc::new(Schema::new(vec![
 			Field::new("id", DataType::Utf8, false),
 			Field::new("source", DataType::Utf8, false),
@@ -444,6 +497,7 @@ impl GraphBuilder {
 			Field::new("relation_type", DataType::Utf8, false),
 			Field::new("description", DataType::Utf8, false),
 			Field::new("confidence", DataType::Float32, false),
+			Field::new("weight", DataType::Float32, false),
 		]));
 
 		// Generate unique IDs
@@ -453,6 +507,7 @@ impl GraphBuilder {
 		let types: Vec<&str> = relationships.iter().map(|r| r.relation_type.as_str()).collect();
 		let descriptions: Vec<&str> = relationships.iter().map(|r| r.description.as_str()).collect();
 		let confidences: Vec<f32> = relationships.iter().map(|r| r.confidence).collect();
+		let weights: Vec<f32> = relationships.iter().map(|r| r.weight).collect();
 
 		// Create record batch
 		let batch = arrow::record_batch::RecordBatch::try_new(
@@ -464,699 +519,813 @@ impl GraphBuilder {
 				Arc::new(arrow::array::StringArray::from(types)),
 				Arc::new(arrow::array::StringArray::from(descriptions)),
 				Arc::new(arrow::array::Float32Array::from(confidences)),
+				Arc::new(arrow::array::Float32Array::from(weights)),
 			],
 		)?;
 
 		Ok(batch)
 	}
 
-	// Process a batch of code blocks and update the graph with batching and incremental saving
-	pub async fn process_code_blocks(&self, code_blocks: &[CodeBlock], state: Option<SharedState>) -> Result<()> {
-		// Create nodes for code blocks that are new or have changed
+	// Process files efficiently using existing code blocks for better performance
+	pub async fn process_files_from_codeblocks(&self, code_blocks: &[CodeBlock], state: Option<SharedState>) -> Result<()> {
 		let mut new_nodes = Vec::new();
 		let mut processed_count = 0;
 		let mut skipped_count = 0;
 
-		// Constants for batch processing
-		const BATCH_SIZE: usize = 20;  // Number of nodes to process before saving
-		const DESC_BATCH_SIZE: usize = 5;  // Number of descriptions to generate in a single batch
-
-		// Prepare for batch description generation
-		let mut desc_batch = Vec::with_capacity(DESC_BATCH_SIZE);
-		let mut desc_blocks = Vec::with_capacity(DESC_BATCH_SIZE);
-		let mut desc_names = Vec::with_capacity(DESC_BATCH_SIZE);
-		let mut desc_ids = Vec::with_capacity(DESC_BATCH_SIZE);
-
-		// First pass: check which blocks need processing and collect blocks for description generation
+		// Group code blocks by file for efficient processing
+		let mut files_to_blocks: HashMap<String, Vec<&CodeBlock>> = HashMap::new();
 		for block in code_blocks {
-			if block.symbols.is_empty() {
-				continue; // Skip blocks without symbols
-			}
+			files_to_blocks.entry(block.path.clone()).or_default().push(block);
+		}
 
-			// Generate a unique ID for this node
-			let node_name = self.extract_node_name(block);
-			let node_id = format!("{}/{}", block.path, node_name);
+		// Process each file
+		for (file_path, file_blocks) in files_to_blocks {
+			// Convert to relative path
+			let relative_path = match self.to_relative_path(&file_path) {
+				Ok(path) => path,
+				Err(_) => {
+					eprintln!("Warning: Skipping file outside project root: {}", file_path);
+					continue;
+				}
+			};
 
-			// Check if we already have this node with the same hash
+			// Calculate file hash based on all blocks
+			let combined_content: String = file_blocks.iter()
+				.map(|b| b.content.as_str())
+				.collect::<Vec<_>>()
+				.join("\n");
+			let content_hash = calculate_unique_content_hash(&combined_content, &file_path);
+
+			// Check if we already have this file with the same hash
 			let graph = self.graph.read().await;
-			let needs_processing = match graph.nodes.get(&node_id) {
-				Some(existing_node) if existing_node.hash == block.hash => {
-					// Skip unchanged nodes
+			let needs_processing = match graph.nodes.get(&relative_path) {
+				Some(existing_node) if existing_node.hash == content_hash => {
 					skipped_count += 1;
 					false
 				},
 				_ => true
 			};
-			drop(graph); // Release the lock
+			drop(graph);
 
 			if needs_processing {
-				// Add to the description batch
-				desc_batch.push(block.content.clone());
-				desc_blocks.push(block.clone());
-				desc_names.push(node_name);
-				desc_ids.push(node_id);
+				// Extract file information efficiently
+				let file_name = Path::new(&file_path)
+					.file_stem()
+					.and_then(|s| s.to_str())
+					.unwrap_or("unknown")
+					.to_string();
 
-				// Process batch if we've reached the batch size
-				if desc_batch.len() >= DESC_BATCH_SIZE {
-					let batch_nodes = self.process_description_batch(
-						&desc_batch, &desc_blocks, &desc_names, &desc_ids
-					).await?;
-					new_nodes.extend(batch_nodes);
+				// Determine file kind based on path patterns
+				let kind = self.determine_file_kind(&relative_path);
 
-					// Clear batch buffers
-					desc_batch.clear();
-					desc_blocks.clear();
-					desc_names.clear();
-					desc_ids.clear();
+				// Extract language from the first block (should be consistent)
+				let language = file_blocks.first()
+					.map(|b| b.language.clone())
+					.unwrap_or_else(|| "unknown".to_string());
 
-					processed_count += DESC_BATCH_SIZE;
+				// Collect all symbols from all blocks
+				let mut all_symbols = HashSet::new();
+				let mut all_functions = Vec::new();
+				let mut total_lines = 0;
 
-					// Process and save if we've reached BATCH_SIZE nodes
-					if new_nodes.len() >= BATCH_SIZE {
-						let batch_nodes = new_nodes.clone();
-
-						// Discover relationships and save this batch
-						let relationships = self.discover_relationships_batch(&batch_nodes).await?;
-						if !relationships.is_empty() {
-							let mut graph = self.graph.write().await;
-							graph.relationships.extend(relationships.clone());
-							drop(graph);
-
-							// Save incrementally
-							self.save_graph_incremental(&batch_nodes, &relationships).await?;
-						} else {
-							// Save just the nodes incrementally
-							self.save_graph_incremental(&batch_nodes, &[]).await?;
-						}
-
-						// Clear the new_nodes for the next batch
-						new_nodes.clear();
+				for block in &file_blocks {
+					all_symbols.extend(block.symbols.iter().cloned());
+					total_lines = total_lines.max(block.end_line);
+					
+					// Extract function information from this block
+					if let Ok(functions) = self.extract_functions_from_block(block) {
+						all_functions.extend(functions);
 					}
+				}
+
+				let symbols: Vec<String> = all_symbols.into_iter().collect();
+
+				// Efficiently extract imports and exports based on language and symbols
+				let (imports, exports) = self.extract_imports_exports_efficient(&symbols, &language, &relative_path);
+
+				// Generate description - use AI for complex files when enabled
+				let description = if self.llm_enabled() && self.should_use_ai_for_description(&symbols, total_lines as u32, &language) {
+					// Collect a meaningful content sample for AI analysis
+					let content_sample = self.build_content_sample_for_ai(&file_blocks);
+					self.extract_ai_description(&content_sample, &file_path, &language, &symbols).await
+						.unwrap_or_else(|_| self.generate_simple_description(&file_name, &language, &symbols, total_lines as u32))
+				} else {
+					self.generate_simple_description(&file_name, &language, &symbols, total_lines as u32)
+				};
+
+				// Generate embedding for the file summary (much lighter than full content)
+				let summary_text = format!("{} {} symbols: {}", 
+					file_name, language, symbols.join(" "));
+				let embedding = self.generate_embedding(&summary_text).await?;
+
+				// Create the file node
+				let node = CodeNode {
+					id: relative_path.clone(),
+					name: file_name,
+					kind,
+					path: relative_path.clone(),
+					description,
+					symbols,
+					imports,
+					exports,
+					functions: all_functions,
+					hash: content_hash,
+					embedding,
+					size_lines: total_lines as u32,
+					language,
+				};
+
+				// Add the node to the graph
+				let mut graph = self.graph.write().await;
+				graph.nodes.insert(relative_path, node.clone());
+				drop(graph);
+
+				new_nodes.push(node);
+				processed_count += 1;
+
+				// Update state if provided
+				if let Some(ref state) = state {
+					let mut state_guard = state.write();
+					state_guard.status_message = format!("Processing file: {}", file_path);
 				}
 			}
 		}
 
-		// Process any remaining blocks in the description batch
-		if !desc_batch.is_empty() {
-			let batch_nodes = self.process_description_batch(
-				&desc_batch, &desc_blocks, &desc_names, &desc_ids
-			).await?;
-			new_nodes.extend(batch_nodes);
-			processed_count += desc_batch.len();
-		}
-
-		// Process any remaining nodes
+		// Discover relationships efficiently (no AI needed for most relationships)
 		if !new_nodes.is_empty() {
-			let batch_nodes = new_nodes.clone();
-
-			// Discover relationships for the final batch
-			let relationships = self.discover_relationships_batch(&batch_nodes).await?;
+			let relationships = if self.llm_enabled() {
+				// Enhanced relationship discovery with optional AI for complex cases
+				self.discover_relationships_with_ai_enhancement(&new_nodes).await?
+			} else {
+				// Fast rule-based relationship discovery only
+				self.discover_relationships_efficiently(&new_nodes).await?
+			};
 			if !relationships.is_empty() {
 				let mut graph = self.graph.write().await;
 				graph.relationships.extend(relationships.clone());
 				drop(graph);
 
-				// Save the final batch incrementally
-				self.save_graph_incremental(&batch_nodes, &relationships).await?;
+				// Save the nodes and relationships
+				self.save_graph_incremental(&new_nodes, &relationships).await?;
 			} else {
-				// Save just the nodes incrementally
-				self.save_graph_incremental(&batch_nodes, &[]).await?;
+				// Save just the nodes
+				self.save_graph_incremental(&new_nodes, &[]).await?;
 			}
 		}
 
-		// If we have state, update the completed message
+		// Update final state
 		if let Some(state) = state {
-			// Use the state to update progress instead of printing
 			let mut state_guard = state.write();
-			state_guard.status_message = format!("GraphRAG processing complete: {} new/changed nodes", processed_count);
+			state_guard.status_message = format!("GraphRAG processing complete: {} files processed ({} skipped)", processed_count, skipped_count);
 		} else {
-			// Report total processing stats if no state provided
-			println!("GraphRAG: Completed processing {} new/changed nodes (skipped {} unchanged)", processed_count, skipped_count);
+			println!("GraphRAG: Processed {} files ({} skipped)", processed_count, skipped_count);
 		}
 
 		Ok(())
 	}
 
-	// Process a batch of descriptions in one API call
-	async fn process_description_batch(
-		&self,
-		content_batch: &[String],
-		blocks: &[CodeBlock],
-		names: &[String],
-		ids: &[String]
-	) -> Result<Vec<CodeNode>> {
-		let mut new_nodes = Vec::new();
-
-		// Generate descriptions in a batch
-		let descriptions = self.extract_descriptions_batch(content_batch).await?;
-
-		// Process each node with its description
-		for i in 0..descriptions.len() {
-			let block = &blocks[i];
-			let node_name = &names[i];
-			let node_id = &ids[i];
-			let description = &descriptions[i];
-
-			// Generate embedding for the node
-			let embedding = self.generate_embedding(&format!("{} {}", node_name, description)).await?;
-
-			// Create the node
-			let node = CodeNode {
-				id: node_id.clone(),
-				name: node_name.clone(),
-				kind: self.determine_node_kind(block),
-				path: block.path.clone(),
-				description: description.clone(),
-				symbols: block.symbols.clone(),
-				hash: block.hash.clone(),
-				embedding,
-			};
-
-			// Add the node to the graph
-			let mut graph = self.graph.write().await;
-			graph.nodes.insert(node_id.clone(), node.clone());
-			drop(graph);
-
-			new_nodes.push(node);
+	// Determine file kind based on path patterns
+	fn determine_file_kind(&self, relative_path: &str) -> String {
+		if relative_path.contains("/src/") || relative_path.contains("/lib/") {
+			"source_file".to_string()
+		} else if relative_path.contains("/test") || relative_path.contains("_test.") || relative_path.contains(".test.") {
+			"test_file".to_string()
+		} else if relative_path.ends_with(".md") || relative_path.ends_with(".txt") || relative_path.ends_with(".rst") {
+			"documentation".to_string()
+		} else if relative_path.contains("/config") || relative_path.contains(".config") {
+			"config_file".to_string()
+		} else if relative_path.contains("/examples") || relative_path.contains("/demo") {
+			"example_file".to_string()
+		} else {
+			"file".to_string()
 		}
-
-		Ok(new_nodes)
 	}
 
-	// Extract descriptions for a batch of code blocks in one API call
-	async fn extract_descriptions_batch(&self, code_blocks: &[String]) -> Result<Vec<String>> {
-		if code_blocks.is_empty() {
-			return Ok(Vec::new());
+	// Extract function information from a code block efficiently
+	fn extract_functions_from_block(&self, block: &CodeBlock) -> Result<Vec<FunctionInfo>> {
+		let mut functions = Vec::new();
+		
+		// Look for function patterns in symbols
+		for symbol in &block.symbols {
+			if symbol.contains("function_") || symbol.contains("method_") {
+				// Parse the symbol to extract function info
+				if let Some(function_info) = self.parse_function_symbol(symbol, block) {
+					functions.push(function_info);
+				}
+			}
+		}
+		
+		Ok(functions)
+	}
+
+	// Parse function symbol to create FunctionInfo
+	fn parse_function_symbol(&self, symbol: &str, block: &CodeBlock) -> Option<FunctionInfo> {
+		// Simple pattern matching for common function symbol formats
+		// This can be expanded based on your language implementations
+		
+		symbol.strip_prefix("function_").map(|function_name| FunctionInfo {
+			name: function_name.to_string(),
+			signature: format!("{}(...)", function_name), // Simplified
+			start_line: block.start_line as u32,
+			end_line: block.end_line as u32,
+			calls: Vec::new(), // Will be populated during relationship discovery
+			called_by: Vec::new(),
+			parameters: Vec::new(), // Could be extracted from content if needed
+			return_type: None,
+		})
+	}
+
+	// Extract imports/exports efficiently based on language patterns and symbols
+	fn extract_imports_exports_efficient(&self, symbols: &[String], language: &str, _relative_path: &str) -> (Vec<String>, Vec<String>) {
+		let mut imports = Vec::new();
+		let mut exports = Vec::new();
+
+		// Use symbol patterns to determine imports/exports without re-parsing
+		for symbol in symbols {
+			if symbol.contains("import_") {
+				if let Some(import_name) = symbol.strip_prefix("import_") {
+					imports.push(import_name.to_string());
+				}
+			}
+			
+			if symbol.contains("export_") || symbol.contains("public_") {
+				if let Some(export_name) = symbol.strip_prefix("export_").or_else(|| symbol.strip_prefix("public_")) {
+					exports.push(export_name.to_string());
+				}
+			}
 		}
 
-		// If there's just one block, use the single-block method
-		if code_blocks.len() == 1 {
-			let description = self.extract_description(&code_blocks[0]).await?;
-			return Ok(vec![description]);
-		}
-
-		// Prepare a batch prompt for multiple code blocks
-		let mut batch_prompt = String::from("You are an expert code summarizer. Provide brief, clear descriptions of what each code block does. \n");
-		batch_prompt.push_str("Limit each description to 2 sentences maximum, focusing only on the main functionality. \n");
-		batch_prompt.push_str("Don't list parameters or mention \"this code\" or \"this function\". \n");
-		batch_prompt.push_str("Don't use codeblocks or formatting. \n\n");
-		batch_prompt.push_str("Respond with a JSON object that has a 'descriptions' field containing an array with one description per code block. \n\n");
-		batch_prompt.push_str("Code blocks to describe: \n\n");
-
-		// Add each code block
-		for (i, code) in code_blocks.iter().enumerate() {
-			// Truncate code if it's too long
-			let truncated_code = if code.len() > 1200 {
-				format!("{} [...]", &code[0..1200])
-			} else {
-				code.clone()
-			};
-
-			batch_prompt.push_str(&format!("Block #{}: ```\n{}\n```\n\n", i+1, truncated_code));
-		}
-
-		// Prepare the JSON schema for the response - using an object with array property
-		// as required by OpenAI
-		let schema = json!({
-			"type": "object",
-			"properties": {
-				"descriptions": {
-					"type": "array",
-					"items": {
-						"type": "string",
-						"description": "A brief description of the code block"
-					},
-					"minItems": code_blocks.len(),
-					"maxItems": code_blocks.len()
+		// Language-specific patterns
+		match language {
+			"rust" => {
+				// For Rust, look for typical patterns
+				for symbol in symbols {
+					if symbol.starts_with("use_") {
+						imports.push(symbol.strip_prefix("use_").unwrap_or(symbol).to_string());
+					}
+					if symbol.starts_with("pub_") {
+						exports.push(symbol.strip_prefix("pub_").unwrap_or(symbol).to_string());
+					}
 				}
 			},
-			"required": ["descriptions"],
-			"additionalProperties": false
-		});
-
-		// Call the LLM with the batch prompt
-		match self.call_llm(
-			&self.config.graphrag.description_model,
-			batch_prompt,
-			Some(schema),
-		).await {
-			Ok(response) => {
-				// Parse the JSON array response
-				let descriptions: Vec<String> = match serde_json::from_str(&response) {
-					Ok(descs) => descs,
-					Err(e) => {
-						eprintln!("Error parsing descriptions batch: {}", e);
-						// Fallback: generate placeholder descriptions
-						code_blocks.iter().map(|code| {
-							let first_line = code.lines().next().unwrap_or("").trim();
-							if !first_line.is_empty() {
-								format!("Code starting with: {}", first_line)
-							} else {
-								"Code block with no description available".to_string()
-							}
-						}).collect()
+			"javascript" | "typescript" => {
+				// For JS/TS, look for module patterns
+				for symbol in symbols {
+					if symbol.contains("require_") || symbol.contains("from_") {
+						imports.push(symbol.to_string());
 					}
-				};
-
-				// Cleanup and truncate descriptions
-				let cleaned_descriptions: Vec<String> = descriptions.iter().map(|desc| {
-					let description = desc.trim();
-					if description.len() > 400 {
-						format!("{} [...]", &description[0..400])
-					} else {
-						description.to_string()
+					if symbol.contains("module_exports") || symbol.contains("export_") {
+						exports.push(symbol.to_string());
 					}
-				}).collect();
+				}
+			},
+			"python" => {
+				// For Python, look for import patterns
+				for symbol in symbols {
+					if symbol.contains("import_") || symbol.contains("from_") {
+						imports.push(symbol.to_string());
+					}
+					// In Python, most top-level symbols are exports
+					if symbol.contains("function_") || symbol.contains("class_") {
+						exports.push(symbol.to_string());
+					}
+				}
+			},
+			_ => {
+				// Generic approach
+			}
+		}
 
-				Ok(cleaned_descriptions)
+		// Deduplicate
+		imports.sort();
+		imports.dedup();
+		exports.sort();
+		exports.dedup();
+
+		(imports, exports)
+	}
+
+	// Determine if a file is complex enough to benefit from AI analysis
+	fn should_use_ai_for_description(&self, symbols: &[String], lines: u32, language: &str) -> bool {
+		// Use AI for files that are likely to benefit from better understanding
+		let function_count = symbols.iter().filter(|s| s.contains("function_") || s.contains("method_")).count();
+		let class_count = symbols.iter().filter(|s| s.contains("class_") || s.contains("struct_")).count();
+		let interface_count = symbols.iter().filter(|s| s.contains("interface_") || s.contains("trait_")).count();
+		
+		// AI is beneficial for:
+		// 1. Large files (>100 lines) with complex structure
+		// 2. Files with many functions/classes (>5 symbols)
+		// 3. Configuration files that benefit from context understanding
+		// 4. Core library/framework files
+		// 5. Files with interfaces/traits (architectural significance)
+		
+		let is_large_complex = lines > 100 && (function_count + class_count) > 5;
+		let is_config_file = symbols.iter().any(|s| s.contains("config") || s.contains("setting"));
+		let is_core_file = symbols.iter().any(|s| s.contains("main") || s.contains("lib") || s.contains("core"));
+		let has_architecture = interface_count > 0 || class_count > 3;
+		let is_important_language = matches!(language, "rust" | "typescript" | "python" | "go");
+		
+		(is_large_complex || is_config_file || is_core_file || has_architecture) && is_important_language
+	}
+
+	// Build a meaningful content sample for AI analysis (not full file content)
+	fn build_content_sample_for_ai(&self, file_blocks: &[&CodeBlock]) -> String {
+		let mut sample = String::new();
+		let mut total_chars = 0;
+		const MAX_SAMPLE_SIZE: usize = 1500; // Reasonable size for AI context
+		
+		// Prioritize blocks with more symbols (more important code)
+		let mut sorted_blocks: Vec<&CodeBlock> = file_blocks.to_vec();
+		sorted_blocks.sort_by(|a, b| b.symbols.len().cmp(&a.symbols.len()));
+		
+		for block in sorted_blocks {
+			if total_chars >= MAX_SAMPLE_SIZE {
+				break;
+			}
+			
+			// Add block content with some context
+			let block_content = if block.content.len() > 300 {
+				// For large blocks, take beginning and end
+				format!("{}\n...\n{}", 
+					&block.content[0..150], 
+					&block.content[block.content.len()-150..])
+			} else {
+				block.content.clone()
+			};
+			
+			sample.push_str(&format!("// Block: {} symbols\n{}\n\n", block.symbols.len(), block_content));
+			total_chars += block_content.len() + 50; // +50 for formatting
+		}
+		
+		sample
+	}
+
+	// Extract AI-powered description for complex files
+	async fn extract_ai_description(&self, content_sample: &str, file_path: &str, language: &str, symbols: &[String]) -> Result<String> {
+		let function_count = symbols.iter().filter(|s| s.contains("function_") || s.contains("method_")).count();
+		let class_count = symbols.iter().filter(|s| s.contains("class_") || s.contains("struct_")).count();
+		
+		let prompt = format!(
+			"Analyze this {} file and provide a concise 2-3 sentence description focusing on its ROLE and PURPOSE in the codebase.\n\
+			Focus on what this file accomplishes, its architectural significance, and how it fits into the larger system.\n\
+			Avoid listing specific functions/classes - instead describe the file's overall responsibility.\n\n\
+			File: {}\n\
+			Language: {}\n\
+			Stats: {} functions, {} classes/structs\n\
+			Key symbols: {}\n\n\
+			Code sample:\n{}\n\n\
+			Description:",
+			language,
+			std::path::Path::new(file_path).file_name().and_then(|s| s.to_str()).unwrap_or("unknown"),
+			language,
+			function_count,
+			class_count,
+			symbols.iter().take(5).cloned().collect::<Vec<_>>().join(", "),
+			content_sample
+		);
+
+		match self.call_llm(&self.config.graphrag.description_model, prompt, None).await {
+			Ok(description) => {
+				let cleaned = description.trim();
+				if cleaned.len() > 300 {
+					Ok(format!("{}...", &cleaned[0..297]))
+				} else {
+					Ok(cleaned.to_string())
+				}
 			},
 			Err(e) => {
-				// Provide basic fallback descriptions
-				eprintln!("Warning: Failed to generate batch descriptions: {}", e);
-				Ok(code_blocks.iter().map(|code| {
-					let first_line = code.lines().next().unwrap_or("").trim();
-					if !first_line.is_empty() {
-						format!("Code starting with: {}", first_line)
-					} else {
-						"Code block with no description available".to_string()
-					}
-				}).collect())
+				eprintln!("Warning: AI description failed for {}: {}", file_path, e);
+				Err(e)
 			}
 		}
 	}
 
-	// Discover relationships in a batch and return them without modifying the graph
-	async fn discover_relationships_batch(&self, new_nodes: &[CodeNode]) -> Result<Vec<CodeRelationship>> {
-		if new_nodes.is_empty() {
-			return Ok(Vec::new());
+	// Generate simple description without AI for speed (fallback and default)
+	fn generate_simple_description(&self, file_name: &str, language: &str, symbols: &[String], lines: u32) -> String {
+		let function_count = symbols.iter().filter(|s| s.contains("function_") || s.contains("method_")).count();
+		let class_count = symbols.iter().filter(|s| s.contains("class_") || s.contains("struct_")).count();
+		
+		if function_count > 0 && class_count > 0 {
+			format!("{} {} file with {} functions and {} classes ({} lines)", 
+				file_name, language, function_count, class_count, lines)
+		} else if function_count > 0 {
+			format!("{} {} file with {} functions ({} lines)", 
+				file_name, language, function_count, lines)
+		} else if class_count > 0 {
+			format!("{} {} file with {} classes ({} lines)", 
+				file_name, language, class_count, lines)
+		} else {
+			format!("{} {} file ({} lines)", file_name, language, lines)
 		}
+	}
 
-		// Get a read lock on the graph to access existing nodes
-		let nodes_from_graph = {
+	// Legacy method for backward compatibility - now uses efficient code block processing
+	pub async fn process_code_blocks(&self, code_blocks: &[CodeBlock], state: Option<SharedState>) -> Result<()> {
+		// Use the new efficient method that processes code blocks directly
+		self.process_files_from_codeblocks(code_blocks, state).await
+	}
+
+	// Enhanced relationship discovery with optional AI for complex cases
+	async fn discover_relationships_with_ai_enhancement(&self, new_files: &[CodeNode]) -> Result<Vec<CodeRelationship>> {
+		// Start with rule-based relationships (fast and reliable)
+		let mut relationships = self.discover_relationships_efficiently(new_files).await?;
+		
+		// Add AI-enhanced relationship discovery for complex architectural patterns
+		let ai_relationships = self.discover_complex_relationships_with_ai(new_files).await?;
+		relationships.extend(ai_relationships);
+		
+		// Deduplicate
+		relationships.sort_by(|a, b| {
+			(a.source.clone(), a.target.clone(), a.relation_type.clone())
+				.cmp(&(b.source.clone(), b.target.clone(), b.relation_type.clone()))
+		});
+		relationships.dedup_by(|a, b| {
+			a.source == b.source && a.target == b.target && a.relation_type == b.relation_type
+		});
+		
+		Ok(relationships)
+	}
+
+	// Use AI to discover complex architectural relationships
+	async fn discover_complex_relationships_with_ai(&self, new_files: &[CodeNode]) -> Result<Vec<CodeRelationship>> {
+		let mut ai_relationships = Vec::new();
+		
+		// Get all nodes for context
+		let all_nodes = {
 			let graph = self.graph.read().await;
 			graph.nodes.values().cloned().collect::<Vec<CodeNode>>()
-		}; // The lock is released when the block ends
-
-		let mut relationship_candidates = Vec::new();
-
-		// First pass: collect all potential relationship pairs to analyze
-		for source_node in new_nodes {
-			// Find similar nodes based on embeddings for efficiency
-			let candidate_nodes = self.find_similar_nodes(source_node, &nodes_from_graph, 3)?;
-
-			for target_node in candidate_nodes {
-				// Skip self-relationships
-				if source_node.id == target_node.id {
-					continue;
-				}
-
-				// Add to candidates list
-				relationship_candidates.push((source_node.clone(), target_node.clone()));
+		};
+		
+		// Only use AI for files that are likely to have complex architectural relationships
+		let complex_files: Vec<&CodeNode> = new_files.iter()
+			.filter(|node| self.should_use_ai_for_relationships(node))
+			.collect();
+		
+		if complex_files.is_empty() {
+			return Ok(ai_relationships);
+		}
+		
+		// Process in small batches to avoid overwhelming the AI
+		const AI_BATCH_SIZE: usize = 3;
+		for batch in complex_files.chunks(AI_BATCH_SIZE) {
+			if let Ok(batch_relationships) = self.analyze_architectural_relationships_batch(batch, &all_nodes).await {
+				ai_relationships.extend(batch_relationships);
 			}
 		}
-
-		// Process relationship candidates in batches
-		// If no candidates, return empty result
-		if relationship_candidates.is_empty() {
-			return Ok(Vec::new());
-		}
-
-		// Use the optimized batch analysis if we have multiple candidates
-		if relationship_candidates.len() >= 2 {
-			let results = self.analyze_relationships_batch(&relationship_candidates).await?;
-			return Ok(results);
-		}
-
-		// Fallback to individual analysis for small batches
-		let mut new_relationships = Vec::new();
-		let _candidates_count = relationship_candidates.len();
-
-		for (source, target) in relationship_candidates {
-			if let Some(relationship) = self.analyze_relationship(&source, &target).await? {
-				new_relationships.push(relationship);
-			}
-		}
-
-		Ok(new_relationships)
+		
+		Ok(ai_relationships)
 	}
 
-	// Analyze a batch of relationship candidates in a single API call
-	async fn analyze_relationships_batch(&self, candidates: &[(CodeNode, CodeNode)]) -> Result<Vec<CodeRelationship>> {
-		// Prepare the prompt with multiple pairs
-		let mut pairs_content = String::new();
+	// Determine if a file is complex enough to benefit from AI relationship analysis
+	fn should_use_ai_for_relationships(&self, node: &CodeNode) -> bool {
+		// Use AI for relationship discovery on files that are architecturally significant
+		let is_interface_heavy = node.symbols.iter().any(|s| s.contains("interface_") || s.contains("trait_"));
+		let is_config_or_setup = node.symbols.iter().any(|s| s.contains("config") || s.contains("setup") || s.contains("init"));
+		let is_core_module = node.path.contains("core") || node.path.contains("lib") || node.name == "main" || node.name == "index";
+		let has_many_exports = node.exports.len() > 5;
+		let is_large_file = node.size_lines > 200;
+		
+		// Focus AI on files that are likely to have complex, non-obvious relationships
+		(is_interface_heavy || is_config_or_setup || is_core_module) && (has_many_exports || is_large_file)
+	}
 
-		// Add each pair to the prompt
-		for (i, (source, target)) in candidates.iter().enumerate() {
-			pairs_content.push_str(&format!("Pair #{}:\n", i+1));
-			pairs_content.push_str(&format!("Source ID: {}\n", source.id));
-			pairs_content.push_str(&format!("Source Name: {}\n", source.name));
-			pairs_content.push_str(&format!("Source Kind: {}\n", source.kind));
-			pairs_content.push_str(&format!("Source Description: {}\n", source.description));
-			pairs_content.push_str(&format!("Source Code: ```\n{}\n```\n\n", self.get_truncated_node_code(source)));
+	// Analyze architectural relationships using AI in small batches
+	async fn analyze_architectural_relationships_batch(&self, source_nodes: &[&CodeNode], all_nodes: &[CodeNode]) -> Result<Vec<CodeRelationship>> {
+		let mut batch_prompt = String::from(
+			"You are an expert software architect. Analyze these code files and identify ARCHITECTURAL relationships.\n\
+			Focus on design patterns, dependency injection, factory patterns, observer patterns, etc.\n\
+			Look for relationships that go beyond simple imports - identify architectural significance.\n\n\
+			Respond with a JSON array of relationships. For each relationship, include:\n\
+			- source_path: relative path of source file\n\
+			- target_path: relative path of target file\n\
+			- relation_type: one of 'implements_pattern', 'dependency_injection', 'factory_creates', 'observer_pattern', 'strategy_pattern', 'adapter_pattern', 'decorator_pattern', 'architectural_dependency'\n\
+			- description: brief explanation of the architectural relationship\n\
+			- confidence: 0.0-1.0 confidence score\n\n"
+		);
 
-			pairs_content.push_str(&format!("Target ID: {}\n", target.id));
-			pairs_content.push_str(&format!("Target Name: {}\n", target.name));
-			pairs_content.push_str(&format!("Target Kind: {}\n", target.kind));
-			pairs_content.push_str(&format!("Target Description: {}\n", target.description));
-			pairs_content.push_str(&format!("Target Code: ```\n{}\n```\n\n", self.get_truncated_node_code(target)));
-			pairs_content.push_str("-------------------\n\n");
+		// Add source nodes context
+		batch_prompt.push_str("SOURCE FILES TO ANALYZE:\n");
+		for node in source_nodes {
+			batch_prompt.push_str(&format!(
+				"File: {}\nLanguage: {}\nKey symbols: {}\nExports: {}\n\n",
+				node.path,
+				node.language,
+				node.symbols.iter().take(8).cloned().collect::<Vec<_>>().join(", "),
+				node.exports.iter().take(5).cloned().collect::<Vec<_>>().join(", ")
+			));
 		}
 
-		// Create the final prompt
-		let prompt = MULTI_REL_BATCH_PROMPT.replace("{pairs}", &pairs_content);
+		// Add relevant target nodes (potential relationship targets)
+		batch_prompt.push_str("POTENTIAL RELATIONSHIP TARGETS:\n");
+		let relevant_targets: Vec<&CodeNode> = all_nodes.iter()
+			.filter(|n| source_nodes.iter().all(|s| s.id != n.id)) // Not source files
+			.filter(|n| !n.exports.is_empty() || n.size_lines > 100) // Has exports or is substantial
+			.take(10) // Limit context size
+			.collect();
 
-		let schema = json!({
-			"type": "object",
-			"properties": {
-				"relationships": {
-					"type": "array",
-					"items": {
-						"type": "object",
-						"properties": {
-							"source_id": {"type": "string"},
-							"target_id": {"type": "string"},
-							"relation_type": {"type": "string"},
-							"description": {"type": "string"},
-							"confidence": {"type": "number"},
-							"exists": {"type": "boolean"}
-						},
-						"required": ["source_id", "target_id", "relation_type", "description", "confidence", "exists"],
-						"additionalProperties": false
+		for node in &relevant_targets {
+			batch_prompt.push_str(&format!(
+				"File: {}\nLanguage: {}\nExports: {}\n\n",
+				node.path,
+				node.language,
+				node.exports.iter().take(3).cloned().collect::<Vec<_>>().join(", ")
+			));
+		}
 
-					}
+		batch_prompt.push_str("JSON Response:");
+
+		// Call AI with architectural analysis
+		match self.call_llm(&self.config.graphrag.relationship_model, batch_prompt, None).await {
+			Ok(response) => {
+				// Parse AI response
+				if let Ok(ai_relationships) = self.parse_ai_architectural_relationships(&response) {
+					// Filter and validate relationships
+					let valid_relationships: Vec<CodeRelationship> = ai_relationships.into_iter()
+						.filter(|rel| rel.confidence > 0.7) // Only high-confidence architectural relationships
+						.filter(|rel| all_nodes.iter().any(|n| n.path == rel.target)) // Ensure target exists
+						.map(|mut rel| {
+							rel.weight = 0.9; // High weight for architectural relationships
+							rel
+						})
+						.collect();
+					
+					Ok(valid_relationships)
+				} else {
+					Ok(Vec::new())
 				}
 			},
-			"required": ["relationships"],
-			"additionalProperties": false
-		});
-
-		// Call the relationship detection model
-		match self.call_llm(
-			&self.config.graphrag.relationship_model,
-			prompt,
-			Some(schema),
-		).await {
-			Ok(response) => {
-				// Parse the JSON object response
-				let response_obj: serde_json::Value = match serde_json::from_str(&response) {
-					Ok(obj) => obj,
-					Err(e) => {
-						eprintln!("Failed to parse batch relationship response: {}", e);
-						return Ok(Vec::new());
-					}
-				};
-
-				// Extract the relationships array
-				let batch_results: Vec<BatchRelationshipResult> = match response_obj.get("relationships").and_then(|r| r.as_array()) {
-					Some(array) => {
-						match serde_json::from_value(serde_json::Value::Array(array.clone())) {
-							Ok(results) => results,
-							Err(e) => {
-								eprintln!("Failed to convert relationships array: {}", e);
-								Vec::new()
-							}
-						}
-					},
-					None => {
-						eprintln!("Warning: 'relationships' field not found or not an array");
-						Vec::new()
-					}
-				};
-				// Convert batch results to CodeRelationships
-				let relationships: Vec<CodeRelationship> = batch_results.into_iter()
-					.filter(|r| r.exists) // Only include relationships that exist
-					.map(|r| CodeRelationship {
-						source: r.source_id,
-						target: r.target_id,
-						relation_type: r.relation_type,
-						description: r.description,
-						confidence: r.confidence,
-					})
-					.collect();
-
-				Ok(relationships)
-			},
 			Err(e) => {
-				// If API call fails, log the error and return empty list
-				eprintln!("Warning: Failed to analyze batch relationships: {}", e);
+				eprintln!("Warning: AI architectural analysis failed: {}", e);
 				Ok(Vec::new())
 			}
 		}
 	}
 
-	// Extract the node name from a code block
-	fn extract_node_name(&self, block: &CodeBlock) -> String {
-		// Use the first non-underscore symbol as the name
-		for symbol in &block.symbols {
-			if !symbol.contains('_') {
-				return symbol.clone();
-			}
+	// Parse AI response for architectural relationships
+	fn parse_ai_architectural_relationships(&self, response: &str) -> Result<Vec<CodeRelationship>> {
+		#[derive(Deserialize)]
+		struct AiRelationship {
+			source_path: String,
+			target_path: String,
+			relation_type: String,
+			description: String,
+			confidence: f32,
 		}
 
-		// Fallback to a generic name with line numbers
-		format!("block_{}_{}", block.start_line, block.end_line)
-	}
-
-	// Determine the kind of node (function, class, etc.)
-	fn determine_node_kind(&self, block: &CodeBlock) -> String {
-		// Look for type indicators in the symbols
-		for symbol in &block.symbols {
-			if symbol.contains("_") {
-				let parts: Vec<&str> = symbol.split('_').collect();
-				if parts.len() > 1 {
-					// Use the first part as the kind
-					return parts[0].to_string();
-				}
-			}
+		// Try to parse as JSON array
+		if let Ok(ai_rels) = serde_json::from_str::<Vec<AiRelationship>>(response) {
+			let relationships = ai_rels.into_iter()
+				.map(|ai_rel| CodeRelationship {
+					source: ai_rel.source_path,
+					target: ai_rel.target_path,
+					relation_type: ai_rel.relation_type,
+					description: ai_rel.description,
+					confidence: ai_rel.confidence,
+					weight: 0.9, // High weight for AI-discovered architectural patterns
+				})
+				.collect();
+			return Ok(relationships);
 		}
 
-		// Default to "code_block"
-		"code_block".to_string()
+		// If JSON parsing fails, return empty (AI might have responded in wrong format)
+		Ok(Vec::new())
 	}
 
-	// Generate an embedding for node content
-	async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>> {
-		let embeddings = self.embedding_model.embed(vec![text], None)?;
-		if embeddings.is_empty() {
-			return Err(anyhow::anyhow!("Failed to generate embedding"));
-		}
-		Ok(embeddings[0].clone())
-	}
+	// Discover relationships efficiently without AI for most cases
+	async fn discover_relationships_efficiently(&self, new_files: &[CodeNode]) -> Result<Vec<CodeRelationship>> {
+		let mut relationships = Vec::new();
 
-	// Extract a description of the code block using a lightweight LLM
-	async fn extract_description(&self, code: &str) -> Result<String> {
-		// Truncate code if it's too long
-		let truncated_code = if code.len() > 1200 {
-			format!("{} [...]\n(code truncated due to length)", &code[0..1200])
-		} else {
-			code.to_string()
-		};
-
-
-		// Use an inexpensive LLM to generate the description
-		match self.call_llm(
-			&self.config.graphrag.description_model,
-			DESCRIPTION_PROMPT.replace("{code}", &truncated_code),
-			None,
-		).await {
-			Ok(response) => {
-				// Cleanup and truncate the description
-				let description = response.trim();
-				if description.len() > 200 {
-					Ok(format!("{} [...]", &description[0..197]))
-				} else {
-					Ok(description.to_string())
-				}
-			},
-			Err(e) => {
-				// Provide a basic fallback description without failing
-				eprintln!("Warning: Failed to generate description: {}", e);
-
-				// Create a basic description from the code
-				let first_line = code.lines().next().unwrap_or("").trim();
-				if !first_line.is_empty() {
-					Ok(format!("Code starting with: {}", first_line))
-				} else {
-					Ok("Code block with no description available".to_string())
-				}
-			}
-		}
-	}
-
-	// Discover relationships between nodes
-	#[allow(dead_code)]
-	async fn discover_relationships(&self, new_nodes: &[CodeNode]) -> Result<()> {
-		println!("Discovering relationships among {} nodes", new_nodes.len());
-
-		// Get a read lock on the graph
-		let nodes_from_graph = {
+		// Get all nodes from the graph for relationship discovery
+		let all_nodes = {
 			let graph = self.graph.read().await;
 			graph.nodes.values().cloned().collect::<Vec<CodeNode>>()
-		}; // The lock is released when the block ends
+		};
 
-		let mut new_relationships = Vec::new();
+		for source_file in new_files {
+			// 1. Import/Export relationships (high confidence)
+			for import in &source_file.imports {
+				for target_file in &all_nodes {
+					if target_file.id == source_file.id {
+						continue;
+					}
+					
+					// Check if target exports what source imports
+					if target_file.exports.iter().any(|exp| self.symbols_match(import, exp)) ||
+					   target_file.symbols.iter().any(|sym| self.symbols_match(import, sym)) {
+						relationships.push(CodeRelationship {
+							source: source_file.id.clone(),
+							target: target_file.id.clone(),
+							relation_type: "imports".to_string(),
+							description: format!("Imports {} from {}", import, target_file.name),
+							confidence: 0.9,
+							weight: 1.0,
+						});
+					}
+				}
+			}
 
-		// For each new node, check for relationships with existing nodes
-		for source_node in new_nodes {
-			// First try to find relationships using embeddings for efficiency
-			let candidate_nodes = self.find_similar_nodes(source_node, &nodes_from_graph, 5)?;
+			// 2. Directory-based relationships (medium confidence)
+			let source_dir = Path::new(&source_file.path).parent()
+				.map(|p| p.to_string_lossy().to_string())
+				.unwrap_or_else(|| ".".to_string());
 
-			for target_node in candidate_nodes {
-				// Skip self-relationships
-				if source_node.id == target_node.id {
+			for other_file in &all_nodes {
+				if other_file.id == source_file.id {
 					continue;
 				}
 
-				// Use an LLM to determine if there's a relationship
-				let relationship = self.analyze_relationship(
-					source_node,
-					&target_node,
-				).await?;
+				let other_dir = Path::new(&other_file.path).parent()
+					.map(|p| p.to_string_lossy().to_string())
+					.unwrap_or_else(|| ".".to_string());
 
-				// If a relationship was found, add it
-				if let Some(rel) = relationship {
-					new_relationships.push(rel);
+				// Same directory relationship
+				if source_dir == other_dir && source_file.language == other_file.language {
+					relationships.push(CodeRelationship {
+						source: source_file.id.clone(),
+						target: other_file.id.clone(),
+						relation_type: "sibling_module".to_string(),
+						description: format!("Same directory: {}", source_dir),
+						confidence: 0.6,
+						weight: 0.5,
+					});
 				}
 			}
-		}
 
-		// Add the new relationships to the graph
-		if !new_relationships.is_empty() {
-			let mut graph = self.graph.write().await;
-			graph.relationships.extend(new_relationships);
-		}
-
-		Ok(())
-	}
-
-	// Find nodes that are similar to the given node based on embeddings
-	fn find_similar_nodes(&self, node: &CodeNode, all_nodes: &[CodeNode], limit: usize) -> Result<Vec<CodeNode>> {
-		// Calculate cosine similarity between embeddings
-		let mut similarities: Vec<(f32, CodeNode)> = all_nodes.iter()
-			.filter(|n| n.id != node.id) // Skip self
-			.map(|n| {
-				let similarity = cosine_similarity(&node.embedding, &n.embedding);
-				(similarity, n.clone())
-			})
-			.collect();
-
-		// Sort by similarity (highest first)
-		similarities.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-
-		// Take the top matches
-		let result = similarities.into_iter()
-			.take(limit)
-			.map(|(_, node)| node)
-			.collect();
-
-		Ok(result)
-	}
-
-	// Analyze the relationship between two nodes using an LLM
-	async fn analyze_relationship(&self, source: &CodeNode, target: &CodeNode) -> Result<Option<CodeRelationship>> {
-		// Prepare the prompt with the node information
-		let prompt = RELATIONSHIP_PROMPT
-			.replace("{source_name}", &source.name)
-			.replace("{source_kind}", &source.kind)
-			.replace("{source_description}", &source.description)
-			.replace("{source_code}", &self.get_truncated_node_code(source))
-			.replace("{target_name}", &target.name)
-			.replace("{target_kind}", &target.kind)
-			.replace("{target_description}", &target.description)
-			.replace("{target_code}", &self.get_truncated_node_code(target));
-
-		let schema = json!({
-			"type": "object",
-			"properties": {
-				"relation_type": {
-					"type": "string",
-					"description": "A simple relationship type like 'calls', 'imports', 'extends', 'implements', 'uses', 'defines', 'references', etc."
-				},
-				"description": {
-					"type": "string",
-					"description": "A brief description of this relationship (max 1 sentence)"
-				},
-				"confidence": {
-					"type": "number",
-					"minimum": 0.0,
-					"maximum": 1.0,
-					"description": "A number between 0.0 and 1.0 representing confidence in this relationship"
-				},
-				"exists": {
-					"type": "boolean",
-					"description": "Boolean indicating whether a relationship exists at all"
+			// 3. Hierarchical module relationships (high confidence)
+			for other_file in &all_nodes {
+				if other_file.id == source_file.id {
+					continue;
 				}
-			},
-			"required": ["relation_type", "description", "confidence", "exists"],
-			"additionalProperties": false
+
+				// Check for parent-child relationships based on path structure
+				if self.is_parent_child_relationship(&source_file.path, &other_file.path) {
+					let (parent, child) = if source_file.path.len() < other_file.path.len() {
+						(&source_file.id, &other_file.id)
+					} else {
+						(&other_file.id, &source_file.id)
+					};
+
+					relationships.push(CodeRelationship {
+						source: parent.clone(),
+						target: child.clone(),
+						relation_type: "contains".to_string(),
+						description: "Hierarchical module relationship".to_string(),
+						confidence: 0.8,
+						weight: 0.7,
+					});
+				}
+			}
+
+			// 4. Language-specific pattern relationships
+			self.discover_language_specific_relationships(source_file, &all_nodes, &mut relationships);
+		}
+
+		// Deduplicate relationships
+		relationships.sort_by(|a, b| {
+			(a.source.clone(), a.target.clone(), a.relation_type.clone())
+				.cmp(&(b.source.clone(), b.target.clone(), b.relation_type.clone()))
+		});
+		relationships.dedup_by(|a, b| {
+			a.source == b.source && a.target == b.target && a.relation_type == b.relation_type
 		});
 
+		Ok(relationships)
+	}
 
-		// Call the relationship detection model
-		match self.call_llm(
-			&self.config.graphrag.relationship_model,
-			prompt,
-			Some(schema),
-		).await {
-			Ok(response) => {
-				// Parse the JSON response
-				let result: RelationshipResult = match serde_json::from_str(&response) {
-					Ok(result) => result,
-					Err(e) => {
-						// If we can't parse the response, log it and return None
-						eprintln!("Failed to parse relationship response: {}", e);
-						return Ok(None);
+	// Check if two symbols match (accounting for common patterns)
+	fn symbols_match(&self, import: &str, export: &str) -> bool {
+		// Direct match
+		if import == export {
+			return true;
+		}
+		
+		// Clean symbol names (remove prefixes/suffixes)
+		let clean_import = import.trim_start_matches("import_")
+			.trim_start_matches("use_")
+			.trim_start_matches("from_");
+		let clean_export = export.trim_start_matches("export_")
+			.trim_start_matches("pub_")
+			.trim_start_matches("public_");
+		
+		clean_import == clean_export
+	}
+
+	// Check if paths have parent-child relationship
+	fn is_parent_child_relationship(&self, path1: &str, path2: &str) -> bool {
+		let path1_parts: Vec<&str> = path1.split('/').collect();
+		let path2_parts: Vec<&str> = path2.split('/').collect();
+		
+		// One should be exactly one level deeper than the other
+		if path1_parts.len().abs_diff(path2_parts.len()) == 1 {
+			let (shorter, longer) = if path1_parts.len() < path2_parts.len() {
+				(path1_parts, path2_parts)
+			} else {
+				(path2_parts, path1_parts)
+			};
+			
+			// Check if all parts of shorter path match the beginning of longer path
+			shorter.iter().zip(longer.iter()).all(|(a, b)| a == b)
+		} else {
+			false
+		}
+	}
+
+	// Discover language-specific relationships
+	fn discover_language_specific_relationships(&self, source_file: &CodeNode, all_nodes: &[CodeNode], relationships: &mut Vec<CodeRelationship>) {
+		match source_file.language.as_str() {
+			"rust" => {
+				// Rust-specific patterns
+				for other_file in all_nodes {
+					if other_file.id == source_file.id || other_file.language != "rust" {
+						continue;
 					}
-				};
-
-				// If the model didn't find a relationship, return None
-				if !result.exists {
-					return Ok(None);
+					
+					// Check for mod.rs patterns
+					if source_file.name == "mod" && other_file.path.starts_with(&source_file.path.replace("/mod.rs", "/")) {
+						relationships.push(CodeRelationship {
+							source: source_file.id.clone(),
+							target: other_file.id.clone(),
+							relation_type: "mod_declaration".to_string(),
+							description: "Rust module declaration".to_string(),
+							confidence: 0.8,
+							weight: 0.8,
+						});
+					}
+					
+					// Check for lib.rs patterns
+					if source_file.name == "lib" || source_file.name == "main" {
+						let source_dir = Path::new(&source_file.path).parent()
+							.map(|p| p.to_string_lossy().to_string())
+							.unwrap_or_default();
+						if other_file.path.starts_with(&source_dir) {
+							relationships.push(CodeRelationship {
+								source: source_file.id.clone(),
+								target: other_file.id.clone(),
+								relation_type: "crate_root".to_string(),
+								description: "Rust crate root relationship".to_string(),
+								confidence: 0.7,
+								weight: 0.6,
+							});
+						}
+					}
 				}
-
-				// Create the relationship object
-				let relationship = CodeRelationship {
-					source: source.id.clone(),
-					target: target.id.clone(),
-					relation_type: result.relation_type,
-					description: result.description,
-					confidence: result.confidence,
-				};
-
-				Ok(Some(relationship))
 			},
-			Err(e) => {
-				// If API call fails, log the error and return None without failing
-				eprintln!("Warning: Failed to analyze relationship: {}", e);
-				Ok(None)
+			"javascript" | "typescript" => {
+				// JS/TS-specific patterns
+				for other_file in all_nodes {
+					if other_file.id == source_file.id || !["javascript", "typescript"].contains(&other_file.language.as_str()) {
+						continue;
+					}
+					
+					// Check for index.js patterns
+					if source_file.name == "index" {
+						let source_dir = Path::new(&source_file.path).parent()
+							.map(|p| p.to_string_lossy().to_string())
+							.unwrap_or_default();
+						if other_file.path.starts_with(&source_dir) && other_file.name != "index" {
+							relationships.push(CodeRelationship {
+								source: source_file.id.clone(),
+								target: other_file.id.clone(),
+								relation_type: "index_module".to_string(),
+								description: "JavaScript index module relationship".to_string(),
+								confidence: 0.7,
+								weight: 0.6,
+							});
+						}
+					}
+				}
+			},
+			"python" => {
+				// Python-specific patterns
+				for other_file in all_nodes {
+					if other_file.id == source_file.id || other_file.language != "python" {
+						continue;
+					}
+					
+					// Check for __init__.py patterns
+					if source_file.name == "__init__" {
+						let source_dir = Path::new(&source_file.path).parent()
+							.map(|p| p.to_string_lossy().to_string())
+							.unwrap_or_default();
+						if other_file.path.starts_with(&source_dir) && other_file.name != "__init__" {
+							relationships.push(CodeRelationship {
+								source: source_file.id.clone(),
+								target: other_file.id.clone(),
+								relation_type: "package_init".to_string(),
+								description: "Python package initialization".to_string(),
+								confidence: 0.8,
+								weight: 0.7,
+							});
+						}
+					}
+				}
+			},
+			_ => {
+				// Generic patterns for other languages
 			}
 		}
 	}
 
-	// Get truncated code for a node to avoid token limits
-	fn get_truncated_node_code(&self, node: &CodeNode) -> String {
-		// Try to find the code for this node
-		// This is a simplified approach - in a real implementation,
-		// we would store the code content with the node
-		let path = Path::new(&node.path);
-		if !path.exists() {
-			return "Code not available".to_string();
-		}
-
-		match fs::read_to_string(path) {
-			Ok(content) => {
-				// Truncate to 500 characters if longer
-				if content.len() > 500 {
-					format!("{} [...]", &content[0..497])
-				} else {
-					content
-				}
-			},
-			Err(_) => "Failed to read code".to_string(),
-		}
-	}
-
-	// Call an LLM with the given prompt
 	async fn call_llm(&self, model_name: &str, prompt: String, json_schema: Option<serde_json::Value>) -> Result<String> {
 		// Check if we have an API key configured
 		let api_key = match &self.config.openrouter.api_key {
@@ -1377,6 +1546,11 @@ impl GraphBuilder {
 					path,
 					description,
 					symbols,
+					imports: Vec::new(), // Default empty for nodes loaded from old schema
+					exports: Vec::new(), // Default empty for nodes loaded from old schema
+					functions: Vec::new(), // Default empty for nodes loaded from old schema
+					size_lines: 0, // Default for nodes loaded from old schema
+					language: "unknown".to_string(), // Default for nodes loaded from old schema
 					hash,
 					embedding,
 				};
@@ -1463,15 +1637,6 @@ impl GraphBuilder {
 
 		Ok(paths)
 	}
-}
-
-// Helper struct for parsing relationship analysis results
-#[derive(Debug, Serialize, Deserialize)]
-struct RelationshipResult {
-	relation_type: String,
-	description: String,
-	confidence: f32,
-	exists: bool,
 }
 
 // Calculate cosine similarity between two vectors
@@ -1577,3 +1742,6 @@ impl GraphRAG {
 		Ok(graphrag_nodes_to_markdown(&nodes))
 	}
 }
+
+// Helper functions for parsing imports and exports
+
