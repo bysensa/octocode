@@ -57,19 +57,33 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 	};
 
 	// Generate embeddings for the query based on search mode
-	let embeddings = match search_mode {
+	let (code_embeddings, text_embeddings) = match search_mode {
 		"code" => {
 			// Use code model for code searches
-			embedding::generate_embeddings(&args.query, true, config).await?
+			let embeddings = embedding::generate_embeddings(&args.query, true, config).await?;
+			(embeddings, vec![]) // Only need code embeddings
 		},
 		"docs" | "text" => {
 			// Use text model for documents and text searches
-			embedding::generate_embeddings(&args.query, false, config).await?
+			let embeddings = embedding::generate_embeddings(&args.query, false, config).await?;
+			(vec![], embeddings) // Only need text embeddings
 		},
 		"all" => {
-			// For "all" mode, use code model as it's typically more general
-			// This is a compromise since we're searching across different content types
-			embedding::generate_embeddings(&args.query, true, config).await?
+			// For "all" mode, we need to check if code and text models are different
+			// If different, generate separate embeddings; if same, use one set
+			let code_model = config.embedding.get_model(&config.embedding.provider, true);
+			let text_model = config.embedding.get_model(&config.embedding.provider, false);
+			
+			if code_model == text_model {
+				// Same model for both - generate once and reuse
+				let embeddings = embedding::generate_embeddings(&args.query, true, config).await?;
+				(embeddings.clone(), embeddings)
+			} else {
+				// Different models - generate separate embeddings
+				let code_embeddings = embedding::generate_embeddings(&args.query, true, config).await?;
+				let text_embeddings = embedding::generate_embeddings(&args.query, false, config).await?;
+				(code_embeddings, text_embeddings)
+			}
 		},
 		_ => unreachable!(),
 	};
@@ -84,7 +98,7 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 		"code" => {
 			// Search only code blocks with higher limit for reranking
 			let mut results = store.get_code_blocks_with_config(
-				embeddings,
+				code_embeddings,
 				Some(config.search.max_results * 2), // Get more results for reranking
 				Some(1.01) // Use a very permissive threshold initially
 			).await?;
@@ -126,7 +140,7 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 		"docs" => {
 			// Search only document blocks with reranking
 			let mut results = store.get_document_blocks_with_config(
-				embeddings,
+				text_embeddings,
 				Some(config.search.max_results * 2), // Get more results for reranking
 				Some(1.01) // Use a more permissive threshold initially
 			).await?;
@@ -161,7 +175,7 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 		"text" => {
 			// Search only text blocks with reranking
 			let mut results = store.get_text_blocks_with_config(
-				embeddings,
+				text_embeddings,
 				Some(config.search.max_results * 2), // Get more results for reranking
 				Some(1.01) // Use a more permissive threshold initially
 			).await?;
@@ -196,17 +210,17 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 		"all" => {
 			// Search code, documents, and text blocks with reranking
 			let mut code_results = store.get_code_blocks_with_config(
-				embeddings.clone(),
+				code_embeddings,
 				Some(config.search.max_results * 2), // Get more results for reranking
 				Some(1.01) // Use a more permissive threshold initially
 			).await?;
 			let mut doc_results = store.get_document_blocks_with_config(
-				embeddings.clone(),
+				text_embeddings.clone(),
 				Some(config.search.max_results * 2), // Get more results for reranking
 				Some(1.01) // Use a more permissive threshold initially
 			).await?;
 			let mut text_results = store.get_text_blocks_with_config(
-				embeddings,
+				text_embeddings,
 				Some(config.search.max_results * 2), // Get more results for reranking
 				Some(1.01) // Use a more permissive threshold initially
 			).await?;
