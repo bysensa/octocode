@@ -8,15 +8,15 @@ pub use types::*;
 pub use provider::*;
 
 /// Generate embeddings based on configured provider
-pub async fn generate_embeddings(contents: &str, is_code: bool, config: &Config) -> Result<Vec<f32>> {
-    let provider = EmbeddingProvider::from_config(config)?;
-    provider.generate_embeddings(contents, is_code).await
+pub async fn generate_embeddings(contents: &str, _is_code: bool, config: &Config) -> Result<Vec<f32>> {
+    let provider = create_embedding_provider(config)?;
+    provider.generate_embedding(contents).await
 }
 
 /// Generate batch embeddings based on configured provider
-pub async fn generate_embeddings_batch(texts: Vec<String>, is_code: bool, config: &Config) -> Result<Vec<Vec<f32>>> {
-    let provider = EmbeddingProvider::from_config(config)?;
-    provider.generate_embeddings_batch(texts, is_code).await
+pub async fn generate_embeddings_batch(texts: Vec<String>, _is_code: bool, config: &Config) -> Result<Vec<Vec<f32>>> {
+    let provider = create_embedding_provider(config)?;
+    provider.generate_embeddings_batch(texts).await
 }
 
 /// Calculate a unique hash for content including file path

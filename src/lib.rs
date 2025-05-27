@@ -2,6 +2,8 @@
 pub mod config;
 pub mod embedding;
 pub mod indexer;
+pub mod memory;
+pub mod mcp;
 pub mod store;
 pub mod state;
 pub mod reranker;

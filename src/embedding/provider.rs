@@ -7,13 +7,138 @@ use fastembed::{TextEmbedding, InitOptions, EmbeddingModel};
 use crate::config::Config;
 use super::types::{EmbeddingProviderType, EmbeddingProviderConfig};
 
+/// Trait for embedding providers
+#[async_trait::async_trait]
+pub trait EmbeddingProvider: Send + Sync {
+    async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>>;
+    async fn generate_embeddings_batch(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>>;
+}
+
+/// Create an embedding provider from configuration
+pub fn create_embedding_provider(config: &Config) -> Result<Box<dyn EmbeddingProvider>> {
+    match config.embedding.provider {
+        EmbeddingProviderType::FastEmbed => {
+            let model = &config.embedding.fastembed.text_model; // Use text model as default
+            Ok(Box::new(FastEmbedProviderImpl::new(model)?))
+        }
+        EmbeddingProviderType::Jina => {
+            let model = &config.embedding.jina.text_model;
+            Ok(Box::new(JinaProviderImpl::new(model)))
+        }
+        EmbeddingProviderType::Voyage => {
+            let model = &config.embedding.voyage.text_model;
+            Ok(Box::new(VoyageProviderImpl::new(model)))
+        }
+        EmbeddingProviderType::Google => {
+            let model = &config.embedding.google.text_model;
+            Ok(Box::new(GoogleProviderImpl::new(model)))
+        }
+    }
+}
+
+/// FastEmbed provider implementation for trait
+pub struct FastEmbedProviderImpl {
+    model_name: String,
+}
+
+impl FastEmbedProviderImpl {
+    pub fn new(model: &str) -> Result<Self> {
+        Ok(Self {
+            model_name: model.to_string(),
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl EmbeddingProvider for FastEmbedProviderImpl {
+    async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>> {
+        FastEmbedProvider::generate_embeddings(text, &self.model_name, false).await
+    }
+
+    async fn generate_embeddings_batch(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>> {
+        FastEmbedProvider::generate_embeddings_batch(texts, &self.model_name, false).await
+    }
+}
+
+/// Jina provider implementation for trait
+pub struct JinaProviderImpl {
+    model_name: String,
+}
+
+impl JinaProviderImpl {
+    pub fn new(model: &str) -> Self {
+        Self {
+            model_name: model.to_string(),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl EmbeddingProvider for JinaProviderImpl {
+    async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>> {
+        JinaProvider::generate_embeddings(text, &self.model_name).await
+    }
+
+    async fn generate_embeddings_batch(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>> {
+        JinaProvider::generate_embeddings_batch(texts, &self.model_name).await
+    }
+}
+
+/// Voyage provider implementation for trait
+pub struct VoyageProviderImpl {
+    model_name: String,
+}
+
+impl VoyageProviderImpl {
+    pub fn new(model: &str) -> Self {
+        Self {
+            model_name: model.to_string(),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl EmbeddingProvider for VoyageProviderImpl {
+    async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>> {
+        VoyageProvider::generate_embeddings(text, &self.model_name).await
+    }
+
+    async fn generate_embeddings_batch(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>> {
+        VoyageProvider::generate_embeddings_batch(texts, &self.model_name).await
+    }
+}
+
+/// Google provider implementation for trait
+pub struct GoogleProviderImpl {
+    model_name: String,
+}
+
+impl GoogleProviderImpl {
+    pub fn new(model: &str) -> Self {
+        Self {
+            model_name: model.to_string(),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl EmbeddingProvider for GoogleProviderImpl {
+    async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>> {
+        GoogleProvider::generate_embeddings(text, &self.model_name).await
+    }
+
+    async fn generate_embeddings_batch(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>> {
+        GoogleProvider::generate_embeddings_batch(texts, &self.model_name).await
+    }
+}
+
 /// Main embedding provider that delegates to specific implementations
-pub struct EmbeddingProvider {
+pub struct EmbeddingProviderImpl {
     provider_type: EmbeddingProviderType,
     config: EmbeddingProviderConfig,
 }
 
-impl EmbeddingProvider {
+impl EmbeddingProviderImpl {
     /// Create a provider from configuration
     pub fn from_config(config: &Config) -> Result<Self> {
         let provider_type = config.embedding.provider.clone();

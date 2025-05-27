@@ -292,6 +292,11 @@ impl Config {
 		}
 	}
 
+	/// Get database path as string (alias for memory system compatibility)
+	pub fn get_db_path(&self) -> String {
+		self.get_database_path().to_string_lossy().to_string()
+	}
+
 	pub fn get_model(&self) -> &str {
 		&self.openrouter.model
 	}
