@@ -8,14 +8,14 @@ pub use types::*;
 pub use provider::*;
 
 /// Generate embeddings based on configured provider
-pub async fn generate_embeddings(contents: &str, _is_code: bool, config: &Config) -> Result<Vec<f32>> {
-	let provider = create_embedding_provider(config)?;
+pub async fn generate_embeddings(contents: &str, is_code: bool, config: &Config) -> Result<Vec<f32>> {
+	let provider = create_embedding_provider(config, is_code)?;
 	provider.generate_embedding(contents).await
 }
 
 /// Generate batch embeddings based on configured provider
-pub async fn generate_embeddings_batch(texts: Vec<String>, _is_code: bool, config: &Config) -> Result<Vec<Vec<f32>>> {
-	let provider = create_embedding_provider(config)?;
+pub async fn generate_embeddings_batch(texts: Vec<String>, is_code: bool, config: &Config) -> Result<Vec<Vec<f32>>> {
+	let provider = create_embedding_provider(config, is_code)?;
 	provider.generate_embeddings_batch(texts).await
 }
 

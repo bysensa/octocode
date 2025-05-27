@@ -23,7 +23,8 @@ impl MemoryManager {
 		let db_path = config.get_db_path();
 
 		// Create embedding provider using same config as main system
-		let embedding_provider = create_embedding_provider(config)?;
+		// For memory, we use text model (not code-specific)
+		let embedding_provider = create_embedding_provider(config, false)?;
 
 		let store = MemoryStore::new(&db_path, embedding_provider, memory_config.clone()).await?;
 
@@ -36,7 +37,7 @@ impl MemoryManager {
 	/// Create a new memory manager with custom config
 	pub async fn with_config(config: &Config, memory_config: MemoryConfig) -> Result<Self> {
 		let db_path = config.get_db_path();
-		let embedding_provider = create_embedding_provider(config)?;
+		let embedding_provider = create_embedding_provider(config, false)?;
 		let store = MemoryStore::new(&db_path, embedding_provider, memory_config.clone()).await?;
 
 		Ok(Self {

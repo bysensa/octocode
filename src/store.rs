@@ -9,7 +9,7 @@ use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 
 // LanceDB imports
-use lancedb::{connect, Connection, index::Index, query::{ExecutableQuery, QueryBase}};
+use lancedb::{connect, Connection, index::Index, query::{ExecutableQuery, QueryBase}, DistanceType};
 use futures::TryStreamExt;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -883,6 +883,7 @@ impl Store {
 		let results = table
 			.query()
 			.nearest_to(embedding.as_slice())?  // Pass as slice instead of reference to Vec
+			.distance_type(DistanceType::Cosine)  // Explicitly use cosine distance
 			.limit(limit)
 			.execute()
 			.await?
@@ -968,6 +969,7 @@ impl Store {
 		let results = table
 			.query()
 			.nearest_to(embedding.as_slice())?  // Pass as slice instead of reference to Vec
+			.distance_type(DistanceType::Cosine)  // Explicitly use cosine distance
 			.limit(limit)
 			.execute()
 			.await?
@@ -1053,6 +1055,7 @@ impl Store {
 		let results = table
 			.query()
 			.nearest_to(embedding.as_slice())?  // Pass as slice instead of reference to Vec
+			.distance_type(DistanceType::Cosine)  // Explicitly use cosine distance
 			.limit(limit)
 			.execute()
 			.await?
@@ -1357,6 +1360,7 @@ impl Store {
 		let results = table
 			.query()
 			.nearest_to(embedding)?  // Vector search
+			.distance_type(DistanceType::Cosine)  // Explicitly use cosine distance
 			.limit(limit)           // No conversion needed
 			.execute()
 			.await?

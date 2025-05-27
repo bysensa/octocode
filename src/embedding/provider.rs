@@ -15,22 +15,38 @@ pub trait EmbeddingProvider: Send + Sync {
 }
 
 /// Create an embedding provider from configuration
-pub fn create_embedding_provider(config: &Config) -> Result<Box<dyn EmbeddingProvider>> {
+pub fn create_embedding_provider(config: &Config, is_code: bool) -> Result<Box<dyn EmbeddingProvider>> {
 	match config.embedding.provider {
 		EmbeddingProviderType::FastEmbed => {
-			let model = &config.embedding.fastembed.text_model; // Use text model as default
+			let model = if is_code {
+				&config.embedding.fastembed.code_model
+			} else {
+				&config.embedding.fastembed.text_model
+			};
 			Ok(Box::new(FastEmbedProviderImpl::new(model)?))
 		}
 		EmbeddingProviderType::Jina => {
-			let model = &config.embedding.jina.text_model;
+			let model = if is_code {
+				&config.embedding.jina.code_model
+			} else {
+				&config.embedding.jina.text_model
+			};
 			Ok(Box::new(JinaProviderImpl::new(model)))
 		}
 		EmbeddingProviderType::Voyage => {
-			let model = &config.embedding.voyage.text_model;
+			let model = if is_code {
+				&config.embedding.voyage.code_model
+			} else {
+				&config.embedding.voyage.text_model
+			};
 			Ok(Box::new(VoyageProviderImpl::new(model)))
 		}
 		EmbeddingProviderType::Google => {
-			let model = &config.embedding.google.text_model;
+			let model = if is_code {
+				&config.embedding.google.code_model
+			} else {
+				&config.embedding.google.text_model
+			};
 			Ok(Box::new(GoogleProviderImpl::new(model)))
 		}
 	}
