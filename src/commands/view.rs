@@ -2,6 +2,7 @@ use clap::Args;
 
 use octocode::config::Config;
 use octocode::store::Store;
+use octocode::storage;
 use octocode::indexer;
 
 #[derive(Args, Debug)]
@@ -23,8 +24,7 @@ pub async fn execute(_store: &Store, args: &ViewArgs, _config: &Config) -> Resul
 	let current_dir = std::env::current_dir()?;
 
 	// Note: View command doesn't require an index as it parses files directly
-	let octocode_dir = current_dir.join(".octocode");
-	let index_path = octocode_dir.join("storage");
+	let index_path = storage::get_project_database_path(&current_dir)?;
 	if !index_path.exists() {
 		println!("Note: No index found. The view command works without an index, but you can run 'octocode index' to create one if needed for other commands.");
 	}

@@ -58,6 +58,7 @@ lazy_static = "1.4.0"
 futures = "0.3.31"
 globset = "0.4.14"
 regex = "1.10.0"
+dirs = "5.0.1"
 
 [profile.dev]
 opt-level = 1          # Basic optimizations without slowing compilation too much

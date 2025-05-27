@@ -2,6 +2,7 @@ use clap::Args;
 
 use octocode::config::Config;
 use octocode::store::Store;
+use octocode::storage;
 use octocode::indexer;
 use octocode::reranker::Reranker;
 use octocode::embedding;
@@ -35,8 +36,9 @@ pub struct SearchArgs {
 
 pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Result<(), anyhow::Error> {
 	let current_dir = std::env::current_dir()?;
-	let octocode_dir = current_dir.join(".octocode");
-	let index_path = octocode_dir.join("storage");
+	
+	// Use the new storage system to check for index
+	let index_path = storage::get_project_database_path(&current_dir)?;
 
 	// Check if we have an index already; if not, inform the user but don't auto-index
 	if !index_path.exists() {

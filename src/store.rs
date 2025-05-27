@@ -558,20 +558,20 @@ impl Store {
 		// Get current directory
 		let current_dir = std::env::current_dir()?;
 
-		// Create .octocode directory if it doesn't exist
-		let octocode_dir = current_dir.join(".octocode");
-		if !octocode_dir.exists() {
-			std::fs::create_dir_all(&octocode_dir)?
-		}
-
-		// Create lancedb storage directory
-		let index_path = octocode_dir.join("storage");
+		// Get the project database path using the new storage system
+		let index_path = crate::storage::get_project_database_path(&current_dir)?;
+		
+		// Ensure the directory exists
+		crate::storage::ensure_project_storage_exists(&current_dir)?;
+		
+		// Ensure the database directory exists
 		if !index_path.exists() {
-			std::fs::create_dir_all(&index_path)?
+			std::fs::create_dir_all(&index_path)?;
 		}
 
 		// Convert the path to a string for the file-based database
-		let storage_path = index_path.to_str().unwrap();
+		let storage_path = index_path.to_str()
+			.ok_or_else(|| anyhow::anyhow!("Invalid database path"))?;
 
 		// Load the config to get the embedding provider and model info
 		let config = crate::config::Config::load()?;

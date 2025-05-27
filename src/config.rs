@@ -5,6 +5,7 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use crate::embedding::types::EmbeddingProviderConfig;
+use crate::storage;
 
 // Default values functions
 fn default_model() -> String {
@@ -52,7 +53,7 @@ fn default_max_results() -> usize {
 }
 
 fn default_database_path() -> String {
-	".octocode/storage".to_string()
+	"storage".to_string()
 }
 
 fn default_similarity_threshold() -> f32 {
@@ -160,7 +161,6 @@ impl Default for IndexConfig {
 				".git/".to_string(),
 				"target/".to_string(),
 				"node_modules/".to_string(),
-				".octocode/".to_string(),
 			],
 		}
 	}
@@ -275,7 +275,8 @@ impl Config {
 	}
 
 	fn ensure_config_dir() -> Result<PathBuf> {
-		let config_dir = std::env::current_dir()?.join(".octocode");
+		let current_dir = std::env::current_dir()?;
+		let config_dir = storage::get_project_config_path(&current_dir)?;
 		if !config_dir.exists() {
 			fs::create_dir_all(&config_dir)?;
 		}
@@ -283,13 +284,17 @@ impl Config {
 	}
 
 	pub fn get_database_path(&self) -> PathBuf {
+		// Check if the path is explicitly set to an absolute path
 		if Path::new(&self.database.path).is_absolute() {
-			PathBuf::from(&self.database.path)
-		} else {
-			std::env::current_dir()
-				.unwrap_or_else(|_| PathBuf::from("."))
-				.join(&self.database.path)
+			return PathBuf::from(&self.database.path);
 		}
+
+		// Use system-wide storage for the database
+		let current_dir = std::env::current_dir()
+			.expect("Failed to get current directory");
+		
+		storage::get_project_database_path(&current_dir)
+			.expect("Failed to get project database path")
 	}
 
 	/// Get database path as string (alias for memory system compatibility)

@@ -5,6 +5,7 @@ pub mod indexer;
 pub mod memory;
 pub mod mcp;
 pub mod store;
+pub mod storage;
 pub mod state;
 pub mod reranker;
 

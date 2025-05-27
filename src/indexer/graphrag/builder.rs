@@ -32,9 +32,9 @@ impl GraphBuilder {
 		// Detect project root (look for common indicators)
 		let project_root = detect_project_root()?;
 
-		// Initialize embedding model
-		let cache_dir = project_root.join(".octocode/fastembed");
-		std::fs::create_dir_all(&cache_dir).context("Failed to create FastEmbed cache directory")?;
+		// Initialize embedding model with system-wide cache
+		let cache_dir = crate::storage::get_fastembed_cache_dir()
+			.context("Failed to get FastEmbed cache directory")?;
 
 		let model = TextEmbedding::try_new(
 			InitOptions::new(EmbeddingModel::AllMiniLML6V2)

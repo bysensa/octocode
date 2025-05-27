@@ -228,8 +228,9 @@ impl FastEmbedProvider {
 		let mut model_guard = CODE_EMBEDDING_MODEL.lock().unwrap();
 
 		if model_guard.is_none() {
-			let cache_dir = std::path::PathBuf::from(".octocode/fastembed");
-			std::fs::create_dir_all(&cache_dir).context("Failed to create FastEmbed cache directory")?;
+			// Use system-wide cache for FastEmbed models
+			let cache_dir = crate::storage::get_fastembed_cache_dir()
+				.context("Failed to get FastEmbed cache directory")?;
 
 			let model = TextEmbedding::try_new(
 				InitOptions::new(model_name)
@@ -248,8 +249,9 @@ impl FastEmbedProvider {
 		let mut model_guard = TEXT_EMBEDDING_MODEL.lock().unwrap();
 
 		if model_guard.is_none() {
-			let cache_dir = std::path::PathBuf::from(".octocode/fastembed");
-			std::fs::create_dir_all(&cache_dir).context("Failed to create FastEmbed cache directory")?;
+			// Use system-wide cache for FastEmbed models
+			let cache_dir = crate::storage::get_fastembed_cache_dir()
+				.context("Failed to get FastEmbed cache directory")?;
 
 			let model = TextEmbedding::try_new(
 				InitOptions::new(model_name)
