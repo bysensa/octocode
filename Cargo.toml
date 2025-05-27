@@ -23,9 +23,9 @@ overflow-checks = false # Disable overflow checks in release mode
 # Cross-compilation configuration is in .cargo/config.toml
 
 [dependencies]
-tokio = { version = "1.28.0", features = ["full"] }
+tokio = { version = "1.45.1", features = ["full"] }
 ignore = "0.4.23"
-parking_lot = "0.12.1"
+parking_lot = "0.12.3"
 lance-table = { version = "0.27.2", default-features = false, features = ["lazy_static"] }
 lance = { version = "0.27.2", default-features = false, features = [] }
 lancedb = { version = "0.19.0", default-features = false }
@@ -52,12 +52,12 @@ sha2 = "0.10.8"
 clap = { version = "4.5.26", features = ["derive"] }
 notify = "6.1.1"
 notify-debouncer-mini = "0.4.1"
-fastembed = "4.7.0"
+fastembed = "4.8.0"
 toml = "0.8.14"
 lazy_static = "1.4.0"
 futures = "0.3.31"
-globset = "0.4.14"
-regex = "1.10.0"
+globset = "0.4.16"
+regex = "1.11.1"
 dirs = "5.0.1"
 
 [profile.dev]
