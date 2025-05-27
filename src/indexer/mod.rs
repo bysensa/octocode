@@ -20,7 +20,7 @@ use std::fs;
 use tree_sitter::{Parser, Node};
 use anyhow::Result;
 use ignore;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 #[derive(Debug, Serialize, Clone)]
@@ -39,6 +39,88 @@ pub struct SignatureItem {
 	pub description: Option<String>,  // Comment if available
 	pub start_line: usize,      // Start line number
 	pub end_line: usize,        // End line number
+}
+
+/// Utility to create an ignore Walker that respects both .gitignore and .noindex files
+pub struct NoindexWalker;
+
+impl NoindexWalker {
+	/// Creates a WalkBuilder that respects .gitignore and .noindex files
+	pub fn create_walker(current_dir: &Path) -> ignore::WalkBuilder {
+		let mut builder = ignore::WalkBuilder::new(current_dir);
+		
+		// Standard git ignore settings
+		builder
+			.hidden(false)       // Don't ignore hidden files (unless in ignore files)
+			.git_ignore(true)    // Respect .gitignore files
+			.git_global(true)    // Respect global git ignore files  
+			.git_exclude(true);  // Respect .git/info/exclude files
+
+		// Add .noindex support by adding it as an additional ignore file
+		let noindex_path = current_dir.join(".noindex");
+		if noindex_path.exists() {
+			if let Some(e) = builder.add_ignore(&noindex_path) {
+				eprintln!("Warning: Failed to load .noindex file: {}", e);
+			}
+		}
+
+		builder
+	}
+
+	/// Creates a GitignoreBuilder for checking individual files against both .gitignore and .noindex
+	pub fn create_matcher(current_dir: &Path) -> Result<ignore::gitignore::Gitignore> {
+		let mut builder = ignore::gitignore::GitignoreBuilder::new(current_dir);
+
+		// Add .gitignore files  
+		let gitignore_path = current_dir.join(".gitignore");
+		if gitignore_path.exists() {
+			builder.add(&gitignore_path);
+		}
+
+		// Add .noindex file if it exists
+		let noindex_path = current_dir.join(".noindex");
+		if noindex_path.exists() {
+			builder.add(&noindex_path);
+		}
+
+		Ok(builder.build()?)
+	}
+}
+
+/// Utility for consistent path handling - always returns relative paths
+pub struct PathUtils;
+
+impl PathUtils {
+	/// Converts an absolute path to a relative path from the current directory
+	/// Returns the relative path as a String, suitable for storage and display
+	pub fn to_relative_string(path: &Path, current_dir: &Path) -> String {
+		path.strip_prefix(current_dir)
+			.unwrap_or(path)
+			.to_string_lossy()
+			.to_string()
+	}
+
+	/// Converts an absolute PathBuf to a relative path string from the current directory
+	pub fn pathbuf_to_relative_string(path: &Path, current_dir: &Path) -> String {
+		Self::to_relative_string(path, current_dir)
+	}
+
+	/// Creates a relative path for display purposes, ensuring it never shows absolute paths
+	pub fn for_display(path: &Path, current_dir: &Path) -> String {
+		let relative = Self::to_relative_string(path, current_dir);
+		
+		// If the path starts with '/', it means strip_prefix failed and we got an absolute path
+		// In this case, just show the filename or a sanitized version
+		if relative.starts_with('/') {
+			if let Some(filename) = path.file_name() {
+				filename.to_string_lossy().to_string()
+			} else {
+				"<unknown>".to_string()
+			}
+		} else {
+			relative
+		}
+	}
 }
 
 // Detect language based on file extension
@@ -64,6 +146,7 @@ pub fn detect_language(path: &std::path::Path) -> Option<&str> {
 pub fn extract_file_signatures(files: &[PathBuf]) -> Result<Vec<FileSignature>> {
 	let mut all_signatures = Vec::new();
 	let mut parser = Parser::new();
+	let current_dir = std::env::current_dir()?;
 
 	for file_path in files {
 		if let Some(language) = detect_language(file_path) {
@@ -78,12 +161,8 @@ pub fn extract_file_signatures(files: &[PathBuf]) -> Result<Vec<FileSignature>> 
 
 			// Read file contents
 			if let Ok(contents) = fs::read_to_string(file_path) {
-				// Create a relative path for display
-				let current_dir = std::env::current_dir()?;
-				let display_path = file_path.strip_prefix(&current_dir)
-					.unwrap_or(file_path)
-					.to_string_lossy()
-					.to_string();
+				// Create a relative path for display using our utility
+				let display_path = PathUtils::for_display(file_path, &current_dir);
 
 				// Parse the file
 				let tree = parser.parse(&contents, None)
@@ -877,13 +956,8 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 	}
 
 	// Second pass: actually process the files
-	// Use the ignore crate to respect .gitignore files
-	let walker = ignore::WalkBuilder::new(&current_dir)
-		.hidden(false)  // Don't ignore hidden files (unless in .gitignore)
-		.git_ignore(true)  // Respect .gitignore files
-		.git_global(true) // Respect global git ignore files
-		.git_exclude(true) // Respect .git/info/exclude files
-		.build();
+	// Use NoindexWalker to respect both .gitignore and .noindex files
+	let walker = NoindexWalker::create_walker(&current_dir).build();
 
 	for result in walker {
 		let entry = match result {
@@ -896,7 +970,8 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 			continue;
 		}
 
-		let file_path = entry.path().to_string_lossy().to_string();
+		// Create relative path from the current directory using our utility
+		let file_path = PathUtils::to_relative_string(entry.path(), &current_dir);
 
 		if let Some(language) = detect_language(entry.path()) {
 			if let Ok(contents) = fs::read_to_string(entry.path()) {
@@ -1029,12 +1104,8 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 fn count_indexable_files(current_dir: &std::path::Path) -> Result<usize> {
 	let mut count = 0;
 
-	let walker = ignore::WalkBuilder::new(current_dir)
-		.hidden(false)
-		.git_ignore(true)
-		.git_global(true)
-		.git_exclude(true)
-		.build();
+	// Use NoindexWalker to respect both .gitignore and .noindex files
+	let walker = NoindexWalker::create_walker(current_dir).build();
 
 	for result in walker {
 		let entry = match result {
@@ -1069,38 +1140,41 @@ pub async fn handle_file_change(store: &Store, file_path: &str, config: &Config)
 	// First, let's remove any existing code blocks for this file path
 	store.remove_blocks_by_path(file_path).await?;
 
-	// Now, if the file still exists, check if it should be indexed based on .gitignore rules
+	// Now, if the file still exists, check if it should be indexed based on ignore rules
 	let path = std::path::Path::new(file_path);
 	if path.exists() {
-		// Create a matcher that respects .gitignore rules
-		let mut builder = ignore::gitignore::GitignoreBuilder::new(path.parent().unwrap_or_else(|| std::path::Path::new(".")));
+		// Get the current directory for proper relative path handling
+		let current_dir = std::env::current_dir()?;
+		
+		// Convert relative path to absolute for ignore checking
+		let absolute_path = if path.is_absolute() {
+			path.to_path_buf()
+		} else {
+			current_dir.join(path)
+		};
 
-		// Try to add .gitignore files from the project root up to the file's directory
-		let parent_path = path.parent().unwrap_or_else(|| std::path::Path::new("."));
-		let gitignore_path = parent_path.join(".gitignore");
-		if gitignore_path.exists() {
-			let _ = builder.add(&gitignore_path);
-		}
-
-		// Build the matcher
-		if let Ok(matcher) = builder.build() {
+		// Create a matcher that respects both .gitignore and .noindex rules
+		if let Ok(matcher) = NoindexWalker::create_matcher(&current_dir) {
 			// Check if the file should be ignored
-			if matcher.matched(path, path.is_dir()).is_ignore() {
-				// File is in .gitignore, so don't index it
+			if matcher.matched(&absolute_path, absolute_path.is_dir()).is_ignore() {
+				// File is in ignore patterns, so don't index it
 				return Ok(());
 			}
 		}
 
 		// File is not ignored, so proceed with indexing
-		if let Some(language) = detect_language(path) {
-			if let Ok(contents) = fs::read_to_string(path) {
+		if let Some(language) = detect_language(&absolute_path) {
+			if let Ok(contents) = fs::read_to_string(&absolute_path) {
+				// Ensure we use relative path for storage
+				let relative_file_path = PathUtils::to_relative_string(&absolute_path, &current_dir);
+				
 				if language == "markdown" {
 					// Handle markdown files specially
 					let mut document_blocks_batch = Vec::new();
 					process_markdown_file(
 						store,
 						&contents,
-						file_path,
+						&relative_file_path,
 						&mut document_blocks_batch,
 						config,
 						state.clone()
@@ -1123,7 +1197,7 @@ pub async fn handle_file_change(store: &Store, file_path: &str, config: &Config)
 					process_file(
 						&ctx,
 						&contents,
-						file_path,
+						&relative_file_path,
 						language,
 						&mut code_blocks_batch,
 						&mut text_blocks_batch,
@@ -1148,14 +1222,17 @@ pub async fn handle_file_change(store: &Store, file_path: &str, config: &Config)
 		} else {
 			// Handle unsupported file types as chunked text
 			// First check if the file extension is in our whitelist
-			if is_allowed_text_extension(path) {
-				if let Ok(contents) = fs::read_to_string(path) {
+			if is_allowed_text_extension(&absolute_path) {
+				if let Ok(contents) = fs::read_to_string(&absolute_path) {
 					if is_text_file(&contents) {
+						// Ensure we use relative path for storage
+						let relative_file_path = PathUtils::to_relative_string(&absolute_path, &current_dir);
+						
 						let mut text_blocks_batch = Vec::new();
 						process_text_file(
 							store,
 							&contents,
-							file_path,
+							&relative_file_path,
 							&mut text_blocks_batch,
 							config,
 							state.clone()

@@ -42,13 +42,8 @@ pub async fn execute(_store: &Store, args: &ViewArgs, _config: &Config) -> Resul
 			}
 		};
 
-		// Use ignore crate to respect .gitignore files while finding files
-		let walker = ignore::WalkBuilder::new(&current_dir)
-			.hidden(false)  // Don't ignore hidden files (unless in .gitignore)
-			.git_ignore(true)  // Respect .gitignore files
-			.git_global(true) // Respect global git ignore files
-			.git_exclude(true) // Respect .git/info/exclude files
-			.build();
+		// Use NoindexWalker to respect both .gitignore and .noindex files while finding files
+		let walker = indexer::NoindexWalker::create_walker(&current_dir).build();
 
 		for result in walker {
 			let entry = match result {
@@ -62,8 +57,8 @@ pub async fn execute(_store: &Store, args: &ViewArgs, _config: &Config) -> Resul
 			}
 
 			// See if this file matches our pattern
-			let relative_path = entry.path().strip_prefix(&current_dir).unwrap_or(entry.path());
-			if glob_pattern.is_match(relative_path) {
+			let relative_path = indexer::PathUtils::to_relative_string(entry.path(), &current_dir);
+			if glob_pattern.is_match(&relative_path) {
 				matching_files.push(entry.path().to_path_buf());
 			}
 		}

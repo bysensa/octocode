@@ -100,8 +100,8 @@ fn normalize_git_url(url: &str) -> String {
     let url = url.trim();
     
     // Remove .git suffix if present
-    let url = if url.ends_with(".git") {
-        &url[..url.len() - 4]
+    let url = if let Some(stripped) = url.strip_suffix(".git") {
+        stripped
     } else {
         url
     };
