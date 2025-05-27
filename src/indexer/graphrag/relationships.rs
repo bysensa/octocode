@@ -20,10 +20,10 @@ impl RelationshipDiscovery {
 					if target_file.id == source_file.id {
 						continue;
 					}
-					
+
 					// Check if target exports what source imports
 					if target_file.exports.iter().any(|exp| symbols_match(import, exp)) ||
-					   target_file.symbols.iter().any(|sym| symbols_match(import, sym)) {
+					target_file.symbols.iter().any(|sym| symbols_match(import, sym)) {
 						relationships.push(CodeRelationship {
 							source: source_file.id.clone(),
 							target: target_file.id.clone(),
@@ -128,7 +128,7 @@ impl RelationshipDiscovery {
 			if other_file.id == source_file.id || other_file.language != "rust" {
 				continue;
 			}
-			
+
 			// Check for mod.rs patterns
 			if source_file.name == "mod" && other_file.path.starts_with(&source_file.path.replace("/mod.rs", "/")) {
 				relationships.push(CodeRelationship {
@@ -140,7 +140,7 @@ impl RelationshipDiscovery {
 					weight: 0.8,
 				});
 			}
-			
+
 			// Check for lib.rs patterns
 			if source_file.name == "lib" || source_file.name == "main" {
 				let source_dir = Path::new(&source_file.path).parent()
@@ -166,7 +166,7 @@ impl RelationshipDiscovery {
 			if other_file.id == source_file.id || !["javascript", "typescript"].contains(&other_file.language.as_str()) {
 				continue;
 			}
-			
+
 			// Check for index.js patterns
 			if source_file.name == "index" {
 				let source_dir = Path::new(&source_file.path).parent()
@@ -192,7 +192,7 @@ impl RelationshipDiscovery {
 			if other_file.id == source_file.id || other_file.language != "python" {
 				continue;
 			}
-			
+
 			// Check for __init__.py patterns
 			if source_file.name == "__init__" {
 				let source_dir = Path::new(&source_file.path).parent()
@@ -215,7 +215,7 @@ impl RelationshipDiscovery {
 	// Extract function information from a code block efficiently
 	pub fn extract_functions_from_block(block: &CodeBlock) -> Result<Vec<FunctionInfo>> {
 		let mut functions = Vec::new();
-		
+
 		// Look for function patterns in symbols
 		for symbol in &block.symbols {
 			if symbol.contains("function_") || symbol.contains("method_") {
@@ -225,7 +225,7 @@ impl RelationshipDiscovery {
 				}
 			}
 		}
-		
+
 		Ok(functions)
 	}
 
@@ -233,7 +233,7 @@ impl RelationshipDiscovery {
 	fn parse_function_symbol(symbol: &str, block: &CodeBlock) -> Option<FunctionInfo> {
 		// Simple pattern matching for common function symbol formats
 		// This can be expanded based on your language implementations
-		
+
 		symbol.strip_prefix("function_").map(|function_name| FunctionInfo {
 			name: function_name.to_string(),
 			signature: format!("{}(...)", function_name), // Simplified
@@ -258,7 +258,7 @@ impl RelationshipDiscovery {
 					imports.push(import_name.to_string());
 				}
 			}
-			
+
 			if symbol.contains("export_") || symbol.contains("public_") {
 				if let Some(export_name) = symbol.strip_prefix("export_").or_else(|| symbol.strip_prefix("public_")) {
 					exports.push(export_name.to_string());
@@ -337,15 +337,15 @@ impl RelationshipDiscovery {
 	pub fn generate_simple_description(file_name: &str, language: &str, symbols: &[String], lines: u32) -> String {
 		let function_count = symbols.iter().filter(|s| s.contains("function_") || s.contains("method_")).count();
 		let class_count = symbols.iter().filter(|s| s.contains("class_") || s.contains("struct_")).count();
-		
+
 		if function_count > 0 && class_count > 0 {
-			format!("{} {} file with {} functions and {} classes ({} lines)", 
+			format!("{} {} file with {} functions and {} classes ({} lines)",
 				file_name, language, function_count, class_count, lines)
 		} else if function_count > 0 {
-			format!("{} {} file with {} functions ({} lines)", 
+			format!("{} {} file with {} functions ({} lines)",
 				file_name, language, function_count, lines)
 		} else if class_count > 0 {
-			format!("{} {} file with {} classes ({} lines)", 
+			format!("{} {} file with {} classes ({} lines)",
 				file_name, language, class_count, lines)
 		} else {
 			format!("{} {} file ({} lines)", file_name, language, lines)

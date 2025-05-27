@@ -20,7 +20,7 @@ impl Language for Go {
 			"method_declaration",
 			"type_declaration", // Keep for simple type aliases
 			// Removed: "struct_type" - can be large
-			// Removed: "interface_type" - can be large  
+			// Removed: "interface_type" - can be large
 			// Individual struct fields and interface methods are less useful than the functions that use them
 		]
 	}
@@ -121,7 +121,7 @@ impl Language for Go {
 		for group in &semantic_groups {
 			let contains_type1 = group.contains(&type1);
 			let contains_type2 = group.contains(&type2);
-			
+
 			if contains_type1 && contains_type2 {
 				return true;
 			}

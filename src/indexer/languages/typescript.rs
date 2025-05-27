@@ -96,7 +96,7 @@ impl Language for TypeScript {
 		let semantic_groups = [
 			// Functions and methods
 			&["function_declaration", "method_definition", "arrow_function"] as &[&str],
-			// Classes and interfaces  
+			// Classes and interfaces
 			&["class_declaration", "interface_declaration"],
 			// Type definitions
 			&["type_alias_declaration", "interface_declaration"],
@@ -110,7 +110,7 @@ impl Language for TypeScript {
 		for group in &semantic_groups {
 			let contains_type1 = group.contains(&type1);
 			let contains_type2 = group.contains(&type2);
-			
+
 			if contains_type1 && contains_type2 {
 				return true;
 			}

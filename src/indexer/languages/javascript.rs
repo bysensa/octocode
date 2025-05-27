@@ -128,7 +128,7 @@ impl Language for JavaScript {
 		for group in &semantic_groups {
 			let contains_type1 = group.contains(&type1);
 			let contains_type2 = group.contains(&type2);
-			
+
 			if contains_type1 && contains_type2 {
 				return true;
 			}

@@ -53,7 +53,7 @@ pub fn render_code_blocks_with_config(blocks: &[CodeBlock], config: &Config) {
 		// Use smart truncation based on configuration
 		let max_chars = config.search.search_block_max_characters;
 		let (content, was_truncated) = crate::indexer::truncate_content_smartly(&block.content, max_chars);
-		
+
 		// Display content with proper indentation
 		for line in content.lines() {
 			println!("║ │ {}", line);
@@ -170,24 +170,24 @@ pub async fn search_codebase(query: &str, mode: &str, config: &Config) -> Result
 	match mode {
 		"code" => {
 			let results = store.get_code_blocks_with_config(
-				embeddings, 
-				Some(config.search.max_results), 
+				embeddings,
+				Some(config.search.max_results),
 				Some(config.search.similarity_threshold)
 			).await?;
 			Ok(format_code_search_results_as_markdown(&results))
 		},
 		"text" => {
 			let results = store.get_text_blocks_with_config(
-				embeddings, 
-				Some(config.search.max_results), 
+				embeddings,
+				Some(config.search.max_results),
 				Some(config.search.similarity_threshold)
 			).await?;
 			Ok(format_text_search_results_as_markdown(&results))
 		},
 		"docs" => {
 			let results = store.get_document_blocks_with_config(
-				embeddings, 
-				Some(config.search.max_results), 
+				embeddings,
+				Some(config.search.max_results),
 				Some(config.search.similarity_threshold)
 			).await?;
 			Ok(format_doc_search_results_as_markdown(&results))
@@ -195,18 +195,18 @@ pub async fn search_codebase(query: &str, mode: &str, config: &Config) -> Result
 		_ => {
 			// "all" mode - search across all types
 			let code_results = store.get_code_blocks_with_config(
-				embeddings.clone(), 
-				Some(config.search.max_results), 
+				embeddings.clone(),
+				Some(config.search.max_results),
 				Some(config.search.similarity_threshold)
 			).await?;
 			let text_results = store.get_text_blocks_with_config(
-				embeddings.clone(), 
-				Some(config.search.max_results), 
+				embeddings.clone(),
+				Some(config.search.max_results),
 				Some(config.search.similarity_threshold)
 			).await?;
 			let doc_results = store.get_document_blocks_with_config(
-				embeddings, 
-				Some(config.search.max_results), 
+				embeddings,
+				Some(config.search.max_results),
 				Some(config.search.similarity_threshold)
 			).await?;
 

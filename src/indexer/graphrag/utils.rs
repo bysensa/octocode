@@ -34,26 +34,26 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
 pub fn detect_project_root() -> Result<PathBuf> {
 	let current_dir = std::env::current_dir()?;
 	let mut dir = current_dir.as_path();
-	
+
 	// Look for common project root indicators
 	let indicators = [
-		"Cargo.toml", "package.json", ".git", "pyproject.toml", 
+		"Cargo.toml", "package.json", ".git", "pyproject.toml",
 		"go.mod", "pom.xml", "build.gradle", "composer.json"
 	];
-	
+
 	loop {
 		for indicator in &indicators {
 			if dir.join(indicator).exists() {
 				return Ok(dir.to_path_buf());
 			}
 		}
-		
+
 		match dir.parent() {
 			Some(parent) => dir = parent,
 			None => break,
 		}
 	}
-	
+
 	// Fallback to current directory if no indicators found
 	Ok(current_dir)
 }
@@ -62,9 +62,9 @@ pub fn detect_project_root() -> Result<PathBuf> {
 pub fn to_relative_path(absolute_path: &str, project_root: &Path) -> Result<String> {
 	let abs_path = PathBuf::from(absolute_path);
 	let relative = abs_path.strip_prefix(project_root)
-		.map_err(|_| anyhow::anyhow!("Path {} is not within project root {}", 
+		.map_err(|_| anyhow::anyhow!("Path {} is not within project root {}",
 			absolute_path, project_root.display()))?;
-	
+
 	Ok(relative.to_string_lossy().to_string())
 }
 
@@ -135,7 +135,7 @@ pub fn symbols_match(import: &str, export: &str) -> bool {
 	if import == export {
 		return true;
 	}
-	
+
 	// Clean symbol names (remove prefixes/suffixes)
 	let clean_import = import.trim_start_matches("import_")
 		.trim_start_matches("use_")
@@ -143,7 +143,7 @@ pub fn symbols_match(import: &str, export: &str) -> bool {
 	let clean_export = export.trim_start_matches("export_")
 		.trim_start_matches("pub_")
 		.trim_start_matches("public_");
-	
+
 	clean_import == clean_export
 }
 
@@ -151,7 +151,7 @@ pub fn symbols_match(import: &str, export: &str) -> bool {
 pub fn is_parent_child_relationship(path1: &str, path2: &str) -> bool {
 	let path1_parts: Vec<&str> = path1.split('/').collect();
 	let path2_parts: Vec<&str> = path2.split('/').collect();
-	
+
 	// One should be exactly one level deeper than the other
 	if path1_parts.len().abs_diff(path2_parts.len()) == 1 {
 		let (shorter, longer) = if path1_parts.len() < path2_parts.len() {
@@ -159,7 +159,7 @@ pub fn is_parent_child_relationship(path1: &str, path2: &str) -> bool {
 		} else {
 			(path2_parts, path1_parts)
 		};
-		
+
 		// Check if all parts of shorter path match the beginning of longer path
 		shorter.iter().zip(longer.iter()).all(|(a, b)| a == b)
 	} else {

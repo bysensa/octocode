@@ -19,7 +19,7 @@ impl Language for Php {
 			"function_definition",
 			"method_declaration",
 			// Removed: "class_declaration" - too large, not semantic
-			// Removed: "trait_declaration" - too large, not semantic  
+			// Removed: "trait_declaration" - too large, not semantic
 			// Removed: "interface_declaration" - too large, not semantic
 		]
 	}
@@ -96,7 +96,7 @@ impl Language for Php {
 		for group in &semantic_groups {
 			let contains_type1 = group.contains(&type1);
 			let contains_type2 = group.contains(&type2);
-			
+
 			if contains_type1 && contains_type2 {
 				return true;
 			}

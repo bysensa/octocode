@@ -73,7 +73,7 @@ fn default_embeddings_batch_size() -> usize {
 
 // Embedding configuration defaults
 fn default_embedding_config() -> EmbeddingProviderConfig {
-    EmbeddingProviderConfig::get_default_models()
+	EmbeddingProviderConfig::get_default_models()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

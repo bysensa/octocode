@@ -21,7 +21,7 @@ impl Language for Rust {
 			"enum_item",
 			// Removed: "impl_item" - can be very large, not semantic
 			// Individual functions inside impl blocks will be captured separately
-			"trait_item", 
+			"trait_item",
 			"mod_item",
 			"const_item",
 			"macro_definition",
@@ -94,7 +94,7 @@ impl Language for Rust {
 		let semantic_groups = [
 			// Module related
 			&["mod_item", "use_declaration", "extern_crate_item"] as &[&str],
-			// Type definitions  
+			// Type definitions
 			&["struct_item", "enum_item", "union_item", "type_item"],
 			// Functions
 			&["function_item"],
@@ -110,7 +110,7 @@ impl Language for Rust {
 		for group in &semantic_groups {
 			let contains_type1 = group.contains(&type1);
 			let contains_type2 = group.contains(&type2);
-			
+
 			if contains_type1 && contains_type2 {
 				return true;
 			}

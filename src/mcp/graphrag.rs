@@ -7,81 +7,81 @@ use crate::mcp::types::McpTool;
 
 /// GraphRAG tool provider
 pub struct GraphRagProvider {
-    graphrag: GraphRAG,
-    working_directory: std::path::PathBuf,
-    debug: bool,
+	graphrag: GraphRAG,
+	working_directory: std::path::PathBuf,
+	debug: bool,
 }
 
 impl GraphRagProvider {
-    pub fn new(config: Config, working_directory: std::path::PathBuf, debug: bool) -> Option<Self> {
-        if config.graphrag.enabled {
-            Some(Self {
-                graphrag: GraphRAG::new(config),
-                working_directory,
-                debug,
-            })
-        } else {
-            None
-        }
-    }
+	pub fn new(config: Config, working_directory: std::path::PathBuf, debug: bool) -> Option<Self> {
+		if config.graphrag.enabled {
+			Some(Self {
+				graphrag: GraphRAG::new(config),
+				working_directory,
+				debug,
+			})
+		} else {
+			None
+		}
+	}
 
-    /// Get the tool definition for search_graphrag
-    pub fn get_tool_definition() -> McpTool {
-        McpTool {
-            name: "search_graphrag".to_string(),
-            description: "Advanced relationship-aware search using GraphRAG (Graph Retrieval-Augmented Generation). This tool understands code relationships, dependencies, and semantic connections between different parts of the codebase. Best for complex queries about how components interact, architectural patterns, or cross-cutting concerns.".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Complex query about code relationships, architecture, or cross-cutting concerns. Examples: 'How does user authentication flow through the system?', 'What components depend on the database layer?', 'Show me the data flow for order processing', 'Find all error handling patterns across modules'",
-                        "minLength": 10,
-                        "maxLength": 1000
-                    }
-                },
-                "required": ["query"],
-                "additionalProperties": false
-            }),
-        }
-    }
+	/// Get the tool definition for search_graphrag
+	pub fn get_tool_definition() -> McpTool {
+		McpTool {
+			name: "search_graphrag".to_string(),
+			description: "Advanced relationship-aware search using GraphRAG (Graph Retrieval-Augmented Generation). This tool understands code relationships, dependencies, and semantic connections between different parts of the codebase. Best for complex queries about how components interact, architectural patterns, or cross-cutting concerns.".to_string(),
+			input_schema: json!({
+				"type": "object",
+				"properties": {
+					"query": {
+						"type": "string",
+						"description": "Complex query about code relationships, architecture, or cross-cutting concerns. Examples: 'How does user authentication flow through the system?', 'What components depend on the database layer?', 'Show me the data flow for order processing', 'Find all error handling patterns across modules'",
+						"minLength": 10,
+						"maxLength": 1000
+					}
+				},
+				"required": ["query"],
+				"additionalProperties": false
+			}),
+		}
+	}
 
-    /// Execute the search_graphrag tool
-    pub async fn execute_search(&self, arguments: &Value) -> Result<String> {
-        let query = arguments
-            .get("query")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Missing required parameter 'query': must be a detailed question about code relationships or architecture"))?;
+	/// Execute the search_graphrag tool
+	pub async fn execute_search(&self, arguments: &Value) -> Result<String> {
+		let query = arguments
+			.get("query")
+			.and_then(|v| v.as_str())
+			.ok_or_else(|| anyhow::anyhow!("Missing required parameter 'query': must be a detailed question about code relationships or architecture"))?;
 
-        // Validate query length for GraphRAG (should be more detailed)
-        if query.len() < 10 {
-            return Err(anyhow::anyhow!("Invalid GraphRAG query: must be at least 10 characters long and describe relationships or architecture"));
-        }
-        if query.len() > 1000 {
-            return Err(anyhow::anyhow!("Invalid GraphRAG query: must be no more than 1000 characters long"));
-        }
+		// Validate query length for GraphRAG (should be more detailed)
+		if query.len() < 10 {
+			return Err(anyhow::anyhow!("Invalid GraphRAG query: must be at least 10 characters long and describe relationships or architecture"));
+		}
+		if query.len() > 1000 {
+			return Err(anyhow::anyhow!("Invalid GraphRAG query: must be no more than 1000 characters long"));
+		}
 
-        if self.debug {
-            eprintln!("Executing GraphRAG search: query='{}' in directory '{}'",
-                query, self.working_directory.display());
-        }
+		if self.debug {
+			eprintln!("Executing GraphRAG search: query='{}' in directory '{}'",
+				query, self.working_directory.display());
+		}
 
-        // Change to the working directory for the search
-        let _original_dir = std::env::current_dir()?;
-        std::env::set_current_dir(&self.working_directory)?;
+		// Change to the working directory for the search
+		let _original_dir = std::env::current_dir()?;
+		std::env::set_current_dir(&self.working_directory)?;
 
-        let results = self.graphrag.search(query).await;
+		let results = self.graphrag.search(query).await;
 
-        // Restore original directory
-        std::env::set_current_dir(&_original_dir)?;
+		// Restore original directory
+		std::env::set_current_dir(&_original_dir)?;
 
-        let results = results?;
-        Ok(Self::format_results_as_markdown(results))
-    }
+		let results = results?;
+		Ok(Self::format_results_as_markdown(results))
+	}
 
-    /// Format GraphRAG results as markdown
-    fn format_results_as_markdown(results: String) -> String {
-        // GraphRAG results are already formatted as markdown
-        results
-    }
+	/// Format GraphRAG results as markdown
+	fn format_results_as_markdown(results: String) -> String {
+		// GraphRAG results are already formatted as markdown
+		results
+	}
 }

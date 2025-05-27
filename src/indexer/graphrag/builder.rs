@@ -31,7 +31,7 @@ impl GraphBuilder {
 	pub async fn new(config: Config) -> Result<Self> {
 		// Detect project root (look for common indicators)
 		let project_root = detect_project_root()?;
-		
+
 		// Initialize embedding model
 		let cache_dir = project_root.join(".octocode/fastembed");
 		std::fs::create_dir_all(&cache_dir).context("Failed to create FastEmbed cache directory")?;
@@ -157,7 +157,7 @@ impl GraphBuilder {
 				for block in &file_blocks {
 					all_symbols.extend(block.symbols.iter().cloned());
 					total_lines = total_lines.max(block.end_line);
-					
+
 					// Extract function information from this block
 					if let Ok(functions) = RelationshipDiscovery::extract_functions_from_block(block) {
 						all_functions.extend(functions);
@@ -180,7 +180,7 @@ impl GraphBuilder {
 				};
 
 				// Generate embedding for the file summary (much lighter than full content)
-				let summary_text = format!("{} {} symbols: {}", 
+				let summary_text = format!("{} {} symbols: {}",
 					file_name, language, symbols.join(" "));
 				let embedding = self.generate_embedding(&summary_text).await?;
 

@@ -1,10 +1,10 @@
 //! MCP (Model Context Protocol) server implementation
-//! 
+//!
 //! This module provides a modular MCP server with separate tool providers:
 //! - SemanticCodeProvider: Semantic code search functionality
 //! - GraphRagProvider: GraphRAG relationship-aware search
 //! - MemoryProvider: AI memory storage and retrieval
-//! 
+//!
 //! The server automatically enables available tools based on configuration.
 
 pub mod types;

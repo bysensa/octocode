@@ -1350,24 +1350,24 @@ fn apply_smart_merging(candidate_regions: Vec<CodeRegion>, final_regions: &mut V
 	let mut i = 0;
 	while i < candidate_regions.len() {
 		let current = &candidate_regions[i];
-		
+
 		// Check if this is a single-line block
 		if is_single_line_declaration(current) {
 			// Look ahead to find consecutive single-line blocks
 			let mut consecutive_single_lines = vec![current];
 			let mut j = i + 1;
-			
+
 			while j < candidate_regions.len() {
 				let next = &candidate_regions[j];
-				if is_single_line_declaration(next) && 
-				   are_consecutive_or_related(consecutive_single_lines.last().unwrap(), next, lang_impl) {
+				if is_single_line_declaration(next) &&
+				are_consecutive_or_related(consecutive_single_lines.last().unwrap(), next, lang_impl) {
 					consecutive_single_lines.push(next);
 					j += 1;
 				} else {
 					break;
 				}
 			}
-			
+
 			// If we have enough single-line blocks to merge
 			if consecutive_single_lines.len() >= MIN_LINES_TO_MERGE {
 				merge_single_line_blocks(consecutive_single_lines, final_regions, lang_impl);
@@ -1390,7 +1390,7 @@ fn is_single_line_declaration(region: &CodeRegion) -> bool {
 	// Consider it single-line if it's 1 line or very short content
 	let line_count = region.end_line - region.start_line + 1;
 	let is_short = region.content.trim().lines().count() <= 1 || region.content.len() < 80;
-	
+
 	line_count <= 1 || (line_count <= 2 && is_short)
 }
 
@@ -1398,17 +1398,17 @@ fn is_single_line_declaration(region: &CodeRegion) -> bool {
 fn are_consecutive_or_related(first: &CodeRegion, second: &CodeRegion, lang_impl: &dyn languages::Language) -> bool {
 	// Consider consecutive if they're within a few lines of each other
 	let line_gap = second.start_line.saturating_sub(first.end_line);
-	
+
 	// Allow small gaps (for comments or empty lines)
 	if line_gap <= 3 {
 		return true;
 	}
-	
+
 	// Check if they're thematically related (same type of declaration)
 	if are_thematically_related(first, second, lang_impl) {
 		return line_gap <= 10; // Allow larger gaps for related content
 	}
-	
+
 	false
 }
 
@@ -1418,7 +1418,7 @@ fn are_thematically_related(first: &CodeRegion, second: &CodeRegion, lang_impl: 
 	if first.node_kind == second.node_kind {
 		return true;
 	}
-	
+
 	// Use language-specific semantic equivalence
 	lang_impl.are_node_types_equivalent(&first.node_kind, &second.node_kind)
 }
@@ -1428,11 +1428,11 @@ fn merge_single_line_blocks(single_lines: Vec<&CodeRegion>, final_regions: &mut 
 	if single_lines.is_empty() {
 		return;
 	}
-	
+
 	// Group by theme first
 	let mut themed_groups: Vec<Vec<&CodeRegion>> = Vec::new();
 	let mut current_group = vec![single_lines[0]];
-	
+
 	for region in single_lines.iter().skip(1) {
 		if are_thematically_related(current_group[0], region, lang_impl) {
 			current_group.push(region);
@@ -1442,7 +1442,7 @@ fn merge_single_line_blocks(single_lines: Vec<&CodeRegion>, final_regions: &mut 
 		}
 	}
 	themed_groups.push(current_group);
-	
+
 	// Process each themed group
 	for group in themed_groups {
 		create_merged_blocks_from_group(group, final_regions, lang_impl);
@@ -1454,22 +1454,22 @@ fn create_merged_blocks_from_group(group: Vec<&CodeRegion>, final_regions: &mut 
 	if group.is_empty() {
 		return;
 	}
-	
+
 	// Split into chunks if the group is too large
 	let chunks: Vec<&[&CodeRegion]> = group.chunks(MAX_LINES_PER_BLOCK).collect();
-	
+
 	for chunk in chunks {
 		if chunk.is_empty() {
 			continue;
 		}
-		
+
 		let start_line = chunk[0].start_line;
 		let end_line = chunk.last().unwrap().end_line;
-		
+
 		// Combine content from all regions in the chunk
 		let mut combined_content = String::new();
 		let mut all_symbols = Vec::new();
-		
+
 		for (i, region) in chunk.iter().enumerate() {
 			if i > 0 {
 				combined_content.push('\n');
@@ -1477,16 +1477,16 @@ fn create_merged_blocks_from_group(group: Vec<&CodeRegion>, final_regions: &mut 
 			combined_content.push_str(&region.content);
 			all_symbols.extend(region.symbols.clone());
 		}
-		
+
 		// Deduplicate symbols
 		all_symbols.sort();
 		all_symbols.dedup();
-		
+
 		// Add a descriptive comment to the merged block using language-specific description
 		let block_type = determine_block_type(chunk[0], lang_impl);
 		let block_description = format!("// Merged {} ({} declarations)\n", block_type, chunk.len());
 		let final_content = block_description + &combined_content;
-		
+
 		final_regions.push(CodeRegion {
 			content: final_content,
 			symbols: all_symbols,

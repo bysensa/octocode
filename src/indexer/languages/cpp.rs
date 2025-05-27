@@ -119,7 +119,7 @@ impl Language for Cpp {
 		let semantic_groups = [
 			// Functions and methods
 			&["function_definition"] as &[&str],
-			// Type definitions  
+			// Type definitions
 			&["class_specifier", "struct_specifier", "enum_specifier"],
 			// Namespaces
 			&["namespace_definition"],
@@ -133,7 +133,7 @@ impl Language for Cpp {
 		for group in &semantic_groups {
 			let contains_type1 = group.contains(&type1);
 			let contains_type2 = group.contains(&type2);
-			
+
 			if contains_type1 && contains_type2 {
 				return true;
 			}
@@ -146,7 +146,7 @@ impl Language for Cpp {
 		match node_type {
 			"function_definition" => "function declarations",
 			"class_specifier" => "class declarations",
-			"struct_specifier" => "struct declarations", 
+			"struct_specifier" => "struct declarations",
 			"enum_specifier" => "enum declarations",
 			"namespace_definition" => "namespace declarations",
 			"template_declaration" => "template declarations",

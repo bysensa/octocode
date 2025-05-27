@@ -26,11 +26,11 @@ impl AIEnhancements {
 	pub async fn discover_relationships_with_ai_enhancement(&self, new_files: &[CodeNode], all_nodes: &[CodeNode]) -> Result<Vec<CodeRelationship>> {
 		// Start with rule-based relationships (fast and reliable)
 		let mut relationships = crate::indexer::graphrag::relationships::RelationshipDiscovery::discover_relationships_efficiently(new_files, all_nodes).await?;
-		
+
 		// Add AI-enhanced relationship discovery for complex architectural patterns
 		let ai_relationships = self.discover_complex_relationships_with_ai(new_files, all_nodes).await?;
 		relationships.extend(ai_relationships);
-		
+
 		// Deduplicate
 		relationships.sort_by(|a, b| {
 			(a.source.clone(), a.target.clone(), a.relation_type.clone())
@@ -39,23 +39,23 @@ impl AIEnhancements {
 		relationships.dedup_by(|a, b| {
 			a.source == b.source && a.target == b.target && a.relation_type == b.relation_type
 		});
-		
+
 		Ok(relationships)
 	}
 
 	// Use AI to discover complex architectural relationships
 	async fn discover_complex_relationships_with_ai(&self, new_files: &[CodeNode], all_nodes: &[CodeNode]) -> Result<Vec<CodeRelationship>> {
 		let mut ai_relationships = Vec::new();
-		
+
 		// Only use AI for files that are likely to have complex architectural relationships
 		let complex_files: Vec<&CodeNode> = new_files.iter()
 			.filter(|node| self.should_use_ai_for_relationships(node))
 			.collect();
-		
+
 		if complex_files.is_empty() {
 			return Ok(ai_relationships);
 		}
-		
+
 		// Process in small batches to avoid overwhelming the AI
 		const AI_BATCH_SIZE: usize = 3;
 		for batch in complex_files.chunks(AI_BATCH_SIZE) {
@@ -63,7 +63,7 @@ impl AIEnhancements {
 				ai_relationships.extend(batch_relationships);
 			}
 		}
-		
+
 		Ok(ai_relationships)
 	}
 
@@ -75,7 +75,7 @@ impl AIEnhancements {
 		let is_core_module = node.path.contains("core") || node.path.contains("lib") || node.name == "main" || node.name == "index";
 		let has_many_exports = node.exports.len() > 5;
 		let is_large_file = node.size_lines > 200;
-		
+
 		// Focus AI on files that are likely to have complex, non-obvious relationships
 		(is_interface_heavy || is_config_or_setup || is_core_module) && (has_many_exports || is_large_file)
 	}
@@ -84,14 +84,14 @@ impl AIEnhancements {
 	async fn analyze_architectural_relationships_batch(&self, source_nodes: &[&CodeNode], all_nodes: &[CodeNode]) -> Result<Vec<CodeRelationship>> {
 		let mut batch_prompt = String::from(
 			"You are an expert software architect. Analyze these code files and identify ARCHITECTURAL relationships.\n\
-			Focus on design patterns, dependency injection, factory patterns, observer patterns, etc.\n\
-			Look for relationships that go beyond simple imports - identify architectural significance.\n\n\
-			Respond with a JSON array of relationships. For each relationship, include:\n\
-			- source_path: relative path of source file\n\
-			- target_path: relative path of target file\n\
-			- relation_type: one of 'implements_pattern', 'dependency_injection', 'factory_creates', 'observer_pattern', 'strategy_pattern', 'adapter_pattern', 'decorator_pattern', 'architectural_dependency'\n\
-			- description: brief explanation of the architectural relationship\n\
-			- confidence: 0.0-1.0 confidence score\n\n"
+				Focus on design patterns, dependency injection, factory patterns, observer patterns, etc.\n\
+				Look for relationships that go beyond simple imports - identify architectural significance.\n\n\
+				Respond with a JSON array of relationships. For each relationship, include:\n\
+				- source_path: relative path of source file\n\
+				- target_path: relative path of target file\n\
+				- relation_type: one of 'implements_pattern', 'dependency_injection', 'factory_creates', 'observer_pattern', 'strategy_pattern', 'adapter_pattern', 'decorator_pattern', 'architectural_dependency'\n\
+				- description: brief explanation of the architectural relationship\n\
+				- confidence: 0.0-1.0 confidence score\n\n"
 		);
 
 		// Add source nodes context
@@ -139,7 +139,7 @@ impl AIEnhancements {
 							rel
 						})
 						.collect();
-					
+
 					Ok(valid_relationships)
 				} else {
 					Ok(Vec::new())
@@ -188,20 +188,20 @@ impl AIEnhancements {
 		let function_count = symbols.iter().filter(|s| s.contains("function_") || s.contains("method_")).count();
 		let class_count = symbols.iter().filter(|s| s.contains("class_") || s.contains("struct_")).count();
 		let interface_count = symbols.iter().filter(|s| s.contains("interface_") || s.contains("trait_")).count();
-		
+
 		// AI is beneficial for:
 		// 1. Large files (>100 lines) with complex structure
 		// 2. Files with many functions/classes (>5 symbols)
 		// 3. Configuration files that benefit from context understanding
 		// 4. Core library/framework files
 		// 5. Files with interfaces/traits (architectural significance)
-		
+
 		let is_large_complex = lines > 100 && (function_count + class_count) > 5;
 		let is_config_file = symbols.iter().any(|s| s.contains("config") || s.contains("setting"));
 		let is_core_file = symbols.iter().any(|s| s.contains("main") || s.contains("lib") || s.contains("core"));
 		let has_architecture = interface_count > 0 || class_count > 3;
 		let is_important_language = matches!(language, "rust" | "typescript" | "python" | "go");
-		
+
 		(is_large_complex || is_config_file || is_core_file || has_architecture) && is_important_language
 	}
 
@@ -210,30 +210,30 @@ impl AIEnhancements {
 		let mut sample = String::new();
 		let mut total_chars = 0;
 		const MAX_SAMPLE_SIZE: usize = 1500; // Reasonable size for AI context
-		
+
 		// Prioritize blocks with more symbols (more important code)
 		let mut sorted_blocks: Vec<&crate::store::CodeBlock> = file_blocks.to_vec();
 		sorted_blocks.sort_by(|a, b| b.symbols.len().cmp(&a.symbols.len()));
-		
+
 		for block in sorted_blocks {
 			if total_chars >= MAX_SAMPLE_SIZE {
 				break;
 			}
-			
+
 			// Add block content with some context
 			let block_content = if block.content.len() > 300 {
 				// For large blocks, take beginning and end
-				format!("{}\n...\n{}", 
-					&block.content[0..150], 
+				format!("{}\n...\n{}",
+					&block.content[0..150],
 					&block.content[block.content.len()-150..])
 			} else {
 				block.content.clone()
 			};
-			
+
 			sample.push_str(&format!("// Block: {} symbols\n{}\n\n", block.symbols.len(), block_content));
 			total_chars += block_content.len() + 50; // +50 for formatting
 		}
-		
+
 		sample
 	}
 
@@ -241,17 +241,17 @@ impl AIEnhancements {
 	pub async fn extract_ai_description(&self, content_sample: &str, file_path: &str, language: &str, symbols: &[String]) -> Result<String> {
 		let function_count = symbols.iter().filter(|s| s.contains("function_") || s.contains("method_")).count();
 		let class_count = symbols.iter().filter(|s| s.contains("class_") || s.contains("struct_")).count();
-		
+
 		let prompt = format!(
 			"Analyze this {} file and provide a concise 2-3 sentence description focusing on its ROLE and PURPOSE in the codebase.\n\
-			Focus on what this file accomplishes, its architectural significance, and how it fits into the larger system.\n\
-			Avoid listing specific functions/classes - instead describe the file's overall responsibility.\n\n\
-			File: {}\n\
-			Language: {}\n\
-			Stats: {} functions, {} classes/structs\n\
-			Key symbols: {}\n\n\
-			Code sample:\n{}\n\n\
-			Description:",
+				Focus on what this file accomplishes, its architectural significance, and how it fits into the larger system.\n\
+				Avoid listing specific functions/classes - instead describe the file's overall responsibility.\n\n\
+				File: {}\n\
+				Language: {}\n\
+				Stats: {} functions, {} classes/structs\n\
+				Key symbols: {}\n\n\
+				Code sample:\n{}\n\n\
+				Description:",
 			language,
 			std::path::Path::new(file_path).file_name().and_then(|s| s.to_str()).unwrap_or("unknown"),
 			language,
