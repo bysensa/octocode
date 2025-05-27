@@ -575,8 +575,10 @@ impl Store {
 
 		// Load the config to get the embedding provider and model info
 		let config = crate::config::Config::load()?;
-		let embedding_provider = crate::embedding::provider::EmbeddingProviderImpl::from_config(&config)?;
-		let vector_dim = embedding_provider.get_vector_dimension(true); // Use code model for consistency
+		
+		// Get vector dimension from the code model configuration
+		let (provider, model) = crate::embedding::parse_provider_model(&config.embedding.code_model);
+		let vector_dim = config.embedding.get_vector_dimension(&provider, &model);
 
 		// Connect to LanceDB
 		let db = connect(storage_path).execute().await?;

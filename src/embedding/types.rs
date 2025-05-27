@@ -8,6 +8,7 @@ pub enum EmbeddingProviderType {
 	Jina,
 	Voyage,
 	Google,
+	SentenceTransformer,
 }
 
 impl Default for EmbeddingProviderType {
@@ -16,62 +17,100 @@ impl Default for EmbeddingProviderType {
 	}
 }
 
-/// Configuration for embedding models per content type
+/// Configuration for embedding models (simplified)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EmbeddingModelConfig {
-	/// Model for code content
+pub struct EmbeddingConfig {
+	/// Code embedding model (format: "provider:model")
+	#[serde(default = "default_code_model")]
 	pub code_model: String,
-	/// Model for text/documentation content
+	
+	/// Text embedding model (format: "provider:model")
+	#[serde(default = "default_text_model")]
 	pub text_model: String,
+	
+	/// Jina AI configuration (API key only)
+	#[serde(default)]
+	pub jina: JinaConfig,
+	
+	/// Voyage AI configuration (API key only)
+	#[serde(default)]
+	pub voyage: VoyageConfig,
+	
+	/// Google configuration (API key only)
+	#[serde(default)]
+	pub google: GoogleConfig,
 }
 
-impl Default for EmbeddingModelConfig {
-	fn default() -> Self {
-		Self {
-			code_model: "all-MiniLM-L6-v2".to_string(),
-			text_model: "all-MiniLM-L6-v2".to_string(),
-		}
+/// Default code model
+fn default_code_model() -> String {
+	"fastembed:all-MiniLM-L6-v2".to_string()
+}
+
+/// Default text model
+fn default_text_model() -> String {
+	"fastembed:multilingual-e5-small".to_string()
+}
+
+/// Jina AI specific configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct JinaConfig {
+	pub api_key: Option<String>,
+}
+
+/// Voyage AI specific configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct VoyageConfig {
+	pub api_key: Option<String>,
+}
+
+/// Google specific configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GoogleConfig {
+	pub api_key: Option<String>,
+}
+
+/// Parse provider and model from a string in format "provider:model"
+pub fn parse_provider_model(input: &str) -> (EmbeddingProviderType, String) {
+	if let Some((provider_str, model)) = input.split_once(':') {
+		let provider = match provider_str.to_lowercase().as_str() {
+			"fastembed" => EmbeddingProviderType::FastEmbed,
+			"jinaai" | "jina" => EmbeddingProviderType::Jina,
+			"voyageai" | "voyage" => EmbeddingProviderType::Voyage,
+			"google" => EmbeddingProviderType::Google,
+			"sentencetransformer" | "st" | "huggingface" | "hf" => EmbeddingProviderType::SentenceTransformer,
+			_ => EmbeddingProviderType::FastEmbed, // Default fallback
+		};
+		(provider, model.to_string())
+	} else {
+		// Legacy format - assume FastEmbed for backward compatibility
+		(EmbeddingProviderType::FastEmbed, input.to_string())
 	}
 }
 
-/// Provider-specific configurations
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct EmbeddingProviderConfig {
-	/// Currently active provider
-	#[serde(default)]
-	pub provider: EmbeddingProviderType,
-
-	/// FastEmbed models configuration
-	#[serde(default)]
-	pub fastembed: EmbeddingModelConfig,
-
-	/// Jina models configuration
-	#[serde(default)]
-	pub jina: EmbeddingModelConfig,
-
-	/// Voyage models configuration
-	#[serde(default)]
-	pub voyage: EmbeddingModelConfig,
-
-	/// Google models configuration
-	#[serde(default)]
-	pub google: EmbeddingModelConfig,
-}
-
-impl EmbeddingProviderConfig {
-	/// Get the model name for a specific provider and content type
-	pub fn get_model(&self, provider: &EmbeddingProviderType, is_code: bool) -> &str {
-		let config = match provider {
-			EmbeddingProviderType::FastEmbed => &self.fastembed,
-			EmbeddingProviderType::Jina => &self.jina,
-			EmbeddingProviderType::Voyage => &self.voyage,
-			EmbeddingProviderType::Google => &self.google,
-		};
-
-		if is_code {
-			&config.code_model
-		} else {
-			&config.text_model
+impl EmbeddingConfig {
+	/// Get the currently active provider based on the code model
+	pub fn get_active_provider(&self) -> EmbeddingProviderType {
+		let (provider, _) = parse_provider_model(&self.code_model);
+		provider
+	}
+	
+	/// Get API key for a specific provider (checks environment variables first)
+	pub fn get_api_key(&self, provider: &EmbeddingProviderType) -> Option<String> {
+		match provider {
+			EmbeddingProviderType::Jina => {
+				// Environment variable takes priority
+				std::env::var("JINA_API_KEY").ok()
+					.or_else(|| self.jina.api_key.clone())
+			},
+			EmbeddingProviderType::Voyage => {
+				std::env::var("VOYAGE_API_KEY").ok()
+					.or_else(|| self.voyage.api_key.clone())
+			},
+			EmbeddingProviderType::Google => {
+				std::env::var("GOOGLE_API_KEY").ok()
+					.or_else(|| self.google.api_key.clone())
+			},
+			_ => None, // FastEmbed and SentenceTransformer don't need API keys
 		}
 	}
 
@@ -92,6 +131,7 @@ impl EmbeddingProviderConfig {
 				match model {
 					"jina-embeddings-v3" => 1024,
 					"jina-embeddings-v2-base-en" => 768,
+					"jina-embeddings-v2-base-code" => 768,
 					"jina-embeddings-v2-small-en" => 512,
 					"jina-clip-v1" => 768,
 					_ => 1024, // Default for Jina v3
@@ -116,28 +156,23 @@ impl EmbeddingProviderConfig {
 					_ => 768, // Default for Google models
 				}
 			},
-		}
-	}
-
-	/// Get default models for each provider
-	pub fn get_default_models() -> Self {
-		Self {
-			provider: EmbeddingProviderType::FastEmbed,
-			fastembed: EmbeddingModelConfig {
-				code_model: "all-MiniLM-L6-v2".to_string(),
-				text_model: "multilingual-e5-small".to_string(),
-			},
-			jina: EmbeddingModelConfig {
-				code_model: "jina-embeddings-v3".to_string(),
-				text_model: "jina-embeddings-v3".to_string(),
-			},
-			voyage: EmbeddingModelConfig {
-				code_model: "voyage-code-2".to_string(),
-				text_model: "voyage-3".to_string(),
-			},
-			google: EmbeddingModelConfig {
-				code_model: "text-embedding-004".to_string(),
-				text_model: "text-embedding-004".to_string(),
+			EmbeddingProviderType::SentenceTransformer => {
+				// Common SentenceTransformer model dimensions
+				match model {
+					"sentence-transformers/all-MiniLM-L6-v2" => 384,
+					"sentence-transformers/all-MiniLM-L12-v2" => 384,
+					"sentence-transformers/all-mpnet-base-v2" => 768,
+					"sentence-transformers/all-roberta-large-v1" => 1024,
+					"sentence-transformers/paraphrase-MiniLM-L6-v2" => 384,
+					"sentence-transformers/paraphrase-mpnet-base-v2" => 768,
+					"microsoft/codebert-base" => 768,
+					"microsoft/unixcoder-base" => 768,
+					"sentence-transformers/multi-qa-mpnet-base-dot-v1" => 768,
+					"BAAI/bge-small-en-v1.5" => 384,
+					"BAAI/bge-base-en-v1.5" => 768,
+					"BAAI/bge-large-en-v1.5" => 1024,
+					_ => 768, // Default for SentenceTransformer
+				}
 			},
 		}
 	}

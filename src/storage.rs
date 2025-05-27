@@ -161,6 +161,19 @@ pub fn get_fastembed_cache_dir() -> Result<PathBuf> {
     Ok(cache_dir)
 }
 
+/// Get the system-wide SentenceTransformer cache directory
+/// Stored directly under ~/.local/share/octocode/sentencetransformer/ on all systems
+pub fn get_sentencetransformer_cache_dir() -> Result<PathBuf> {
+    let cache_dir = get_system_storage_dir()?.join("sentencetransformer");
+    
+    // Create the directory if it doesn't exist
+    if !cache_dir.exists() {
+        fs::create_dir_all(&cache_dir)?;
+    }
+    
+    Ok(cache_dir)
+}
+
 /// Ensure the project storage directory exists
 pub fn ensure_project_storage_exists(project_path: &Path) -> Result<PathBuf> {
     let storage_path = get_project_storage_path(project_path)?;
@@ -247,5 +260,22 @@ mod tests {
         let storage_dir = get_system_storage_dir().unwrap();
         assert!(fastembed_cache.starts_with(&storage_dir));
         assert_eq!(fastembed_cache, storage_dir.join("fastembed"));
+    }
+
+    #[test]
+    fn test_sentencetransformer_cache_dir() {
+        let st_cache = get_sentencetransformer_cache_dir().unwrap();
+        
+        // Should contain "octocode" and "sentencetransformer" in the path
+        assert!(st_cache.to_string_lossy().contains("octocode"));
+        assert!(st_cache.to_string_lossy().contains("sentencetransformer"));
+        
+        // Should be an absolute path
+        assert!(st_cache.is_absolute());
+        
+        // Should be a direct subdirectory of system storage directory
+        let storage_dir = get_system_storage_dir().unwrap();
+        assert!(st_cache.starts_with(&storage_dir));
+        assert_eq!(st_cache, storage_dir.join("sentencetransformer"));
     }
 }

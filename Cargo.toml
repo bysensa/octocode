@@ -59,6 +59,12 @@ futures = "0.3.31"
 globset = "0.4.16"
 regex = "1.11.1"
 dirs = "5.0.1"
+# Candle dependencies for SentenceTransformer support
+candle-core = "0.8.0"
+candle-nn = "0.8.0"
+candle-transformers = "0.8.0"
+tokenizers = "0.20.3"
+hf-hub = { version = "0.3.2", features = ["tokio"] }
 
 [profile.dev]
 opt-level = 1          # Basic optimizations without slowing compilation too much

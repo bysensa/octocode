@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
-use crate::embedding::types::EmbeddingProviderConfig;
+use crate::embedding::types::EmbeddingConfig;
 use crate::storage;
 
 // Default values functions
@@ -43,9 +43,7 @@ fn default_chunk_overlap() -> usize {
 	100
 }
 
-fn default_embedding_model() -> String {
-	"all-MiniLM-L6-v2".to_string()
-}
+
 
 fn default_max_results() -> usize {
 	50
@@ -70,8 +68,14 @@ fn default_embeddings_batch_size() -> usize {
 }
 
 // Embedding configuration defaults
-fn default_embedding_config() -> EmbeddingProviderConfig {
-	EmbeddingProviderConfig::get_default_models()
+fn default_embedding_config() -> EmbeddingConfig {
+	EmbeddingConfig {
+		code_model: "fastembed:all-MiniLM-L6-v2".to_string(),
+		text_model: "fastembed:multilingual-e5-small".to_string(),
+		jina: Default::default(),
+		voyage: Default::default(),
+		google: Default::default(),
+	}
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -129,9 +133,6 @@ pub struct IndexConfig {
 	#[serde(default = "default_chunk_overlap")]
 	pub chunk_overlap: usize,
 
-	#[serde(default = "default_embedding_model")]
-	pub embedding_model: String,
-
 	#[serde(default = "default_embeddings_batch_size")]
 	pub embeddings_batch_size: usize,
 
@@ -150,7 +151,6 @@ impl Default for IndexConfig {
 		Self {
 			chunk_size: default_chunk_size(),
 			chunk_overlap: default_chunk_overlap(),
-			embedding_model: default_embedding_model(),
 			embeddings_batch_size: default_embeddings_batch_size(),
 			graphrag_enabled: default_graphrag_enabled(),
 			llm_enabled: default_graphrag_enabled(),
@@ -205,7 +205,7 @@ impl Default for SearchConfig {
 
 
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
 	#[serde(default)]
 	pub openrouter: OpenRouterConfig,
@@ -217,10 +217,22 @@ pub struct Config {
 	pub search: SearchConfig,
 
 	#[serde(default = "default_embedding_config")]
-	pub embedding: EmbeddingProviderConfig,
+	pub embedding: EmbeddingConfig,
 
 	#[serde(default)]
 	pub graphrag: GraphRAGConfig,
+}
+
+impl Default for Config {
+	fn default() -> Self {
+		Self {
+			openrouter: OpenRouterConfig::default(),
+			index: IndexConfig::default(),
+			search: SearchConfig::default(),
+			embedding: default_embedding_config(),
+			graphrag: GraphRAGConfig::default(),
+		}
+	}
 }
 
 impl Config {
@@ -271,7 +283,7 @@ impl Config {
 
 	/// Get the system-wide config file path
 	/// Stored at ~/.local/share/octocode/config.toml (same level as fastembed cache)
-	fn get_system_config_path() -> Result<PathBuf> {
+	pub fn get_system_config_path() -> Result<PathBuf> {
 		let system_storage = storage::get_system_storage_dir()?;
 		Ok(system_storage.join("config.toml"))
 	}
@@ -301,6 +313,6 @@ mod tests {
 		assert_eq!(config.openrouter.model, "openai/gpt-4.1-mini");
 		assert_eq!(config.index.chunk_size, 2000);
 		assert_eq!(config.search.max_results, 50);
-		assert_eq!(config.embedding.provider, crate::embedding::types::EmbeddingProviderType::FastEmbed);
+		assert_eq!(config.embedding.get_active_provider(), crate::embedding::types::EmbeddingProviderType::FastEmbed);
 	}
 }

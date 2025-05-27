@@ -5,7 +5,10 @@ use std::sync::{Arc, Mutex};
 use fastembed::{TextEmbedding, InitOptions, EmbeddingModel};
 
 use crate::config::Config;
-use super::types::{EmbeddingProviderType, EmbeddingProviderConfig};
+use super::types::{EmbeddingProviderType, parse_provider_model};
+
+pub mod sentence_transformer;
+use sentence_transformer::SentenceTransformerProvider;
 
 /// Trait for embedding providers
 #[async_trait::async_trait]
@@ -14,43 +17,28 @@ pub trait EmbeddingProvider: Send + Sync {
 	async fn generate_embeddings_batch(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>>;
 }
 
-/// Create an embedding provider from configuration
-pub fn create_embedding_provider(config: &Config, is_code: bool) -> Result<Box<dyn EmbeddingProvider>> {
-	match config.embedding.provider {
+/// Create an embedding provider from provider type and model
+pub fn create_embedding_provider_from_parts(provider: &EmbeddingProviderType, model: &str) -> Result<Box<dyn EmbeddingProvider>> {
+	match provider {
 		EmbeddingProviderType::FastEmbed => {
-			let model = if is_code {
-				&config.embedding.fastembed.code_model
-			} else {
-				&config.embedding.fastembed.text_model
-			};
 			Ok(Box::new(FastEmbedProviderImpl::new(model)?))
 		}
 		EmbeddingProviderType::Jina => {
-			let model = if is_code {
-				&config.embedding.jina.code_model
-			} else {
-				&config.embedding.jina.text_model
-			};
 			Ok(Box::new(JinaProviderImpl::new(model)))
 		}
 		EmbeddingProviderType::Voyage => {
-			let model = if is_code {
-				&config.embedding.voyage.code_model
-			} else {
-				&config.embedding.voyage.text_model
-			};
 			Ok(Box::new(VoyageProviderImpl::new(model)))
 		}
 		EmbeddingProviderType::Google => {
-			let model = if is_code {
-				&config.embedding.google.code_model
-			} else {
-				&config.embedding.google.text_model
-			};
 			Ok(Box::new(GoogleProviderImpl::new(model)))
+		}
+		EmbeddingProviderType::SentenceTransformer => {
+			Ok(Box::new(SentenceTransformerProviderImpl::new(model)))
 		}
 	}
 }
+
+
 
 /// FastEmbed provider implementation for trait
 pub struct FastEmbedProviderImpl {
@@ -148,70 +136,31 @@ impl EmbeddingProvider for GoogleProviderImpl {
 	}
 }
 
-/// Main embedding provider that delegates to specific implementations
-pub struct EmbeddingProviderImpl {
-	provider_type: EmbeddingProviderType,
-	config: EmbeddingProviderConfig,
+/// SentenceTransformer provider implementation for trait
+pub struct SentenceTransformerProviderImpl {
+	model_name: String,
 }
 
-impl EmbeddingProviderImpl {
-	/// Create a provider from configuration
-	pub fn from_config(config: &Config) -> Result<Self> {
-		let provider_type = config.embedding.provider.clone();
-		let provider_config = config.embedding.clone();
-
-		Ok(Self {
-			provider_type,
-			config: provider_config,
-		})
-	}
-
-	/// Generate single embedding
-	pub async fn generate_embeddings(&self, contents: &str, is_code: bool) -> Result<Vec<f32>> {
-		let model = self.config.get_model(&self.provider_type, is_code);
-
-		match self.provider_type {
-			EmbeddingProviderType::FastEmbed => {
-				FastEmbedProvider::generate_embeddings(contents, model, is_code).await
-			},
-			EmbeddingProviderType::Jina => {
-				JinaProvider::generate_embeddings(contents, model).await
-			},
-			EmbeddingProviderType::Voyage => {
-				VoyageProvider::generate_embeddings(contents, model).await
-			},
-			EmbeddingProviderType::Google => {
-				GoogleProvider::generate_embeddings(contents, model).await
-			},
+impl SentenceTransformerProviderImpl {
+	pub fn new(model: &str) -> Self {
+		Self {
+			model_name: model.to_string(),
 		}
-	}
-
-	/// Generate batch embeddings
-	pub async fn generate_embeddings_batch(&self, texts: Vec<String>, is_code: bool) -> Result<Vec<Vec<f32>>> {
-		let model = self.config.get_model(&self.provider_type, is_code);
-
-		match self.provider_type {
-			EmbeddingProviderType::FastEmbed => {
-				FastEmbedProvider::generate_embeddings_batch(texts, model, is_code).await
-			},
-			EmbeddingProviderType::Jina => {
-				JinaProvider::generate_embeddings_batch(texts, model).await
-			},
-			EmbeddingProviderType::Voyage => {
-				VoyageProvider::generate_embeddings_batch(texts, model).await
-			},
-			EmbeddingProviderType::Google => {
-				GoogleProvider::generate_embeddings_batch(texts, model).await
-			},
-		}
-	}
-
-	/// Get the vector dimension for current provider configuration
-	pub fn get_vector_dimension(&self, is_code: bool) -> usize {
-		let model = self.config.get_model(&self.provider_type, is_code);
-		self.config.get_vector_dimension(&self.provider_type, model)
 	}
 }
+
+#[async_trait::async_trait]
+impl EmbeddingProvider for SentenceTransformerProviderImpl {
+	async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>> {
+		SentenceTransformerProvider::generate_embeddings(text, &self.model_name).await
+	}
+
+	async fn generate_embeddings_batch(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>> {
+		SentenceTransformerProvider::generate_embeddings_batch(texts, &self.model_name).await
+	}
+}
+
+
 
 /// FastEmbed provider implementation
 pub struct FastEmbedProvider;

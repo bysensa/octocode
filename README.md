@@ -1,4 +1,4 @@
-# Octocode - Intelligent Code Indexer and Graph Builder
+# Octocode - Intelligent Code Indexergand Graph Builder
 
 **© 2025 Muvon Un Limited (Hong Kong)** | Contact: [opensource@muvon.io](mailto:opensource@muvon.io) | Website: [muvon.io](https://muvon.io) | Product: [octocode.muvon.io](https://octocode.muvon.io)
 
@@ -21,7 +21,7 @@ Octocode is a smart code indexer and semantic search tool that builds intelligen
 
 ### **Advanced Features**
 - **Real-time Watch Mode**: Auto-reindex when files change
-- **Multiple Embedding Providers**: FastEmbed (local) or Jina AI (cloud)
+- **Multiple Embedding Providers**: FastEmbed (local), SentenceTransformer (local), Jina AI, Voyage AI, or Google (cloud)
 - **OpenRouter Integration**: Use any LLM model for AI features
 - **Fast Vector Database**: Lance columnar database for efficient storage
 - **Gitignore Respect**: Only indexes files that should be tracked
@@ -42,51 +42,91 @@ The binary will be available at `target/release/octocode`.
 
 ### Quick Start
 ```bash
-# Generate default configuration
-./target/release/octocode config
+# View current configuration
+octocode config --show
+
+# Set embedding models (provider auto-detected from model string)
+octocode config \
+  --code-embedding-model "sentencetransformer:microsoft/codebert-base" \
+  --text-embedding-model "sentencetransformer:sentence-transformers/all-mpnet-base-v2"
 
 # Index your current directory
-./target/release/octocode index
+octocode index
 
 # Search your codebase
-./target/release/octocode search "HTTP request handling"
+octocode search "HTTP request handling"
 
 # Enable GraphRAG for relationship building
-echo 'graphrag.enabled = true' >> .octocode/config.toml
 echo 'OPENROUTER_API_KEY="your-key-here"' > .env
+octocode config --graphrag-enabled true
 
 # Rebuild index with GraphRAG
-./target/release/octocode index
+octocode index
 
 # Search the knowledge graph
-./target/release/octocode graphrag search --query "authentication modules"
+octocode graphrag search --query "authentication modules"
 ```
 
 ## ⚙️ Configuration
 
-Octocode uses `.octocode/config.toml` for configuration. Generate it with:
+Octocode stores configuration in `~/.local/share/octocode/config.toml`. View current settings with:
 
 ```bash
-octocode config
+octocode config --show
 ```
 
-### Key Configuration Options
+### Embedding Configuration
+
+#### **Quick Setup Examples**
+
+```bash
+# Use SentenceTransformer (local, no API key needed)
+octocode config \
+  --code-embedding-model "sentencetransformer:microsoft/codebert-base" \
+  --text-embedding-model "sentencetransformer:sentence-transformers/all-mpnet-base-v2"
+
+# Use FastEmbed (local, no API key needed)
+octocode config \
+  --code-embedding-model "fastembed:all-MiniLM-L6-v2" \
+  --text-embedding-model "fastembed:multilingual-e5-small"
+
+# Mix providers as needed
+octocode config \
+  --code-embedding-model "sentencetransformer:microsoft/codebert-base" \
+  --text-embedding-model "fastembed:multilingual-e5-small"
+
+# Use cloud providers (API keys required via environment variables)
+octocode config \
+  --code-embedding-model "jinaai:jina-embeddings-v2-base-code" \
+  --text-embedding-model "voyageai:voyage-3"
+```
+
+### Configuration File Structure
 
 ```toml
-[graphrag]
-enabled = true  # Enable file-level relationship graphs
-description_model = "openai/gpt-4o-mini"  # Model for file descriptions
-relationship_model = "openai/gpt-4o-mini"  # Model for relationship detection
-
 [openrouter]
-model = "openai/gpt-4o-mini"  # Default model for AI features
+model = "openai/gpt-4o-mini"
 api_key = "your-openrouter-key"  # Or set OPENROUTER_API_KEY env var
 
-[embedding_provider]
-provider = "FastEmbed"  # or "Jina"
+[embedding]
+# Direct model configuration - provider auto-detected from prefix
+code_model = "sentencetransformer:microsoft/codebert-base"
+text_model = "sentencetransformer:sentence-transformers/all-mpnet-base-v2"
 
-[fastembed]
-code_model = "all-MiniLM-L6-v2"  # Local embedding model
+# Provider-specific sections only for API keys
+[embedding.jina]
+api_key = "your-jina-key"  # Or set JINA_API_KEY env var
+
+[embedding.voyage]
+api_key = "your-voyage-key"  # Or set VOYAGE_API_KEY env var
+
+[embedding.google]
+api_key = "your-google-key"  # Or set GOOGLE_API_KEY env var
+
+[graphrag]
+enabled = true
+description_model = "openai/gpt-4o-mini"
+relationship_model = "openai/gpt-4o-mini"
 
 [search]
 max_results = 50
@@ -94,14 +134,59 @@ similarity_threshold = 0.1
 
 [index]
 chunk_size = 2000
-graphrag_enabled = true  # Same as graphrag.enabled
+graphrag_enabled = true
+```
+
+### Supported Embedding Providers
+
+| Provider | Format | API Key Required | Local/Cloud |
+|----------|--------|------------------|-------------|
+| **SentenceTransformer** | `sentencetransformer:model-name` | ❌ No | 🖥️ Local |
+| **FastEmbed** | `fastembed:model-name` | ❌ No | 🖥️ Local |
+| **Jina AI** | `jinaai:model-name` | ✅ Yes | ☁️ Cloud |
+| **Voyage AI** | `voyageai:model-name` | ✅ Yes | ☁️ Cloud |
+| **Google** | `google:model-name` | ✅ Yes | ☁️ Cloud |
+
+### Popular Model Recommendations
+
+#### **For Code (code_model)**
+```bash
+# Best for code understanding
+sentencetransformer:microsoft/codebert-base        # 768 dim, excellent for code
+sentencetransformer:microsoft/unixcoder-base       # 768 dim, Unix/shell code
+
+# Fast local alternatives
+fastembed:all-MiniLM-L6-v2                        # 384 dim, fast and efficient
+
+# Cloud options (API key required)
+jinaai:jina-embeddings-v2-base-code               # 768 dim, specialized for code
+voyageai:voyage-code-2                            # 1536 dim, high quality
+```
+
+#### **For Text/Documentation (text_model)**
+```bash
+# Best general purpose
+sentencetransformer:sentence-transformers/all-mpnet-base-v2  # 768 dim, excellent quality
+sentencetransformer:BAAI/bge-base-en-v1.5                   # 768 dim, high performance
+
+# Fast alternatives
+fastembed:multilingual-e5-small                    # 384 dim, supports multiple languages
+sentencetransformer:sentence-transformers/all-MiniLM-L6-v2  # 384 dim, fast
+
+# High-quality cloud options
+jinaai:jina-embeddings-v3                         # 1024 dim, latest Jina model
+voyageai:voyage-3                                 # 1024 dim, excellent for text
 ```
 
 ### Environment Variables
 ```bash
 export OPENROUTER_API_KEY="your-openrouter-api-key"
-export JINA_API_KEY="your-jina-key"  # If using Jina embeddings
+export JINA_API_KEY="your-jina-key"         # If using Jina AI models
+export VOYAGE_API_KEY="your-voyage-key"     # If using Voyage AI models
+export GOOGLE_API_KEY="your-google-key"     # If using Google models
 ```
+
+**Note**: Environment variables always take priority over config file settings.
 
 ## 🔍 Usage Examples
 

@@ -2,7 +2,7 @@ use anyhow::Result;
 use chrono::Utc;
 
 use crate::config::Config;
-use crate::embedding::provider::create_embedding_provider;
+use crate::embedding::{generate_embeddings, parse_provider_model, create_embedding_provider_from_parts};
 use super::types::{
 	Memory, MemoryType, MemoryMetadata, MemoryQuery, MemorySearchResult,
 	MemoryRelationship, RelationshipType, MemoryConfig
@@ -26,9 +26,10 @@ impl MemoryManager {
 		let db_path = crate::storage::get_project_database_path(&current_dir)?;
 		let db_path_str = db_path.to_string_lossy().to_string();
 
-		// Create embedding provider using same config as main system
-		// For memory, we use text model (not code-specific)
-		let embedding_provider = create_embedding_provider(config, false)?;
+		// Create embedding provider using text model from config
+		let model_string = &config.embedding.text_model;
+		let (provider, model) = parse_provider_model(model_string);
+		let embedding_provider = create_embedding_provider_from_parts(&provider, &model)?;
 
 		let store = MemoryStore::new(&db_path_str, embedding_provider, memory_config.clone()).await?;
 
@@ -45,7 +46,11 @@ impl MemoryManager {
 		let db_path = crate::storage::get_project_database_path(&current_dir)?;
 		let db_path_str = db_path.to_string_lossy().to_string();
 		
-		let embedding_provider = create_embedding_provider(config, false)?;
+		// Create embedding provider using text model from config
+		let model_string = &config.embedding.text_model;
+		let (provider, model) = parse_provider_model(model_string);
+		let embedding_provider = create_embedding_provider_from_parts(&provider, &model)?;
+		
 		let store = MemoryStore::new(&db_path_str, embedding_provider, memory_config.clone()).await?;
 
 		Ok(Self {

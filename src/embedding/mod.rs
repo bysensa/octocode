@@ -1,5 +1,7 @@
 pub mod provider;
 pub mod types;
+#[cfg(test)]
+mod tests;
 
 use anyhow::Result;
 use crate::config::Config;
@@ -7,16 +9,36 @@ use crate::config::Config;
 pub use types::*;
 pub use provider::*;
 
-/// Generate embeddings based on configured provider
+/// Generate embeddings based on configured provider (supports provider:model format)
 pub async fn generate_embeddings(contents: &str, is_code: bool, config: &Config) -> Result<Vec<f32>> {
-	let provider = create_embedding_provider(config, is_code)?;
-	provider.generate_embedding(contents).await
+	// Get the model string from config
+	let model_string = if is_code { 
+		&config.embedding.code_model 
+	} else { 
+		&config.embedding.text_model 
+	};
+
+	// Parse provider and model from the string
+	let (provider, model) = parse_provider_model(model_string);
+	
+	let provider_impl = create_embedding_provider_from_parts(&provider, &model)?;
+	provider_impl.generate_embedding(contents).await
 }
 
-/// Generate batch embeddings based on configured provider
+/// Generate batch embeddings based on configured provider (supports provider:model format)
 pub async fn generate_embeddings_batch(texts: Vec<String>, is_code: bool, config: &Config) -> Result<Vec<Vec<f32>>> {
-	let provider = create_embedding_provider(config, is_code)?;
-	provider.generate_embeddings_batch(texts).await
+	// Get the model string from config
+	let model_string = if is_code { 
+		&config.embedding.code_model 
+	} else { 
+		&config.embedding.text_model 
+	};
+
+	// Parse provider and model from the string
+	let (provider, model) = parse_provider_model(model_string);
+	
+	let provider_impl = create_embedding_provider_from_parts(&provider, &model)?;
+	provider_impl.generate_embeddings_batch(texts).await
 }
 
 /// Calculate a unique hash for content including file path

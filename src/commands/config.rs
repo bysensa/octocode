@@ -1,6 +1,7 @@
 use clap::Args;
 use anyhow::Result;
 use octocode::config::Config;
+use octocode::embedding::types::{EmbeddingProviderType, parse_provider_model};
 
 #[derive(Args)]
 pub struct ConfigArgs {
@@ -8,9 +9,13 @@ pub struct ConfigArgs {
 	#[arg(long)]
 	pub model: Option<String>,
 
-	/// Set the embedding model for indexing
+	/// Set the code embedding model (use provider:model format, e.g. "sentencetransformer:microsoft/codebert-base")
 	#[arg(long)]
-	pub embedding_model: Option<String>,
+	pub code_embedding_model: Option<String>,
+
+	/// Set the text embedding model (use provider:model format, e.g. "sentencetransformer:sentence-transformers/all-mpnet-base-v2")
+	#[arg(long)]
+	pub text_embedding_model: Option<String>,
 
 	/// Set the chunk size for text processing
 	#[arg(long)]
@@ -50,26 +55,114 @@ pub fn execute(args: &ConfigArgs, mut config: Config) -> Result<()> {
 	}
 
 	if args.show {
-		println!("Current configuration:");
-		println!("Model: {}", config.openrouter.model);
-		println!("Embedding model: {}", config.index.embedding_model);
-		println!("Chunk size: {}", config.index.chunk_size);
-		println!("Chunk overlap: {}", config.index.chunk_overlap);
-		println!("Max results: {}", config.search.max_results);
-		println!("Similarity threshold: {}", config.search.similarity_threshold);
-		println!("GraphRAG enabled: {}", config.index.graphrag_enabled);
+		println!("=== Octocode Configuration ===");
 		println!();
-		println!("Storage locations:");
+		
+		// Show configuration file location
+		if let Ok(config_path) = Config::get_system_config_path() {
+			println!("📄 Configuration file: {}", config_path.display());
+			if config_path.exists() {
+				println!("   Status: ✅ Found");
+			} else {
+				println!("   Status: ⚠️  Not found (using defaults)");
+			}
+		}
+		println!();
+		
+		// LLM Configuration
+		println!("🤖 LLM Configuration:");
+		println!("   Model: {}", config.openrouter.model);
+		println!("   Base URL: {}", config.openrouter.base_url);
+		println!("   Timeout: {}s", config.openrouter.timeout);
+		println!("   API Key: {}", if config.openrouter.api_key.is_some() { "✅ Set" } else { "❌ Not set" });
+		println!();
+		
+		// Embedding Configuration
+		println!("🔍 Embedding Configuration:");
+		let active_provider = config.embedding.get_active_provider();
+		println!("   Active provider: {:?} (auto-detected)", active_provider);
+		println!("   Code model: {}", config.embedding.code_model);
+		println!("   Text model: {}", config.embedding.text_model);
+		
+		// Show API key status for providers that need them
+		match active_provider {
+			EmbeddingProviderType::Jina => {
+				let api_key_status = if config.embedding.get_api_key(&active_provider).is_some() { 
+					"✅ Set" 
+				} else { 
+					"❌ Not set" 
+				};
+				println!("   Jina API key: {}", api_key_status);
+			},
+			EmbeddingProviderType::Voyage => {
+				let api_key_status = if config.embedding.get_api_key(&active_provider).is_some() { 
+					"✅ Set" 
+				} else { 
+					"❌ Not set" 
+				};
+				println!("   Voyage API key: {}", api_key_status);
+			},
+			EmbeddingProviderType::Google => {
+				let api_key_status = if config.embedding.get_api_key(&active_provider).is_some() { 
+					"✅ Set" 
+				} else { 
+					"❌ Not set" 
+				};
+				println!("   Google API key: {}", api_key_status);
+			},
+			_ => {
+				// FastEmbed and SentenceTransformer don't need API keys
+				println!("   API key: Not required");
+			}
+		}
+		println!();
+		
+		// Indexing Configuration
+		println!("📚 Indexing Configuration:");
+		println!("   Chunk size: {} characters", config.index.chunk_size);
+		println!("   Chunk overlap: {} characters", config.index.chunk_overlap);
+		println!("   Batch size: {} texts", config.index.embeddings_batch_size);
+		println!("   GraphRAG: {}", if config.index.graphrag_enabled { "✅ Enabled" } else { "❌ Disabled" });
+		println!("   LLM processing: {}", if config.index.llm_enabled { "✅ Enabled" } else { "❌ Disabled" });
+		println!();
+		
+		// Search Configuration
+		println!("🔎 Search Configuration:");
+		println!("   Max results: {}", config.search.max_results);
+		println!("   Similarity threshold: {:.2}", config.search.similarity_threshold);
+		println!("   Top-k results: {}", config.search.top_k);
+		println!("   Output format: {}", config.search.output_format);
+		println!("   Max files: {}", config.search.max_files);
+		println!("   Context lines: {}", config.search.context_lines);
+		println!("   Block max chars: {}", config.search.search_block_max_characters);
+		println!();
+		
+		// Storage Locations
+		println!("💾 Storage Locations:");
 		if let Ok(storage_dir) = octocode::storage::get_system_storage_dir() {
-			println!("System storage: {}", storage_dir.display());
-			println!("Config file: {}/config.toml", storage_dir.display());
-			println!("FastEmbed cache: {}/fastembed/", storage_dir.display());
+			println!("   System storage: {}", storage_dir.display());
+			println!("   FastEmbed cache: {}/fastembed/", storage_dir.display());
+			println!("   SentenceTransformer cache: {}/sentencetransformer/", storage_dir.display());
 		}
 		if let Ok(current_dir) = std::env::current_dir() {
 			if let Ok(db_path) = octocode::storage::get_project_database_path(&current_dir) {
-				println!("Project database: {}", db_path.display());
+				println!("   Project database: {}", db_path.display());
+				if db_path.exists() {
+					println!("   Database status: ✅ Found");
+				} else {
+					println!("   Database status: ❌ Not indexed (run 'octocode index')");
+				}
 			}
 		}
+		
+		// GraphRAG Configuration (if enabled)
+		if config.index.graphrag_enabled {
+			println!();
+			println!("🕸️  GraphRAG Configuration:");
+			println!("   Description model: {}", config.graphrag.description_model);
+			println!("   Relationship model: {}", config.graphrag.relationship_model);
+		}
+		
 		return Ok(());
 	}
 
@@ -81,9 +174,19 @@ pub fn execute(args: &ConfigArgs, mut config: Config) -> Result<()> {
 		updated = true;
 	}
 
-	if let Some(embedding_model) = &args.embedding_model {
-		config.index.embedding_model = embedding_model.clone();
-		println!("Embedding model set to: {}", embedding_model);
+	if let Some(code_model) = &args.code_embedding_model {
+		// Parse provider from the model string and set the code model
+		let (provider, _) = parse_provider_model(code_model);
+		config.embedding.code_model = code_model.clone();
+		println!("Code embedding model set to: {} (provider: {:?})", code_model, provider);
+		updated = true;
+	}
+
+	if let Some(text_model) = &args.text_embedding_model {
+		// Parse provider from the model string and set the text model
+		let (provider, _) = parse_provider_model(text_model);
+		config.embedding.text_model = text_model.clone();
+		println!("Text embedding model set to: {} (provider: {:?})", text_model, provider);
 		updated = true;
 	}
 
@@ -122,6 +225,19 @@ pub fn execute(args: &ConfigArgs, mut config: Config) -> Result<()> {
 		println!("Configuration updated successfully!");
 	} else {
 		println!("No configuration changes made. Use --show to see current settings.");
+		println!();
+		println!("Example usage:");
+		println!("  # Set SentenceTransformer models (provider is auto-detected):");
+		println!("  octocode config --code-embedding-model 'sentencetransformer:microsoft/codebert-base'");
+		println!("  octocode config --text-embedding-model 'sentencetransformer:sentence-transformers/all-mpnet-base-v2'");
+		println!();
+		println!("  # Use other providers:");
+		println!("  octocode config --code-embedding-model 'fastembed:all-MiniLM-L6-v2'");
+		println!("  octocode config --code-embedding-model 'jinaai:jina-embeddings-v2-base-code'");
+		println!();
+		println!("Popular SentenceTransformer models:");
+		println!("  Code models: microsoft/codebert-base, microsoft/unixcoder-base");
+		println!("  Text models: sentence-transformers/all-mpnet-base-v2, BAAI/bge-base-en-v1.5");
 	}
 
 	Ok(())

@@ -73,8 +73,8 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 		"all" => {
 			// For "all" mode, we need to check if code and text models are different
 			// If different, generate separate embeddings; if same, use one set
-			let code_model = config.embedding.get_model(&config.embedding.provider, true);
-			let text_model = config.embedding.get_model(&config.embedding.provider, false);
+			let code_model = &config.embedding.code_model;
+			let text_model = &config.embedding.text_model;
 			
 			if code_model == text_model {
 				// Same model for both - generate once and reuse
