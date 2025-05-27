@@ -20,13 +20,17 @@ impl MemoryManager {
 	/// Create a new memory manager
 	pub async fn new(config: &Config) -> Result<Self> {
 		let memory_config = MemoryConfig::default();
-		let db_path = config.get_db_path();
+		
+		// Use the same storage system as the main application
+		let current_dir = std::env::current_dir()?;
+		let db_path = crate::storage::get_project_database_path(&current_dir)?;
+		let db_path_str = db_path.to_string_lossy().to_string();
 
 		// Create embedding provider using same config as main system
 		// For memory, we use text model (not code-specific)
 		let embedding_provider = create_embedding_provider(config, false)?;
 
-		let store = MemoryStore::new(&db_path, embedding_provider, memory_config.clone()).await?;
+		let store = MemoryStore::new(&db_path_str, embedding_provider, memory_config.clone()).await?;
 
 		Ok(Self {
 			store,
@@ -36,9 +40,13 @@ impl MemoryManager {
 
 	/// Create a new memory manager with custom config
 	pub async fn with_config(config: &Config, memory_config: MemoryConfig) -> Result<Self> {
-		let db_path = config.get_db_path();
+		// Use the same storage system as the main application
+		let current_dir = std::env::current_dir()?;
+		let db_path = crate::storage::get_project_database_path(&current_dir)?;
+		let db_path_str = db_path.to_string_lossy().to_string();
+		
 		let embedding_provider = create_embedding_provider(config, false)?;
-		let store = MemoryStore::new(&db_path, embedding_provider, memory_config.clone()).await?;
+		let store = MemoryStore::new(&db_path_str, embedding_provider, memory_config.clone()).await?;
 
 		Ok(Self {
 			store,

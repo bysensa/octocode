@@ -148,42 +148,10 @@ pub fn get_project_config_path(project_path: &Path) -> Result<PathBuf> {
     Ok(project_path.join(".octocode"))
 }
 
-/// Get the system-wide cache directory for shared resources like FastEmbed models
-pub fn get_system_cache_dir() -> Result<PathBuf> {
-    let cache_dir = if cfg!(target_os = "macos") {
-        // macOS: ~/.cache/octocode
-        dirs::home_dir()
-            .ok_or_else(|| anyhow::anyhow!("Unable to determine home directory"))?
-            .join(".cache")
-            .join("octocode")
-    } else if cfg!(target_os = "windows") {
-        // Windows: %LOCALAPPDATA%/octocode/cache
-        dirs::cache_dir()
-            .ok_or_else(|| anyhow::anyhow!("Unable to determine cache directory"))?
-            .join("octocode")
-    } else {
-        // Linux and other Unix-like: ~/.cache/octocode or $XDG_CACHE_HOME/octocode
-        if let Ok(xdg_cache_home) = std::env::var("XDG_CACHE_HOME") {
-            PathBuf::from(xdg_cache_home).join("octocode")
-        } else {
-            dirs::home_dir()
-                .ok_or_else(|| anyhow::anyhow!("Unable to determine home directory"))?
-                .join(".cache")
-                .join("octocode")
-        }
-    };
-
-    // Create the directory if it doesn't exist
-    if !cache_dir.exists() {
-        fs::create_dir_all(&cache_dir)?;
-    }
-
-    Ok(cache_dir)
-}
-
 /// Get the system-wide FastEmbed cache directory
+/// Stored directly under ~/.local/share/octocode/fastembed/ on all systems
 pub fn get_fastembed_cache_dir() -> Result<PathBuf> {
-    let cache_dir = get_system_cache_dir()?.join("fastembed");
+    let cache_dir = get_system_storage_dir()?.join("fastembed");
     
     // Create the directory if it doesn't exist
     if !cache_dir.exists() {
@@ -265,29 +233,19 @@ mod tests {
     }
 
     #[test]
-    fn test_system_cache_dir() {
-        let cache_dir = get_system_cache_dir().unwrap();
-        
-        // Should contain "octocode" in the path
-        assert!(cache_dir.to_string_lossy().contains("octocode"));
-        
-        // Should be an absolute path
-        assert!(cache_dir.is_absolute());
-        
-        // Should be different from storage directory
-        let storage_dir = get_system_storage_dir().unwrap();
-        assert_ne!(cache_dir, storage_dir);
-    }
-
-    #[test]
     fn test_fastembed_cache_dir() {
         let fastembed_cache = get_fastembed_cache_dir().unwrap();
         
-        // Should contain both "octocode" and "fastembed" in the path
+        // Should contain "octocode" and "fastembed" in the path
         assert!(fastembed_cache.to_string_lossy().contains("octocode"));
         assert!(fastembed_cache.to_string_lossy().contains("fastembed"));
         
         // Should be an absolute path
         assert!(fastembed_cache.is_absolute());
+        
+        // Should be a direct subdirectory of system storage directory
+        let storage_dir = get_system_storage_dir().unwrap();
+        assert!(fastembed_cache.starts_with(&storage_dir));
+        assert_eq!(fastembed_cache, storage_dir.join("fastembed"));
     }
 }

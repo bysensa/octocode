@@ -28,10 +28,6 @@ pub struct ConfigArgs {
 	#[arg(long)]
 	pub similarity_threshold: Option<f32>,
 
-	/// Set the database path
-	#[arg(long)]
-	pub database_path: Option<String>,
-
 	/// Enable or disable GraphRAG
 	#[arg(long)]
 	pub graphrag_enabled: Option<bool>,
@@ -61,8 +57,19 @@ pub fn execute(args: &ConfigArgs, mut config: Config) -> Result<()> {
 		println!("Chunk overlap: {}", config.index.chunk_overlap);
 		println!("Max results: {}", config.search.max_results);
 		println!("Similarity threshold: {}", config.search.similarity_threshold);
-		println!("Database path: {}", config.database.path);
 		println!("GraphRAG enabled: {}", config.index.graphrag_enabled);
+		println!();
+		println!("Storage locations:");
+		if let Ok(storage_dir) = octocode::storage::get_system_storage_dir() {
+			println!("System storage: {}", storage_dir.display());
+			println!("Config file: {}/config.toml", storage_dir.display());
+			println!("FastEmbed cache: {}/fastembed/", storage_dir.display());
+		}
+		if let Ok(current_dir) = std::env::current_dir() {
+			if let Ok(db_path) = octocode::storage::get_project_database_path(&current_dir) {
+				println!("Project database: {}", db_path.display());
+			}
+		}
 		return Ok(());
 	}
 
@@ -101,12 +108,6 @@ pub fn execute(args: &ConfigArgs, mut config: Config) -> Result<()> {
 	if let Some(similarity_threshold) = args.similarity_threshold {
 		config.search.similarity_threshold = similarity_threshold;
 		println!("Similarity threshold set to: {}", similarity_threshold);
-		updated = true;
-	}
-
-	if let Some(database_path) = &args.database_path {
-		config.database.path = database_path.clone();
-		println!("Database path set to: {}", database_path);
 		updated = true;
 	}
 

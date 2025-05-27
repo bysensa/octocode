@@ -1,7 +1,6 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::Path;
 use std::path::PathBuf;
 
 use crate::embedding::types::EmbeddingProviderConfig;
@@ -52,9 +51,7 @@ fn default_max_results() -> usize {
 	50
 }
 
-fn default_database_path() -> String {
-	"storage".to_string()
-}
+
 
 fn default_similarity_threshold() -> f32 {
 	0.6
@@ -206,19 +203,7 @@ impl Default for SearchConfig {
 	}
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DatabaseConfig {
-	#[serde(default = "default_database_path")]
-	pub path: String,
-}
 
-impl Default for DatabaseConfig {
-	fn default() -> Self {
-		Self {
-			path: default_database_path(),
-		}
-	}
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
@@ -231,9 +216,6 @@ pub struct Config {
 	#[serde(default)]
 	pub search: SearchConfig,
 
-	#[serde(default)]
-	pub database: DatabaseConfig,
-
 	#[serde(default = "default_embedding_config")]
 	pub embedding: EmbeddingProviderConfig,
 
@@ -243,8 +225,7 @@ pub struct Config {
 
 impl Config {
 	pub fn load() -> Result<Self> {
-		let config_dir = Self::ensure_config_dir()?;
-		let config_path = config_dir.join("config.toml");
+		let config_path = Self::get_system_config_path()?;
 
 		let mut config = if config_path.exists() {
 			let content = fs::read_to_string(&config_path)?;
@@ -253,6 +234,14 @@ impl Config {
 			// Create default config if it doesn't exist
 			let config = Config::default();
 			let toml_content = toml::to_string_pretty(&config)?;
+			
+			// Ensure the parent directory exists
+			if let Some(parent) = config_path.parent() {
+				if !parent.exists() {
+					fs::create_dir_all(parent)?;
+				}
+			}
+			
 			fs::write(&config_path, toml_content)?;
 			config
 		};
@@ -266,41 +255,28 @@ impl Config {
 	}
 
 	pub fn save(&self) -> Result<()> {
-		let config_dir = Self::ensure_config_dir()?;
-		let config_path = config_dir.join("config.toml");
+		let config_path = Self::get_system_config_path()?;
+
+		// Ensure the parent directory exists
+		if let Some(parent) = config_path.parent() {
+			if !parent.exists() {
+				fs::create_dir_all(parent)?;
+			}
+		}
 
 		let toml_content = toml::to_string_pretty(self)?;
 		fs::write(config_path, toml_content)?;
 		Ok(())
 	}
 
-	fn ensure_config_dir() -> Result<PathBuf> {
-		let current_dir = std::env::current_dir()?;
-		let config_dir = storage::get_project_config_path(&current_dir)?;
-		if !config_dir.exists() {
-			fs::create_dir_all(&config_dir)?;
-		}
-		Ok(config_dir)
+	/// Get the system-wide config file path
+	/// Stored at ~/.local/share/octocode/config.toml (same level as fastembed cache)
+	fn get_system_config_path() -> Result<PathBuf> {
+		let system_storage = storage::get_system_storage_dir()?;
+		Ok(system_storage.join("config.toml"))
 	}
 
-	pub fn get_database_path(&self) -> PathBuf {
-		// Check if the path is explicitly set to an absolute path
-		if Path::new(&self.database.path).is_absolute() {
-			return PathBuf::from(&self.database.path);
-		}
 
-		// Use system-wide storage for the database
-		let current_dir = std::env::current_dir()
-			.expect("Failed to get current directory");
-		
-		storage::get_project_database_path(&current_dir)
-			.expect("Failed to get project database path")
-	}
-
-	/// Get database path as string (alias for memory system compatibility)
-	pub fn get_db_path(&self) -> String {
-		self.get_database_path().to_string_lossy().to_string()
-	}
 
 	pub fn get_model(&self) -> &str {
 		&self.openrouter.model
