@@ -756,16 +756,20 @@ impl Store {
 		let table = self.db.open_table(collection).execute().await?;
 
 		// Query to check if a record with the given hash exists
-		let results = table
+		let mut results = table
 			.query()
 			.only_if(format!("hash = '{}'", hash))
 			.limit(1)
 			.execute()
-			.await?
-			.try_collect::<Vec<_>>()
-		.await?;
+			.await?;
 
-		Ok(!results.is_empty() && results[0].num_rows() > 0)
+		// Check if any batch contains rows
+		while let Some(batch) = results.try_next().await? {
+			if batch.num_rows() > 0 {
+				return Ok(true);
+			}
+		}
+		Ok(false)
 	}
 
 	pub async fn store_code_blocks(&self, blocks: &[CodeBlock], embeddings: Vec<Vec<f32>>) -> Result<()> {
@@ -919,40 +923,51 @@ impl Store {
 		let limit = max_results.unwrap_or(50);
 
 		// Perform vector search
-		let results = table
+		let mut results = table
 			.query()
 			.nearest_to(embedding.as_slice())?  // Pass as slice instead of reference to Vec
 			.distance_type(DistanceType::Cosine)  // Explicitly use cosine distance
 			.limit(limit)
 			.execute()
-			.await?
-			.try_collect::<Vec<_>>()
-		.await?;
+			.await?;
 
-		if results.is_empty() || results[0].num_rows() == 0 {
+		let mut all_code_blocks = Vec::new();
+		let mut all_distances = Vec::new();
+
+		// Process all batches
+		while let Some(batch) = results.try_next().await? {
+			if batch.num_rows() == 0 {
+				continue;
+			}
+
+			// Extract _distance column which contains similarity scores
+			let distance_column = batch.column_by_name("_distance")
+				.ok_or_else(|| anyhow::anyhow!("Distance column not found"))?;
+
+			let distance_array = distance_column.as_any()
+				.downcast_ref::<Float32Array>()
+				.ok_or_else(|| anyhow::anyhow!("Could not downcast distance column to Float32Array"))?;
+
+			// Convert distances to Vec<f32>
+			let distances: Vec<f32> = (0..distance_array.len())
+				.map(|i| distance_array.value(i))
+				.collect();
+
+			// Convert results to CodeBlock structs
+			let converter = BatchConverter::new(self.code_vector_dim);
+			let mut code_blocks = converter.batch_to_code_blocks(&batch, Some(distances.clone()))?;
+
+			all_code_blocks.append(&mut code_blocks);
+			all_distances.extend(distances);
+		}
+
+		if all_code_blocks.is_empty() {
 			return Ok(Vec::new());
 		}
 
-		// Extract _distance column which contains similarity scores
-		let distance_column = results[0].column_by_name("_distance")
-			.ok_or_else(|| anyhow::anyhow!("Distance column not found"))?;
-
-		let distance_array = distance_column.as_any()
-			.downcast_ref::<Float32Array>()
-			.ok_or_else(|| anyhow::anyhow!("Could not downcast distance column to Float32Array"))?;
-
-		// Convert distances to Vec<f32>
-		let distances: Vec<f32> = (0..distance_array.len())
-			.map(|i| distance_array.value(i))
-			.collect();
-
-		// Convert results to CodeBlock structs
-		let converter = BatchConverter::new(self.code_vector_dim);
-		let mut code_blocks = converter.batch_to_code_blocks(&results[0], Some(distances))?;
-
 		// Filter by similarity threshold if provided
 		if let Some(threshold) = similarity_threshold {
-			code_blocks.retain(|block| {
+			all_code_blocks.retain(|block| {
 				if let Some(distance) = block.distance {
 					distance <= threshold // Lower distance means higher similarity
 				} else {
@@ -962,7 +977,7 @@ impl Store {
 		}
 
 		// Sort by relevance (distance) - lower distance means higher similarity, so sort ascending
-		code_blocks.sort_by(|a, b| {
+		all_code_blocks.sort_by(|a, b| {
 			match (a.distance, b.distance) {
 				(Some(dist_a), Some(dist_b)) => dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal),
 				(Some(_), None) => std::cmp::Ordering::Less,    // Items with distance come first
@@ -971,7 +986,7 @@ impl Store {
 			}
 		});
 
-		Ok(code_blocks)
+		Ok(all_code_blocks)
 	}
 
 	pub async fn get_document_blocks(&self, embedding: Vec<f32>) -> Result<Vec<DocumentBlock>> {
@@ -1005,40 +1020,49 @@ impl Store {
 		let limit = max_results.unwrap_or(50);
 
 		// Perform vector search
-		let results = table
+		let mut results = table
 			.query()
 			.nearest_to(embedding.as_slice())?  // Pass as slice instead of reference to Vec
 			.distance_type(DistanceType::Cosine)  // Explicitly use cosine distance
 			.limit(limit)
 			.execute()
-			.await?
-			.try_collect::<Vec<_>>()
-		.await?;
+			.await?;
 
-		if results.is_empty() || results[0].num_rows() == 0 {
+		let mut all_document_blocks = Vec::new();
+
+		// Process all batches
+		while let Some(batch) = results.try_next().await? {
+			if batch.num_rows() == 0 {
+				continue;
+			}
+
+			// Extract _distance column which contains similarity scores
+			let distance_column = batch.column_by_name("_distance")
+				.ok_or_else(|| anyhow::anyhow!("Distance column not found"))?;
+
+			let distance_array = distance_column.as_any()
+				.downcast_ref::<Float32Array>()
+				.ok_or_else(|| anyhow::anyhow!("Could not downcast distance column to Float32Array"))?;
+
+			// Convert distances to Vec<f32>
+			let distances: Vec<f32> = (0..distance_array.len())
+				.map(|i| distance_array.value(i))
+				.collect();
+
+			// Convert results to DocumentBlock structs
+			let converter = BatchConverter::new(self.text_vector_dim);
+			let mut document_blocks = converter.batch_to_document_blocks(&batch, Some(distances))?;
+
+			all_document_blocks.append(&mut document_blocks);
+		}
+
+		if all_document_blocks.is_empty() {
 			return Ok(Vec::new());
 		}
 
-		// Extract _distance column which contains similarity scores
-		let distance_column = results[0].column_by_name("_distance")
-			.ok_or_else(|| anyhow::anyhow!("Distance column not found"))?;
-
-		let distance_array = distance_column.as_any()
-			.downcast_ref::<Float32Array>()
-			.ok_or_else(|| anyhow::anyhow!("Could not downcast distance column to Float32Array"))?;
-
-		// Convert distances to Vec<f32>
-		let distances: Vec<f32> = (0..distance_array.len())
-			.map(|i| distance_array.value(i))
-			.collect();
-
-		// Convert results to DocumentBlock structs
-		let converter = BatchConverter::new(self.text_vector_dim);
-		let mut document_blocks = converter.batch_to_document_blocks(&results[0], Some(distances))?;
-
 		// Filter by similarity threshold if provided
 		if let Some(threshold) = similarity_threshold {
-			document_blocks.retain(|block| {
+			all_document_blocks.retain(|block| {
 				if let Some(distance) = block.distance {
 					distance <= threshold // Lower distance means higher similarity
 				} else {
@@ -1048,7 +1072,7 @@ impl Store {
 		}
 
 		// Sort by relevance (distance) - lower distance means higher similarity, so sort ascending
-		document_blocks.sort_by(|a, b| {
+		all_document_blocks.sort_by(|a, b| {
 			match (a.distance, b.distance) {
 				(Some(dist_a), Some(dist_b)) => dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal),
 				(Some(_), None) => std::cmp::Ordering::Less,    // Items with distance come first
@@ -1057,7 +1081,7 @@ impl Store {
 			}
 		});
 
-		Ok(document_blocks)
+		Ok(all_document_blocks)
 	}
 
 	pub async fn get_text_blocks(&self, embedding: Vec<f32>) -> Result<Vec<TextBlock>> {
@@ -1091,40 +1115,49 @@ impl Store {
 		let limit = max_results.unwrap_or(50);
 
 		// Perform vector search
-		let results = table
+		let mut results = table
 			.query()
 			.nearest_to(embedding.as_slice())?  // Pass as slice instead of reference to Vec
 			.distance_type(DistanceType::Cosine)  // Explicitly use cosine distance
 			.limit(limit)
 			.execute()
-			.await?
-			.try_collect::<Vec<_>>()
-		.await?;
+			.await?;
 
-		if results.is_empty() || results[0].num_rows() == 0 {
+		let mut all_text_blocks = Vec::new();
+
+		// Process all batches
+		while let Some(batch) = results.try_next().await? {
+			if batch.num_rows() == 0 {
+				continue;
+			}
+
+			// Extract _distance column which contains similarity scores
+			let distance_column = batch.column_by_name("_distance")
+				.ok_or_else(|| anyhow::anyhow!("Distance column not found"))?;
+
+			let distance_array = distance_column.as_any()
+				.downcast_ref::<Float32Array>()
+				.ok_or_else(|| anyhow::anyhow!("Could not downcast distance column to Float32Array"))?;
+
+			// Convert distances to Vec<f32>
+			let distances: Vec<f32> = (0..distance_array.len())
+				.map(|i| distance_array.value(i))
+				.collect();
+
+			// Convert results to TextBlock structs
+			let converter = BatchConverter::new(self.text_vector_dim);
+			let mut text_blocks = converter.batch_to_text_blocks(&batch, Some(distances))?;
+
+			all_text_blocks.append(&mut text_blocks);
+		}
+
+		if all_text_blocks.is_empty() {
 			return Ok(Vec::new());
 		}
 
-		// Extract _distance column which contains similarity scores
-		let distance_column = results[0].column_by_name("_distance")
-			.ok_or_else(|| anyhow::anyhow!("Distance column not found"))?;
-
-		let distance_array = distance_column.as_any()
-			.downcast_ref::<Float32Array>()
-			.ok_or_else(|| anyhow::anyhow!("Could not downcast distance column to Float32Array"))?;
-
-		// Convert distances to Vec<f32>
-		let distances: Vec<f32> = (0..distance_array.len())
-			.map(|i| distance_array.value(i))
-			.collect();
-
-		// Convert results to TextBlock structs
-		let converter = BatchConverter::new(self.text_vector_dim);
-		let mut text_blocks = converter.batch_to_text_blocks(&results[0], Some(distances))?;
-
 		// Filter by similarity threshold if provided
 		if let Some(threshold) = similarity_threshold {
-			text_blocks.retain(|block| {
+			all_text_blocks.retain(|block| {
 				if let Some(distance) = block.distance {
 					distance <= threshold // Lower distance means higher similarity
 				} else {
@@ -1134,7 +1167,7 @@ impl Store {
 		}
 
 		// Sort by relevance (distance) - lower distance means higher similarity, so sort ascending
-		text_blocks.sort_by(|a, b| {
+		all_text_blocks.sort_by(|a, b| {
 			match (a.distance, b.distance) {
 				(Some(dist_a), Some(dist_b)) => dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal),
 				(Some(_), None) => std::cmp::Ordering::Less,    // Items with distance come first
@@ -1143,7 +1176,7 @@ impl Store {
 			}
 		});
 
-		Ok(text_blocks)
+		Ok(all_text_blocks)
 	}
 
 	pub async fn get_code_block_by_symbol(&self, symbol: &str) -> Result<Option<CodeBlock>> {
@@ -1158,25 +1191,26 @@ impl Store {
 		}
 
 		// Filter by symbols using LIKE for substring match
-		let results = table
+		let mut results = table
 			.query()
 			.only_if(format!("symbols LIKE '%{}%'", symbol))
 			.limit(1)
 			.execute()
-			.await?
-			.try_collect::<Vec<_>>()
-		.await?;
+			.await?;
 
-		if results.is_empty() || results[0].num_rows() == 0 {
-			return Ok(None);
+		// Process all batches (though we expect only one with limit 1)
+		while let Some(batch) = results.try_next().await? {
+			if batch.num_rows() > 0 {
+				// Convert results to CodeBlock structs
+				let converter = BatchConverter::new(self.code_vector_dim);
+				let code_blocks = converter.batch_to_code_blocks(&batch, None)?;
+				
+				// Return the first (and only) code block
+				return Ok(code_blocks.into_iter().next());
+			}
 		}
 
-		// Convert results to CodeBlock structs
-		let converter = BatchConverter::new(self.code_vector_dim);
-		let code_blocks = converter.batch_to_code_blocks(&results[0], None)?;
-
-		// Return the first (and only) code block
-		Ok(code_blocks.into_iter().next())
+		Ok(None)
 	}
 
 	// Remove all blocks associated with a file path
@@ -1194,16 +1228,17 @@ impl Store {
 			let code_blocks_table = self.db.open_table("code_blocks").execute().await?;
 
 			// First count how many we're going to delete
-			let count_results = code_blocks_table
+			let mut count_results = code_blocks_table
 				.query()
 				.only_if(format!("path = '{}'", escaped_path))
 				.select(lancedb::query::Select::Columns(vec!["path".to_string()]))
 				.execute()
-				.await?
-				.try_collect::<Vec<_>>()
 				.await?;
 
-			let count = if !count_results.is_empty() { count_results[0].num_rows() } else { 0 };
+			let mut count = 0;
+			while let Some(batch) = count_results.try_next().await? {
+				count += batch.num_rows();
+			}
 
 			// Now delete them
 			match code_blocks_table.delete(&format!("path = '{}'", escaped_path)).await {
@@ -1226,16 +1261,17 @@ impl Store {
 			let text_blocks_table = self.db.open_table("text_blocks").execute().await?;
 
 			// For text blocks, delete exact match first
-			let count_results = text_blocks_table
+			let mut count_results = text_blocks_table
 				.query()
 				.only_if(format!("path = '{}'", escaped_path))
 				.select(lancedb::query::Select::Columns(vec!["path".to_string()]))
 				.execute()
-				.await?
-				.try_collect::<Vec<_>>()
 				.await?;
 
-			let exact_count = if !count_results.is_empty() { count_results[0].num_rows() } else { 0 };
+			let mut exact_count = 0;
+			while let Some(batch) = count_results.try_next().await? {
+				exact_count += batch.num_rows();
+			}
 
 			match text_blocks_table.delete(&format!("path = '{}'", escaped_path)).await {
 				Ok(_) => {
@@ -1252,16 +1288,17 @@ impl Store {
 			}
 
 			// Also delete chunked versions (path starts with file_path and contains '#')
-			let chunked_count_results = text_blocks_table
+			let mut chunked_count_results = text_blocks_table
 				.query()
 				.only_if(format!("path LIKE '{}#%'", escaped_path))
 				.select(lancedb::query::Select::Columns(vec!["path".to_string()]))
 				.execute()
-				.await?
-				.try_collect::<Vec<_>>()
 				.await?;
 
-			let chunked_count = if !chunked_count_results.is_empty() { chunked_count_results[0].num_rows() } else { 0 };
+			let mut chunked_count = 0;
+			while let Some(batch) = chunked_count_results.try_next().await? {
+				chunked_count += batch.num_rows();
+			}
 
 			match text_blocks_table.delete(&format!("path LIKE '{}#%'", escaped_path)).await {
 				Ok(_) => {
@@ -1282,16 +1319,17 @@ impl Store {
 		if table_names.contains(&"document_blocks".to_string()) {
 			let document_blocks_table = self.db.open_table("document_blocks").execute().await?;
 
-			let count_results = document_blocks_table
+			let mut count_results = document_blocks_table
 				.query()
 				.only_if(format!("path = '{}'", escaped_path))
 				.select(lancedb::query::Select::Columns(vec!["path".to_string()]))
 				.execute()
-				.await?
-				.try_collect::<Vec<_>>()
 				.await?;
 
-			let count = if !count_results.is_empty() { count_results[0].num_rows() } else { 0 };
+			let mut count = 0;
+			while let Some(batch) = count_results.try_next().await? {
+				count += batch.num_rows();
+			}
 
 			match document_blocks_table.delete(&format!("path = '{}'", escaped_path)).await {
 				Ok(_) => {
@@ -1360,29 +1398,32 @@ impl Store {
 		let table = self.db.open_table(table_name).execute().await?;
 
 		// Query for blocks from this file - we only need the hash column
-		let results = table
+		let mut results = table
 			.query()
 			.only_if(format!("path = '{}'", file_path))
 			.select(Select::Columns(vec!["hash".to_string()]))
 			.execute()
-			.await?
-			.try_collect::<Vec<_>>()
-		.await?;
+			.await?;
 
-		if results.is_empty() || results[0].num_rows() == 0 {
-			return Ok(Vec::new());
+		let mut hashes = Vec::new();
+		
+		// Process all batches
+		while let Some(batch) = results.try_next().await? {
+			if batch.num_rows() == 0 {
+				continue;
+			}
+
+			// Extract hashes
+			let hash_array = batch.column_by_name("hash")
+				.ok_or_else(|| anyhow::anyhow!("Hash column not found"))?
+				.as_any()
+				.downcast_ref::<StringArray>()
+				.ok_or_else(|| anyhow::anyhow!("Hash column is not a StringArray"))?;
+
+			for i in 0..hash_array.len() {
+				hashes.push(hash_array.value(i).to_string());
+			}
 		}
-
-		// Extract hashes
-		let hash_array = results[0].column_by_name("hash")
-			.ok_or_else(|| anyhow::anyhow!("Hash column not found"))?
-			.as_any()
-			.downcast_ref::<StringArray>()
-			.ok_or_else(|| anyhow::anyhow!("Hash column is not a StringArray"))?;
-
-		let hashes: Vec<String> = (0..hash_array.len())
-			.map(|i| hash_array.value(i).to_string())
-			.collect();
 
 		Ok(hashes)
 	}
@@ -1395,23 +1436,24 @@ impl Store {
 		// Check code_blocks table
 		if table_names.contains(&"code_blocks".to_string()) {
 			let table = self.db.open_table("code_blocks").execute().await?;
-			let results = table
+			let mut results = table
 				.query()
 				.select(Select::Columns(vec!["path".to_string()]))
 				.execute()
-				.await?
-				.try_collect::<Vec<_>>()
-			.await?;
+				.await?;
 
-			if !results.is_empty() && results[0].num_rows() > 0 {
-				let path_array = results[0].column_by_name("path")
-					.ok_or_else(|| anyhow::anyhow!("Path column not found"))?
-					.as_any()
-					.downcast_ref::<StringArray>()
-					.ok_or_else(|| anyhow::anyhow!("Path column is not a StringArray"))?;
+			// Process all batches
+			while let Some(batch) = results.try_next().await? {
+				if batch.num_rows() > 0 {
+					let path_array = batch.column_by_name("path")
+						.ok_or_else(|| anyhow::anyhow!("Path column not found"))?
+						.as_any()
+						.downcast_ref::<StringArray>()
+						.ok_or_else(|| anyhow::anyhow!("Path column is not a StringArray"))?;
 
-				for i in 0..path_array.len() {
-					all_paths.insert(path_array.value(i).to_string());
+					for i in 0..path_array.len() {
+						all_paths.insert(path_array.value(i).to_string());
+					}
 				}
 			}
 		}
@@ -1419,37 +1461,38 @@ impl Store {
 		// Check text_blocks table
 		if table_names.contains(&"text_blocks".to_string()) {
 			let table = self.db.open_table("text_blocks").execute().await?;
-			let results = table
+			let mut results = table
 				.query()
 				.select(Select::Columns(vec!["path".to_string()]))
 				.execute()
-				.await?
-				.try_collect::<Vec<_>>()
-			.await?;
+				.await?;
 
-			if !results.is_empty() && results[0].num_rows() > 0 {
-				let path_array = results[0].column_by_name("path")
-					.ok_or_else(|| anyhow::anyhow!("Path column not found"))?
-					.as_any()
-					.downcast_ref::<StringArray>()
-					.ok_or_else(|| anyhow::anyhow!("Path column is not a StringArray"))?;
+			// Process all batches
+			while let Some(batch) = results.try_next().await? {
+				if batch.num_rows() > 0 {
+					let path_array = batch.column_by_name("path")
+						.ok_or_else(|| anyhow::anyhow!("Path column not found"))?
+						.as_any()
+						.downcast_ref::<StringArray>()
+						.ok_or_else(|| anyhow::anyhow!("Path column is not a StringArray"))?;
 
-				for i in 0..path_array.len() {
-					let path = path_array.value(i).to_string();
-					// Since text blocks now store clean paths, no need to extract base path
-					// But handle legacy data that might still have chunk suffixes
-					let base_path = if path.contains('#') {
-						// Legacy chunked path - extract base path
-						if let Some(hash_pos) = path.find('#') {
-							path[..hash_pos].to_string()
+					for i in 0..path_array.len() {
+						let path = path_array.value(i).to_string();
+						// Since text blocks now store clean paths, no need to extract base path
+						// But handle legacy data that might still have chunk suffixes
+						let base_path = if path.contains('#') {
+							// Legacy chunked path - extract base path
+							if let Some(hash_pos) = path.find('#') {
+								path[..hash_pos].to_string()
+							} else {
+								path
+							}
 						} else {
+							// New clean path format
 							path
-						}
-					} else {
-						// New clean path format
-						path
-					};
-					all_paths.insert(base_path);
+						};
+						all_paths.insert(base_path);
+					}
 				}
 			}
 		}
@@ -1457,23 +1500,24 @@ impl Store {
 		// Check document_blocks table
 		if table_names.contains(&"document_blocks".to_string()) {
 			let table = self.db.open_table("document_blocks").execute().await?;
-			let results = table
+			let mut results = table
 				.query()
 				.select(Select::Columns(vec!["path".to_string()]))
 				.execute()
-				.await?
-				.try_collect::<Vec<_>>()
-			.await?;
+				.await?;
 
-			if !results.is_empty() && results[0].num_rows() > 0 {
-				let path_array = results[0].column_by_name("path")
-					.ok_or_else(|| anyhow::anyhow!("Path column not found"))?
-					.as_any()
-					.downcast_ref::<StringArray>()
-					.ok_or_else(|| anyhow::anyhow!("Path column is not a StringArray"))?;
+			// Process all batches
+			while let Some(batch) = results.try_next().await? {
+				if batch.num_rows() > 0 {
+					let path_array = batch.column_by_name("path")
+						.ok_or_else(|| anyhow::anyhow!("Path column not found"))?
+						.as_any()
+						.downcast_ref::<StringArray>()
+						.ok_or_else(|| anyhow::anyhow!("Path column is not a StringArray"))?;
 
-				for i in 0..path_array.len() {
-					all_paths.insert(path_array.value(i).to_string());
+					for i in 0..path_array.len() {
+						all_paths.insert(path_array.value(i).to_string());
+					}
 				}
 			}
 		}
@@ -1493,25 +1537,26 @@ impl Store {
 		}
 
 		// Filter by hash for exact match
-		let results = table
+		let mut results = table
 			.query()
 			.only_if(format!("hash = '{}'", hash))
 			.limit(1)
 			.execute()
-			.await?
-			.try_collect::<Vec<_>>()
-		.await?;
+			.await?;
 
-		if results.is_empty() || results[0].num_rows() == 0 {
-			return Err(anyhow::anyhow!("Code block with hash {} not found", hash));
+		// Process all batches (though we expect only one with limit 1)
+		while let Some(batch) = results.try_next().await? {
+			if batch.num_rows() > 0 {
+				// Convert results to CodeBlock structs
+				let converter = BatchConverter::new(self.code_vector_dim);
+				let code_blocks = converter.batch_to_code_blocks(&batch, None)?;
+
+				// Return the first (and only) code block
+				return code_blocks.into_iter().next().ok_or_else(|| anyhow::anyhow!("Failed to convert result to CodeBlock"));
+			}
 		}
 
-		// Convert results to CodeBlock structs
-		let converter = BatchConverter::new(self.code_vector_dim);
-		let code_blocks = converter.batch_to_code_blocks(&results[0], None)?;
-
-		// Return the first (and only) code block
-		code_blocks.into_iter().next().ok_or_else(|| anyhow::anyhow!("Failed to convert result to CodeBlock"))
+		Err(anyhow::anyhow!("Code block with hash {} not found", hash))
 	}
 
 	// Flush the database to ensure all data is persisted
@@ -1667,39 +1712,41 @@ impl Store {
 		}
 
 		// Perform vector search
-		let results = table
+		let mut results = table
 			.query()
 			.nearest_to(embedding)?  // Vector search
 			.distance_type(DistanceType::Cosine)  // Explicitly use cosine distance
 			.limit(limit)           // No conversion needed
 			.execute()
-			.await?
-			.try_collect::<Vec<_>>()
-		.await?;
+			.await?;
 
-		if results.is_empty() || results[0].num_rows() == 0 {
-			// Create an empty record batch with the right schema
-			let schema = Arc::new(Schema::new(vec![
-				Field::new("id", DataType::Utf8, false),
-				Field::new("name", DataType::Utf8, false),
-				Field::new("kind", DataType::Utf8, false),
-				Field::new("path", DataType::Utf8, false),
-				Field::new("description", DataType::Utf8, false),
-				Field::new("symbols", DataType::Utf8, true),
-				Field::new("hash", DataType::Utf8, false),
-				Field::new(
-					"embedding",
-					DataType::FixedSizeList(
-						Arc::new(Field::new("item", DataType::Float32, true)),
-						self.code_vector_dim as i32,
-					),
-					true,
-				),
-			]));
-			return Ok(RecordBatch::new_empty(schema));
+		// Process all batches - for this function we need to return a single RecordBatch
+		// so we'll collect all results and combine them or return the first non-empty one
+		while let Some(batch) = results.try_next().await? {
+			if batch.num_rows() > 0 {
+				return Ok(batch);
+			}
 		}
 
-		Ok(results[0].clone())
+		// If no results, create an empty record batch with the right schema
+		let schema = Arc::new(Schema::new(vec![
+			Field::new("id", DataType::Utf8, false),
+			Field::new("name", DataType::Utf8, false),
+			Field::new("kind", DataType::Utf8, false),
+			Field::new("path", DataType::Utf8, false),
+			Field::new("description", DataType::Utf8, false),
+			Field::new("symbols", DataType::Utf8, true),
+			Field::new("hash", DataType::Utf8, false),
+			Field::new(
+				"embedding",
+				DataType::FixedSizeList(
+					Arc::new(Field::new("item", DataType::Float32, true)),
+					self.code_vector_dim as i32,
+				),
+				true,
+			),
+		]));
+		Ok(RecordBatch::new_empty(schema))
 	}
 
 	// Get all graph relationships
@@ -1722,27 +1769,29 @@ impl Store {
 		let table = self.db.open_table("graphrag_relationships").execute().await?;
 
 		// Get all relationships
-		let results = table
+		let mut results = table
 			.query()
 			.execute()
-			.await?
-			.try_collect::<Vec<_>>()
-		.await?;
+			.await?;
 
-		if results.is_empty() || results[0].num_rows() == 0 {
-			// Return empty batch with schema
-			let schema = Arc::new(Schema::new(vec![
-				Field::new("id", DataType::Utf8, false),
-				Field::new("source", DataType::Utf8, false),
-				Field::new("target", DataType::Utf8, false),
-				Field::new("relation_type", DataType::Utf8, false),
-				Field::new("description", DataType::Utf8, false),
-				Field::new("confidence", DataType::Float32, false),
-			]));
-			return Ok(RecordBatch::new_empty(schema));
+		// Process all batches - for this function we need to return a single RecordBatch
+		// so we'll return the first non-empty batch
+		while let Some(batch) = results.try_next().await? {
+			if batch.num_rows() > 0 {
+				return Ok(batch);
+			}
 		}
 
-		Ok(results[0].clone())
+		// If no results, return empty batch with schema
+		let schema = Arc::new(Schema::new(vec![
+			Field::new("id", DataType::Utf8, false),
+			Field::new("source", DataType::Utf8, false),
+			Field::new("target", DataType::Utf8, false),
+			Field::new("relation_type", DataType::Utf8, false),
+			Field::new("description", DataType::Utf8, false),
+			Field::new("confidence", DataType::Float32, false),
+		]));
+		Ok(RecordBatch::new_empty(schema))
 	}
 
 	pub fn get_code_vector_dim(&self) -> usize {
@@ -1757,44 +1806,38 @@ impl Store {
 			if table_names.contains(&table_name.to_string()) {
 				println!("\n=== Files in {} table ===", table_name);
 				let table = self.db.open_table(*table_name).execute().await?;
-				let results = table
+				let mut results = table
 					.query()
 					.select(lancedb::query::Select::Columns(vec!["path".to_string()]))
 					.execute()
-					.await?
-					.try_collect::<Vec<_>>()
-				.await?;
+					.await?;
 
-				if !results.is_empty() {
-					let mut unique_paths = std::collections::HashSet::new();
+				let mut unique_paths = std::collections::HashSet::new();
 
-					// Process all result batches
-					for batch in &results {
-						if batch.num_rows() > 0 {
-							if let Some(column) = batch.column_by_name("path") {
-								if let Some(path_array) = column.as_any().downcast_ref::<StringArray>() {
-									for i in 0..path_array.len() {
-										let path = path_array.value(i).to_string();
-										unique_paths.insert(path);
-									}
-								} else {
-									return Err(anyhow::anyhow!("Path column is not a StringArray"));
+				// Process all result batches
+				while let Some(batch) = results.try_next().await? {
+					if batch.num_rows() > 0 {
+						if let Some(column) = batch.column_by_name("path") {
+							if let Some(path_array) = column.as_any().downcast_ref::<StringArray>() {
+								for i in 0..path_array.len() {
+									let path = path_array.value(i).to_string();
+									unique_paths.insert(path);
 								}
 							} else {
-								return Err(anyhow::anyhow!("Path column not found"));
+								return Err(anyhow::anyhow!("Path column is not a StringArray"));
 							}
+						} else {
+							return Err(anyhow::anyhow!("Path column not found"));
 						}
 					}
+				}
 
-					if !unique_paths.is_empty() {
-						let count = unique_paths.len();
-						for path in unique_paths {
-							println!("  - {}", path);
-						}
-						println!("Total unique files: {}", count);
-					} else {
-						println!("  (no files)");
+				if !unique_paths.is_empty() {
+					let count = unique_paths.len();
+					for path in unique_paths {
+						println!("  - {}", path);
 					}
+					println!("Total unique files: {}", count);
 				} else {
 					println!("  (no files)");
 				}
