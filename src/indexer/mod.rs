@@ -52,7 +52,7 @@ impl NoindexWalker {
 
 		// Standard git ignore settings
 		builder
-			.hidden(false)       // Don't ignore hidden files (unless in ignore files)
+			.hidden(true)        // Ignore hidden files (like .git/, .vscode/, etc.)
 			.git_ignore(true)    // Respect .gitignore files
 			.git_global(true)    // Respect global git ignore files
 			.git_exclude(true);  // Respect .git/info/exclude files
