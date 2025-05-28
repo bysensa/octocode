@@ -9,7 +9,7 @@ use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 
 // LanceDB imports
-use lancedb::{connect, Connection, index::Index, query::{ExecutableQuery, QueryBase}, DistanceType};
+use lancedb::{connect, Connection, index::Index, query::{ExecutableQuery, QueryBase, Select}, DistanceType};
 use futures::TryStreamExt;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -1183,28 +1183,295 @@ impl Store {
 	pub async fn remove_blocks_by_path(&self, file_path: &str) -> Result<()> {
 		// Check if tables exist
 		let table_names = self.db.table_names().execute().await?;
+		let mut total_removed = 0;
+		let mut errors = Vec::new();
+
+		// Escape single quotes in file_path to prevent SQL injection/errors
+		let escaped_path = file_path.replace("'", "''");
 
 		// Delete from code_blocks table if it exists
 		if table_names.contains(&"code_blocks".to_string()) {
 			let code_blocks_table = self.db.open_table("code_blocks").execute().await?;
-			code_blocks_table.delete(&format!("path = '{}'", file_path)).await?;
+			
+			// First count how many we're going to delete
+			let count_results = code_blocks_table
+				.query()
+				.only_if(format!("path = '{}'", escaped_path))
+				.select(lancedb::query::Select::Columns(vec!["path".to_string()]))
+				.execute()
+				.await?
+				.try_collect::<Vec<_>>()
+				.await?;
+			
+			let count = if !count_results.is_empty() { count_results[0].num_rows() } else { 0 };
+			
+			// Now delete them
+			match code_blocks_table.delete(&format!("path = '{}'", escaped_path)).await {
+				Ok(_) => {
+					if count > 0 {
+						println!("Removed {} code blocks for file: {}", count, file_path);
+						total_removed += count;
+					}
+				},
+				Err(e) => {
+					let error_msg = format!("Error removing code blocks for {}: {}", file_path, e);
+					eprintln!("{}", error_msg);
+					errors.push(error_msg);
+				}
+			}
 		}
 
 		// Delete from text_blocks table if it exists
 		if table_names.contains(&"text_blocks".to_string()) {
 			let text_blocks_table = self.db.open_table("text_blocks").execute().await?;
-			// For text blocks, also delete chunked versions (path contains '#')
-			text_blocks_table.delete(&format!("path = '{}'", file_path)).await?;
-			text_blocks_table.delete(&format!("path LIKE '{}#%'", file_path)).await?;
+			
+			// For text blocks, delete exact match first
+			let count_results = text_blocks_table
+				.query()
+				.only_if(format!("path = '{}'", escaped_path))
+				.select(lancedb::query::Select::Columns(vec!["path".to_string()]))
+				.execute()
+				.await?
+				.try_collect::<Vec<_>>()
+				.await?;
+			
+			let exact_count = if !count_results.is_empty() { count_results[0].num_rows() } else { 0 };
+			
+			match text_blocks_table.delete(&format!("path = '{}'", escaped_path)).await {
+				Ok(_) => {
+					if exact_count > 0 {
+						println!("Removed {} exact text blocks for file: {}", exact_count, file_path);
+						total_removed += exact_count;
+					}
+				},
+				Err(e) => {
+					let error_msg = format!("Error removing exact text blocks for {}: {}", file_path, e);
+					eprintln!("{}", error_msg);
+					errors.push(error_msg);
+				}
+			}
+			
+			// Also delete chunked versions (path starts with file_path and contains '#')
+			let chunked_count_results = text_blocks_table
+				.query()
+				.only_if(format!("path LIKE '{}#%'", escaped_path))
+				.select(lancedb::query::Select::Columns(vec!["path".to_string()]))
+				.execute()
+				.await?
+				.try_collect::<Vec<_>>()
+				.await?;
+			
+			let chunked_count = if !chunked_count_results.is_empty() { chunked_count_results[0].num_rows() } else { 0 };
+			
+			match text_blocks_table.delete(&format!("path LIKE '{}#%'", escaped_path)).await {
+				Ok(_) => {
+					if chunked_count > 0 {
+						println!("Removed {} chunked text blocks for file: {}", chunked_count, file_path);
+						total_removed += chunked_count;
+					}
+				},
+				Err(e) => {
+					let error_msg = format!("Error removing chunked text blocks for {}: {}", file_path, e);
+					eprintln!("{}", error_msg);
+					errors.push(error_msg);
+				}
+			}
 		}
 
 		// Delete from document_blocks table if it exists
 		if table_names.contains(&"document_blocks".to_string()) {
 			let document_blocks_table = self.db.open_table("document_blocks").execute().await?;
-			document_blocks_table.delete(&format!("path = '{}'", file_path)).await?;
+			
+			let count_results = document_blocks_table
+				.query()
+				.only_if(format!("path = '{}'", escaped_path))
+				.select(lancedb::query::Select::Columns(vec!["path".to_string()]))
+				.execute()
+				.await?
+				.try_collect::<Vec<_>>()
+				.await?;
+			
+			let count = if !count_results.is_empty() { count_results[0].num_rows() } else { 0 };
+			
+			match document_blocks_table.delete(&format!("path = '{}'", escaped_path)).await {
+				Ok(_) => {
+					if count > 0 {
+						println!("Removed {} document blocks for file: {}", count, file_path);
+						total_removed += count;
+					}
+				},
+				Err(e) => {
+					let error_msg = format!("Error removing document blocks for {}: {}", file_path, e);
+					eprintln!("{}", error_msg);
+					errors.push(error_msg);
+				}
+			}
 		}
 
+		if total_removed > 0 {
+			println!("Successfully removed {} total blocks for file: {}", total_removed, file_path);
+		} else {
+			println!("No blocks found to remove for file: {}", file_path);
+		}
+
+		// If we had errors, report them but don't fail completely
+		if !errors.is_empty() {
+			eprintln!("Encountered {} errors during deletion for file {}", errors.len(), file_path);
+			for error in &errors {
+				eprintln!("  - {}", error);
+			}
+		}
+		
 		Ok(())
+	}
+
+	// Remove specific blocks by their hashes
+	pub async fn remove_blocks_by_hashes(&self, hashes: &[String], table_name: &str) -> Result<()> {
+		if hashes.is_empty() {
+			return Ok(());
+		}
+
+		// Check if table exists
+		let table_names = self.db.table_names().execute().await?;
+		if !table_names.contains(&table_name.to_string()) {
+			return Ok(());
+		}
+
+		let table = self.db.open_table(table_name).execute().await?;
+		
+		// Build a SQL IN clause for the hashes
+		let hash_list = hashes.iter()
+			.map(|h| format!("'{}'", h))
+			.collect::<Vec<_>>()
+			.join(", ");
+		
+		table.delete(&format!("hash IN ({})", hash_list)).await?;
+		Ok(())
+	}
+
+	// Get all blocks for a specific file path from a table
+	pub async fn get_file_blocks_metadata(&self, file_path: &str, table_name: &str) -> Result<Vec<String>> {
+		// Check if table exists
+		let table_names = self.db.table_names().execute().await?;
+		if !table_names.contains(&table_name.to_string()) {
+			return Ok(Vec::new());
+		}
+
+		let table = self.db.open_table(table_name).execute().await?;
+
+		// Query for blocks from this file - we only need the hash column
+		let results = table
+			.query()
+			.only_if(format!("path = '{}'", file_path))
+			.select(Select::Columns(vec!["hash".to_string()]))
+			.execute()
+			.await?
+			.try_collect::<Vec<_>>()
+		.await?;
+
+		if results.is_empty() || results[0].num_rows() == 0 {
+			return Ok(Vec::new());
+		}
+
+		// Extract hashes
+		let hash_array = results[0].column_by_name("hash")
+			.ok_or_else(|| anyhow::anyhow!("Hash column not found"))?
+			.as_any()
+			.downcast_ref::<StringArray>()
+			.ok_or_else(|| anyhow::anyhow!("Hash column is not a StringArray"))?;
+
+		let hashes: Vec<String> = (0..hash_array.len())
+			.map(|i| hash_array.value(i).to_string())
+			.collect();
+
+		Ok(hashes)
+	}
+
+	// Get all file paths from the database
+	pub async fn get_all_indexed_file_paths(&self) -> Result<std::collections::HashSet<String>> {
+		let mut all_paths = std::collections::HashSet::new();
+		let table_names = self.db.table_names().execute().await?;
+
+		// Check code_blocks table
+		if table_names.contains(&"code_blocks".to_string()) {
+			let table = self.db.open_table("code_blocks").execute().await?;
+			let results = table
+				.query()
+				.select(Select::Columns(vec!["path".to_string()]))
+				.execute()
+				.await?
+				.try_collect::<Vec<_>>()
+			.await?;
+
+			if !results.is_empty() && results[0].num_rows() > 0 {
+				let path_array = results[0].column_by_name("path")
+					.ok_or_else(|| anyhow::anyhow!("Path column not found"))?
+					.as_any()
+					.downcast_ref::<StringArray>()
+					.ok_or_else(|| anyhow::anyhow!("Path column is not a StringArray"))?;
+
+				for i in 0..path_array.len() {
+					all_paths.insert(path_array.value(i).to_string());
+				}
+			}
+		}
+
+		// Check text_blocks table
+		if table_names.contains(&"text_blocks".to_string()) {
+			let table = self.db.open_table("text_blocks").execute().await?;
+			let results = table
+				.query()
+				.select(Select::Columns(vec!["path".to_string()]))
+				.execute()
+				.await?
+				.try_collect::<Vec<_>>()
+			.await?;
+
+			if !results.is_empty() && results[0].num_rows() > 0 {
+				let path_array = results[0].column_by_name("path")
+					.ok_or_else(|| anyhow::anyhow!("Path column not found"))?
+					.as_any()
+					.downcast_ref::<StringArray>()
+					.ok_or_else(|| anyhow::anyhow!("Path column is not a StringArray"))?;
+
+				for i in 0..path_array.len() {
+					let path = path_array.value(i).to_string();
+					// For text blocks, extract the base path (remove chunk suffix #N)
+					let base_path = if let Some(hash_pos) = path.find('#') {
+						path[..hash_pos].to_string()
+					} else {
+						path
+					};
+					all_paths.insert(base_path);
+				}
+			}
+		}
+
+		// Check document_blocks table
+		if table_names.contains(&"document_blocks".to_string()) {
+			let table = self.db.open_table("document_blocks").execute().await?;
+			let results = table
+				.query()
+				.select(Select::Columns(vec!["path".to_string()]))
+				.execute()
+				.await?
+				.try_collect::<Vec<_>>()
+			.await?;
+
+			if !results.is_empty() && results[0].num_rows() > 0 {
+				let path_array = results[0].column_by_name("path")
+					.ok_or_else(|| anyhow::anyhow!("Path column not found"))?
+					.as_any()
+					.downcast_ref::<StringArray>()
+					.ok_or_else(|| anyhow::anyhow!("Path column is not a StringArray"))?;
+
+				for i in 0..path_array.len() {
+					all_paths.insert(path_array.value(i).to_string());
+				}
+			}
+		}
+
+		Ok(all_paths)
 	}
 
 	pub async fn get_code_block_by_hash(&self, hash: &str) -> Result<CodeBlock> {
@@ -1473,5 +1740,60 @@ impl Store {
 
 	pub fn get_code_vector_dim(&self) -> usize {
 		self.code_vector_dim
+	}
+
+	// Debug function to list all files currently in the database
+	pub async fn debug_list_all_files(&self) -> Result<()> {
+		let table_names = self.db.table_names().execute().await?;
+		
+		for table_name in &["code_blocks", "text_blocks", "document_blocks"] {
+			if table_names.contains(&table_name.to_string()) {
+				println!("\n=== Files in {} table ===", table_name);
+				let table = self.db.open_table(*table_name).execute().await?;
+				let results = table
+					.query()
+					.select(lancedb::query::Select::Columns(vec!["path".to_string()]))
+					.execute()
+					.await?
+					.try_collect::<Vec<_>>()
+				.await?;
+
+				if !results.is_empty() && results[0].num_rows() > 0 {
+					let path_array = results[0].column_by_name("path")
+						.ok_or_else(|| anyhow::anyhow!("Path column not found"))?
+						.as_any()
+						.downcast_ref::<StringArray>()
+						.ok_or_else(|| anyhow::anyhow!("Path column is not a StringArray"))?;
+
+					let mut unique_paths = std::collections::HashSet::new();
+					for i in 0..path_array.len() {
+						let path = path_array.value(i).to_string();
+						// For text blocks, extract the base path (remove chunk suffix #N)
+						let base_path = if *table_name == "text_blocks" {
+							if let Some(hash_pos) = path.find('#') {
+								path[..hash_pos].to_string()
+							} else {
+								path
+							}
+						} else {
+							path
+						};
+						unique_paths.insert(base_path);
+					}
+
+					let count = unique_paths.len();
+					for path in unique_paths {
+						println!("  - {}", path);
+					}
+					println!("Total unique files: {}", count);
+				} else {
+					println!("  (no files)");
+				}
+			} else {
+				println!("\n=== Table {} does not exist ===", table_name);
+			}
+		}
+		println!();
+		Ok(())
 	}
 }

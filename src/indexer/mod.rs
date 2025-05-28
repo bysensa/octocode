@@ -945,7 +945,69 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 		state_guard.status_message = "Counting files...".to_string();
 	}
 
+	// First, check for deleted files and remove their blocks from the database
+	let force_reindex = state.read().force_reindex;
+	if !force_reindex {
+		{
+			let mut state_guard = state.write();
+			state_guard.status_message = "Checking for deleted files...".to_string();
+		}
+		
+		// Get all indexed file paths from the database
+		let indexed_files = store.get_all_indexed_file_paths().await?;
+		println!("Found {} indexed files in database", indexed_files.len());
+		
+		// Check which indexed files no longer exist on disk
+		let mut deleted_files = Vec::new();
+		for indexed_file in &indexed_files {
+			// Always treat indexed paths as relative to current directory
+			let absolute_path = current_dir.join(indexed_file);
+			
+			if !absolute_path.exists() {
+				deleted_files.push(indexed_file.clone());
+				println!("Detected deleted file: {}", indexed_file);
+			}
+		}
+		
+		// Remove blocks for deleted files from ALL tables
+		if !deleted_files.is_empty() {
+			println!("Removing {} deleted files from database...", deleted_files.len());
+			for deleted_file in &deleted_files {
+				println!("Removing all blocks for deleted file: {}", deleted_file);
+				
+				// Use the comprehensive removal function which handles all tables
+				match store.remove_blocks_by_path(deleted_file).await {
+					Ok(_) => println!("Successfully removed blocks for: {}", deleted_file),
+					Err(e) => {
+						eprintln!("ERROR: Failed to remove blocks for {}: {}", deleted_file, e);
+						// Continue with other files even if one fails
+					}
+				}
+			}
+			
+			println!("Finished removing {} deleted files from database", deleted_files.len());
+			// Force flush to ensure deletions are persisted
+			println!("Flushing database to persist deletions...");
+			store.flush().await?;
+			println!("Database flush completed");
+		} else {
+			println!("No deleted files detected - database is up to date");
+		}
+		
+		{
+			let mut state_guard = state.write();
+			state_guard.status_message = "".to_string();
+		}
+	} else {
+		println!("Force reindex mode - skipping deleted file cleanup (will clear all tables instead)");
+	}
+
 	// First pass: count all files to be processed
+	{
+		let mut state_guard = state.write();
+		state_guard.status_message = "Counting files...".to_string();
+	}
+	
 	let total_files = count_indexable_files(&current_dir)?;
 
 	{
@@ -977,7 +1039,7 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 			if let Ok(contents) = fs::read_to_string(entry.path()) {
 				if language == "markdown" {
 					// Handle markdown files specially - index as document blocks
-					process_markdown_file(
+					process_markdown_file_differential(
 						store,
 						&contents,
 						&file_path,
@@ -992,7 +1054,7 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 						config,
 						state: state.clone(),
 					};
-					process_file(
+					process_file_differential(
 						&ctx,
 						&contents,
 						&file_path,
@@ -1030,7 +1092,7 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 				if let Ok(contents) = fs::read_to_string(entry.path()) {
 					// Only process files that are likely to contain readable text
 					if is_text_file(&contents) {
-						process_text_file(
+						process_text_file_differential(
 							store,
 							&contents,
 							&file_path,
@@ -1774,6 +1836,234 @@ async fn process_markdown_file(
 		let exists = !force_reindex && store.content_exists(&doc_block.hash, "document_blocks").await?;
 		if !exists {
 			document_blocks_batch.push(doc_block);
+		}
+	}
+
+	Ok(())
+}
+
+// NEW DIFFERENTIAL PROCESSING FUNCTIONS
+
+// Differential processing for code files - only updates changed blocks
+async fn process_file_differential(
+	ctx: &ProcessFileContext<'_>,
+	contents: &str,
+	file_path: &str,
+	language: &str,
+	code_blocks_batch: &mut Vec<CodeBlock>,
+	_text_blocks_batch: &mut [TextBlock], // Unused for code files
+	all_code_blocks: &mut Vec<CodeBlock>,
+) -> Result<()> {
+	let mut parser = Parser::new();
+
+	// Get force_reindex flag from state
+	let force_reindex = ctx.state.read().force_reindex;
+
+	// Get the language implementation
+	let lang_impl = match languages::get_language(language) {
+		Some(impl_) => impl_,
+		None => return Ok(()),  // Skip unsupported languages
+	};
+
+	// Set the parser language
+	parser.set_language(&lang_impl.get_ts_language())?;
+
+	let tree = parser.parse(contents, None).unwrap_or_else(|| parser.parse("", None).unwrap());
+	let mut code_regions = Vec::new();
+
+	extract_meaningful_regions(tree.root_node(), contents, lang_impl.as_ref(), &mut code_regions);
+
+	// If not force reindexing, get existing hashes for this file to compare
+	let existing_hashes = if force_reindex {
+		Vec::new()
+	} else {
+		ctx.store.get_file_blocks_metadata(file_path, "code_blocks").await?
+	};
+
+	// Create set of new hashes for this file
+	let mut new_hashes = std::collections::HashSet::new();
+	let mut graphrag_blocks_added = 0;
+
+	for region in code_regions {
+		// Use a hash that's unique to both content and path
+		let content_hash = calculate_unique_content_hash(&region.content, file_path);
+		new_hashes.insert(content_hash.clone());
+
+		// Skip the check if force_reindex is true
+		let exists = !force_reindex && ctx.store.content_exists(&content_hash, "code_blocks").await?;
+		if !exists {
+			let code_block = CodeBlock {
+				path: file_path.to_string(),
+				hash: content_hash.clone(),
+				language: lang_impl.name().to_string(),
+				content: region.content.clone(),
+				symbols: region.symbols.clone(),
+				start_line: region.start_line,
+				end_line: region.end_line,
+				distance: None,  // No relevance score when indexing
+			};
+
+			// Add to batch for embedding
+			code_blocks_batch.push(code_block.clone());
+
+			// Add to all code blocks for GraphRAG
+			if ctx.config.graphrag.enabled {
+				all_code_blocks.push(code_block);
+				graphrag_blocks_added += 1;
+			}
+		} else {
+			// Debug: show when blocks are being skipped
+			println!("DEBUG: Skipping existing code block for file {} (hash: {})", file_path, &content_hash[..8]);
+			
+			if ctx.config.graphrag.enabled {
+				// If skipping because block exists, but we need for GraphRAG, fetch from store
+				if let Ok(existing_block) = ctx.store.get_code_block_by_hash(&content_hash).await {
+					// Add the existing block to the GraphRAG collection
+					all_code_blocks.push(existing_block);
+					graphrag_blocks_added += 1;
+				}
+			}
+		}
+	}
+
+	// Remove blocks that no longer exist (only if not force reindexing)
+	if !force_reindex && !existing_hashes.is_empty() {
+		let hashes_to_remove: Vec<String> = existing_hashes
+			.into_iter()
+			.filter(|hash| !new_hashes.contains(hash))
+			.collect();
+
+		if !hashes_to_remove.is_empty() {
+			ctx.store.remove_blocks_by_hashes(&hashes_to_remove, "code_blocks").await?;
+		}
+	}
+
+	// Update GraphRAG state if enabled and blocks were added
+	if ctx.config.graphrag.enabled && graphrag_blocks_added > 0 {
+		let mut state_guard = ctx.state.write();
+		state_guard.graphrag_blocks += graphrag_blocks_added;
+	}
+
+	Ok(())
+}
+
+// Differential processing for text files - only updates changed blocks
+async fn process_text_file_differential(
+	store: &Store,
+	contents: &str,
+	file_path: &str,
+	text_blocks_batch: &mut Vec<TextBlock>,
+	_config: &Config,
+	state: SharedState,
+) -> Result<()> {
+	let force_reindex = state.read().force_reindex;
+
+	// Get existing text block hashes for this file (including chunked versions)
+	let existing_hashes = if force_reindex {
+		Vec::new()
+	} else {
+		// Get all text blocks that start with this file path
+		let mut all_existing = store.get_file_blocks_metadata(file_path, "text_blocks").await?;
+		
+		// Also get chunked versions (path#N)
+		for i in 0..100 { // Reasonable upper limit for chunks
+			let chunked_path = format!("{}#{}", file_path, i);
+			let chunked_hashes = store.get_file_blocks_metadata(&chunked_path, "text_blocks").await?;
+			if chunked_hashes.is_empty() {
+				break; // No more chunks
+			}
+			all_existing.extend(chunked_hashes);
+		}
+		
+		all_existing
+	};
+
+	// Split content into chunks
+	let chunks = chunk_text(contents, DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP);
+	let mut new_hashes = std::collections::HashSet::new();
+
+	for (chunk_idx, chunk) in chunks.iter().enumerate() {
+		let chunk_hash = calculate_unique_content_hash(chunk, &format!("{}#{}", file_path, chunk_idx));
+		new_hashes.insert(chunk_hash.clone());
+
+		// Skip the check if force_reindex is true
+		let exists = !force_reindex && store.content_exists(&chunk_hash, "text_blocks").await?;
+		if !exists {
+			// Calculate approximate line numbers for the chunk
+			let lines_before_chunk: usize = contents[..contents.find(chunk).unwrap_or(0)]
+				.lines()
+				.count();
+			let chunk_line_count = chunk.lines().count();
+
+			text_blocks_batch.push(TextBlock {
+				path: format!("{}#{}", file_path, chunk_idx), // Add chunk index to path for uniqueness
+				language: "text".to_string(),
+				content: chunk.clone(),
+				start_line: lines_before_chunk,
+				end_line: lines_before_chunk + chunk_line_count,
+				hash: chunk_hash,
+				distance: None,
+			});
+		}
+	}
+
+	// Remove blocks that no longer exist (only if not force reindexing)
+	if !force_reindex && !existing_hashes.is_empty() {
+		let hashes_to_remove: Vec<String> = existing_hashes
+			.into_iter()
+			.filter(|hash| !new_hashes.contains(hash))
+			.collect();
+
+		if !hashes_to_remove.is_empty() {
+			store.remove_blocks_by_hashes(&hashes_to_remove, "text_blocks").await?;
+		}
+	}
+
+	Ok(())
+}
+
+// Differential processing for markdown files - only updates changed blocks
+async fn process_markdown_file_differential(
+	store: &Store,
+	contents: &str,
+	file_path: &str,
+	document_blocks_batch: &mut Vec<DocumentBlock>,
+	_config: &Config,
+	state: SharedState,
+) -> Result<()> {
+	// Get force_reindex flag from state
+	let force_reindex = state.read().force_reindex;
+
+	// Get existing document block hashes for this file
+	let existing_hashes = if force_reindex {
+		Vec::new()
+	} else {
+		store.get_file_blocks_metadata(file_path, "document_blocks").await?
+	};
+
+	// Parse markdown content into document blocks
+	let document_blocks = parse_markdown_content(contents, file_path);
+	let mut new_hashes = std::collections::HashSet::new();
+
+	for doc_block in document_blocks {
+		new_hashes.insert(doc_block.hash.clone());
+
+		// Check if this document block already exists (unless force reindex)
+		let exists = !force_reindex && store.content_exists(&doc_block.hash, "document_blocks").await?;
+		if !exists {
+			document_blocks_batch.push(doc_block);
+		}
+	}
+
+	// Remove blocks that no longer exist (only if not force reindexing)
+	if !force_reindex && !existing_hashes.is_empty() {
+		let hashes_to_remove: Vec<String> = existing_hashes
+			.into_iter()
+			.filter(|hash| !new_hashes.contains(hash))
+			.collect();
+
+		if !hashes_to_remove.is_empty() {
+			store.remove_blocks_by_hashes(&hashes_to_remove, "document_blocks").await?;
 		}
 	}
 

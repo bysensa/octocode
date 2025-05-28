@@ -44,6 +44,9 @@ enum Commands {
 
 	/// Clear all database tables (useful for debugging)
 	Clear,
+
+	/// Debug commands for troubleshooting
+	Debug(commands::DebugArgs),
 }
 
 #[tokio::main]
@@ -86,6 +89,9 @@ async fn main() -> Result<(), anyhow::Error> {
 		},
 		Commands::Clear => {
 			commands::clear::execute(&store).await?
+		},
+		Commands::Debug(debug_args) => {
+			commands::debug::execute(&store, &config, debug_args).await?
 		},
 		Commands::Config(_) => unreachable!(), // Already handled above
 		Commands::Mcp(_) => unreachable!(), // Already handled above
