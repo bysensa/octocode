@@ -1276,7 +1276,23 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config, git
 		state_guard.status_message = "Counting files...".to_string();
 	}
 
-	let total_files = count_indexable_files(&current_dir)?;
+	// Count files based on whether git optimization is active
+	let total_files = if let Some(ref changed_files) = git_changed_files {
+		// Git optimization active: count only changed files that are indexable
+		let mut count = 0;
+		for changed_file in changed_files {
+			let absolute_path = current_dir.join(changed_file);
+			if absolute_path.exists() && absolute_path.is_file() {
+				if detect_language(&absolute_path).is_some() || is_allowed_text_extension(&absolute_path) {
+					count += 1;
+				}
+			}
+		}
+		count
+	} else {
+		// No git optimization: count all indexable files
+		count_indexable_files(&current_dir)?
+	};
 
 	{
 		let mut state_guard = state.write();
