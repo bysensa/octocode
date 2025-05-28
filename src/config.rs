@@ -70,8 +70,8 @@ fn default_embeddings_batch_size() -> usize {
 // Embedding configuration defaults
 fn default_embedding_config() -> EmbeddingConfig {
 	EmbeddingConfig {
-		code_model: "fastembed:all-MiniLM-L6-v2".to_string(),
-		text_model: "fastembed:multilingual-e5-small".to_string(),
+		code_model: "fastembed:jinaai/jina-embeddings-v2-base-code".to_string(),
+		text_model: "fastembed:sentence-transformers/all-MiniLM-L6-v2-quantized".to_string(),
 		jina: Default::default(),
 		voyage: Default::default(),
 		google: Default::default(),
@@ -246,14 +246,14 @@ impl Config {
 			// Create default config if it doesn't exist
 			let config = Config::default();
 			let toml_content = toml::to_string_pretty(&config)?;
-			
+
 			// Ensure the parent directory exists
 			if let Some(parent) = config_path.parent() {
 				if !parent.exists() {
 					fs::create_dir_all(parent)?;
 				}
 			}
-			
+
 			fs::write(&config_path, toml_content)?;
 			config
 		};

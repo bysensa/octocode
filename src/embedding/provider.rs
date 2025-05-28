@@ -4,8 +4,7 @@ use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 use fastembed::{TextEmbedding, InitOptions, EmbeddingModel};
 
-use crate::config::Config;
-use super::types::{EmbeddingProviderType, parse_provider_model};
+use super::types::EmbeddingProviderType;
 
 pub mod sentence_transformer;
 use sentence_transformer::SentenceTransformerProvider;
@@ -218,13 +217,38 @@ impl FastEmbedProvider {
 	/// Map model name to FastEmbed model enum
 	fn map_model_to_fastembed(model: &str) -> EmbeddingModel {
 		match model {
-			"all-MiniLM-L6-v2" => EmbeddingModel::AllMiniLML6V2,
-			"all-MiniLM-L12-v2" => EmbeddingModel::AllMiniLML12V2,
-			"multilingual-e5-small" => EmbeddingModel::MultilingualE5Small,
-			"multilingual-e5-base" => EmbeddingModel::MultilingualE5Base,
-			"multilingual-e5-large" => EmbeddingModel::MultilingualE5Large,
+			"sentence-transformers/all-MiniLM-L6-v2" => EmbeddingModel::AllMiniLML6V2,
+			"sentence-transformers/all-MiniLM-L6-v2-quantized" => EmbeddingModel::AllMiniLML6V2Q,
+			"sentence-transformers/all-MiniLM-L12-v2" | "all-MiniLM-L12-v2" => EmbeddingModel::AllMiniLML12V2,
+			"sentence-transformers/all-MiniLM-L12-v2-quantized" => EmbeddingModel::AllMiniLML12V2Q,
+			"BAAI/bge-base-en-v1.5" => EmbeddingModel::BGEBaseENV15,
+			"BAAI/bge-base-en-v1.5-quantized" => EmbeddingModel::BGEBaseENV15Q,
+			"BAAI/bge-large-en-v1.5" => EmbeddingModel::BGELargeENV15,
+			"BAAI/bge-large-en-v1.5-quantized" => EmbeddingModel::BGELargeENV15Q,
+			"BAAI/bge-small-en-v1.5" => EmbeddingModel::BGESmallENV15,
+			"BAAI/bge-small-en-v1.5-quantized" => EmbeddingModel::BGESmallENV15Q,
+			"nomic-ai/nomic-embed-text-v1" => EmbeddingModel::NomicEmbedTextV1,
+			"nomic-ai/nomic-embed-text-v1.5" => EmbeddingModel::NomicEmbedTextV15,
+			"nomic-ai/nomic-embed-text-v1.5-quantized" => EmbeddingModel::NomicEmbedTextV15Q,
+			"sentence-transformers/paraphrase-MiniLM-L6-v2" => EmbeddingModel::ParaphraseMLMiniLML12V2,
+			"sentence-transformers/paraphrase-MiniLM-L6-v2-quantized" => EmbeddingModel::ParaphraseMLMiniLML12V2Q,
+			"sentence-transformers/paraphrase-mpnet-base-v2" => EmbeddingModel::ParaphraseMLMpnetBaseV2,
+			"BAAI/bge-small-zh-v1.5" => EmbeddingModel::BGESmallZHV15,
+			"BAAI/bge-large-zh-v1.5" => EmbeddingModel::BGELargeZHV15,
+			"lightonai/modernbert-embed-large" => EmbeddingModel::ModernBertEmbedLarge,
+			"intfloat/multilingual-e5-small" | "multilingual-e5-small" => EmbeddingModel::MultilingualE5Small,
+			"intfloat/multilingual-e5-base" | "multilingual-e5-base" => EmbeddingModel::MultilingualE5Base,
+			"intfloat/multilingual-e5-large" | "multilingual-e5-large" => EmbeddingModel::MultilingualE5Large,
+			"mixedbread-ai/mxbai-embed-large-v1" => EmbeddingModel::MxbaiEmbedLargeV1,
+			"mixedbread-ai/mxbai-embed-large-v1-quantized" => EmbeddingModel::MxbaiEmbedLargeV1Q,
+			"Alibaba-NLP/gte-base-en-v1.5" => EmbeddingModel::GTEBaseENV15,
+			"Alibaba-NLP/gte-base-en-v1.5-quantized" => EmbeddingModel::GTEBaseENV15Q,
+			"Alibaba-NLP/gte-large-en-v1.5" => EmbeddingModel::GTELargeENV15,
+			"Alibaba-NLP/gte-large-en-v1.5-quantized" => EmbeddingModel::GTELargeENV15Q,
+			"Qdrant/clip-ViT-B-32-text" => EmbeddingModel::ClipVitB32,
+			"jinaai/jina-embeddings-v2-base-code" => EmbeddingModel::JinaEmbeddingsV2BaseCode,
 			_ => panic!("Unsupported embedding model: {}", model),
-		}
+			}
 	}
 
 	pub async fn generate_embeddings(contents: &str, model: &str, is_code: bool) -> Result<Vec<f32>> {

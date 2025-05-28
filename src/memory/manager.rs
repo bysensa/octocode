@@ -2,7 +2,7 @@ use anyhow::Result;
 use chrono::Utc;
 
 use crate::config::Config;
-use crate::embedding::{generate_embeddings, parse_provider_model, create_embedding_provider_from_parts};
+use crate::embedding::{parse_provider_model, create_embedding_provider_from_parts};
 use super::types::{
 	Memory, MemoryType, MemoryMetadata, MemoryQuery, MemorySearchResult,
 	MemoryRelationship, RelationshipType, MemoryConfig
