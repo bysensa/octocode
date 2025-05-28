@@ -981,53 +981,64 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 		state_guard.status_message = "Counting files...".to_string();
 	}
 
-	// First, check for deleted files and remove their blocks from the database
+	// First, check for deleted files and files now ignored by .noindex and remove their blocks from the database
 	let force_reindex = state.read().force_reindex;
 	if !force_reindex {
 		{
 			let mut state_guard = state.write();
-			state_guard.status_message = "Checking for deleted files...".to_string();
+			state_guard.status_message = "Checking for deleted and ignored files...".to_string();
 		}
 
 		// Get all indexed file paths from the database
 		let indexed_files = store.get_all_indexed_file_paths().await?;
 		println!("Found {} indexed files in database", indexed_files.len());
 
-		// Check which indexed files no longer exist on disk
-		let mut deleted_files = Vec::new();
+		// Create ignore matcher to check against .noindex and .gitignore patterns
+		let ignore_matcher = NoindexWalker::create_matcher(&current_dir)?;
+
+		// Check which indexed files no longer exist on disk OR are now ignored
+		let mut files_to_remove = Vec::new();
 		for indexed_file in &indexed_files {
 			// Always treat indexed paths as relative to current directory
 			let absolute_path = current_dir.join(indexed_file);
 
+			// Check if file was deleted
 			if !absolute_path.exists() {
-				deleted_files.push(indexed_file.clone());
+				files_to_remove.push((indexed_file.clone(), "deleted".to_string()));
 				println!("Detected deleted file: {}", indexed_file);
+			} else {
+				// Check if file is now ignored by .noindex or .gitignore patterns
+				let is_ignored = ignore_matcher.matched(&absolute_path, absolute_path.is_dir()).is_ignore();
+				if is_ignored {
+					files_to_remove.push((indexed_file.clone(), "ignored".to_string()));
+					println!("Detected file now ignored by .noindex/.gitignore: {}", indexed_file);
+				}
 			}
 		}
 
-		// Remove blocks for deleted files from ALL tables
-		if !deleted_files.is_empty() {
-			println!("Removing {} deleted files from database...", deleted_files.len());
-			for deleted_file in &deleted_files {
-				println!("Removing all blocks for deleted file: {}", deleted_file);
+		// Remove blocks for files that were deleted or are now ignored
+		if !files_to_remove.is_empty() {
+			println!("Removing {} files from database (deleted or ignored)...", files_to_remove.len());
+			for (file_to_remove, reason) in &files_to_remove {
+				println!("Removing all blocks for {} file: {}", reason, file_to_remove);
 
 				// Use the comprehensive removal function which handles all tables
-				match store.remove_blocks_by_path(deleted_file).await {
-					Ok(_) => println!("Successfully removed blocks for: {}", deleted_file),
+				match store.remove_blocks_by_path(file_to_remove).await {
+					Ok(_) => println!("Successfully removed blocks for {}: {}", reason, file_to_remove),
 					Err(e) => {
-						eprintln!("ERROR: Failed to remove blocks for {}: {}", deleted_file, e);
+						eprintln!("ERROR: Failed to remove blocks for {} {}: {}", reason, file_to_remove, e);
 						// Continue with other files even if one fails
 					}
 				}
 			}
 
-			println!("Finished removing {} deleted files from database", deleted_files.len());
+			println!("Finished removing {} files from database", files_to_remove.len());
 			// Force flush to ensure deletions are persisted
 			println!("Flushing database to persist deletions...");
 			store.flush().await?;
 			println!("Database flush completed");
 		} else {
-			println!("No deleted files detected - database is up to date");
+			println!("No deleted or ignored files detected - database is up to date");
 		}
 
 		{
@@ -1035,7 +1046,7 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 			state_guard.status_message = "".to_string();
 		}
 	} else {
-		println!("Force reindex mode - skipping deleted file cleanup (will clear all tables instead)");
+		println!("Force reindex mode - skipping deleted/ignored file cleanup (will clear all tables instead)");
 	}
 
 	// First pass: count all files to be processed
