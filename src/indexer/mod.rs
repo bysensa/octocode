@@ -1323,7 +1323,6 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config, git
 		if let Some(ref changed_files) = git_changed_files {
 			if !changed_files.contains(&file_path) {
 				// File not in git changes, skip processing entirely
-				state.write().indexed_files += 1;
 				continue;
 			}
 		}
@@ -1334,7 +1333,6 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config, git
 			if let Ok(should_skip) = should_skip_file(store, &file_path, actual_mtime, force_reindex).await {
 				if should_skip {
 					// File hasn't changed, skip processing entirely
-					state.write().indexed_files += 1;
 					continue;
 				}
 			}
