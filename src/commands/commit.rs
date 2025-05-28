@@ -22,7 +22,7 @@ pub struct CommitArgs {
 
 pub async fn execute(config: &Config, args: &CommitArgs) -> Result<()> {
 	let current_dir = std::env::current_dir()?;
-	
+
 	// Check if we're in a git repository
 	if !current_dir.join(".git").exists() {
 		return Err(anyhow::anyhow!("❌ Not in a git repository!"));
@@ -37,7 +37,7 @@ pub async fn execute(config: &Config, args: &CommitArgs) -> Result<()> {
 			.output()?;
 
 		if !output.status.success() {
-			return Err(anyhow::anyhow!("Failed to add files: {}", 
+			return Err(anyhow::anyhow!("Failed to add files: {}",
 				String::from_utf8_lossy(&output.stderr)));
 		}
 	}
@@ -49,7 +49,7 @@ pub async fn execute(config: &Config, args: &CommitArgs) -> Result<()> {
 		.output()?;
 
 	if !output.status.success() {
-		return Err(anyhow::anyhow!("Failed to check staged changes: {}", 
+		return Err(anyhow::anyhow!("Failed to check staged changes: {}",
 			String::from_utf8_lossy(&output.stderr)));
 	}
 
@@ -80,10 +80,10 @@ pub async fn execute(config: &Config, args: &CommitArgs) -> Result<()> {
 	if !args.yes {
 		print!("\nProceed with this commit? [y/N] ");
 		io::stdout().flush()?;
-		
+
 		let mut input = String::new();
 		io::stdin().read_line(&mut input)?;
-		
+
 		if !input.trim().to_lowercase().starts_with('y') {
 			println!("❌ Commit cancelled.");
 			return Ok(());
@@ -98,12 +98,12 @@ pub async fn execute(config: &Config, args: &CommitArgs) -> Result<()> {
 		.output()?;
 
 	if !output.status.success() {
-		return Err(anyhow::anyhow!("Failed to commit: {}", 
+		return Err(anyhow::anyhow!("Failed to commit: {}",
 			String::from_utf8_lossy(&output.stderr)));
 	}
 
 	println!("✅ Successfully committed changes!");
-	
+
 	// Show commit info
 	let output = Command::new("git")
 		.args(&["log", "--oneline", "-1"])
@@ -126,12 +126,12 @@ async fn generate_commit_message(repo_path: &std::path::Path, config: &Config) -
 		.output()?;
 
 	if !output.status.success() {
-		return Err(anyhow::anyhow!("Failed to get diff: {}", 
+		return Err(anyhow::anyhow!("Failed to get diff: {}",
 			String::from_utf8_lossy(&output.stderr)));
 	}
 
 	let diff = String::from_utf8(output.stdout)?;
-	
+
 	if diff.trim().is_empty() {
 		return Err(anyhow::anyhow!("No staged changes found"));
 	}
@@ -143,16 +143,18 @@ async fn generate_commit_message(repo_path: &std::path::Path, config: &Config) -
 		Rules:\n\
 		1. Use conventional commit format: type(scope): description\n\
 		2. Types: feat, fix, docs, style, refactor, test, chore\n\
-		3. Keep the description under 50 characters\n\
+		3. Keep the firstline of description under 50 characters\n\
 		4. Focus on WHAT changed, not HOW\n\
 		5. Use imperative mood (\"add\" not \"added\")\n\
-		6. Don't include file names unless critical\n\n\
+		6. Don't include file names unless critical\n\
+		7. Include short list of short details if applicable to current change\n\
+		8.Keep clean and do not overcomplicate\n\n\
 		Git diff:\n\
 		```\n{}\n```\n\n\
 		Generate only the commit message, nothing else:",
-		// Truncate diff if it's too long (keep first 3000 chars)
-		if diff.len() > 3000 {
-			format!("{}...\n[diff truncated for brevity]", &diff[..3000])
+		// Truncate diff if it's too long (keep first 4000 chars)
+		if diff.len() > 4000 {
+			format!("{}...\n[diff truncated for brevity]", &diff[..4000])
 		} else {
 			diff
 		}
@@ -169,7 +171,7 @@ async fn generate_commit_message(repo_path: &std::path::Path, config: &Config) -
 				.unwrap_or("chore: update files")
 				.trim_matches('"') // Remove quotes if present
 				.trim();
-			
+
 			// Validate the message
 			if cleaned.is_empty() {
 				Ok("chore: update files".to_string())
@@ -190,9 +192,9 @@ async fn generate_commit_message(repo_path: &std::path::Path, config: &Config) -
 async fn call_llm_for_commit_message(prompt: &str, config: &Config) -> Result<String> {
 	use reqwest::Client;
 	use serde_json::{json, Value};
-	
+
 	let client = Client::new();
-	
+
 	// Get API key
 	let api_key = if let Some(key) = &config.openrouter.api_key {
 		key.clone()
@@ -230,7 +232,7 @@ async fn call_llm_for_commit_message(prompt: &str, config: &Config) -> Result<St
 	}
 
 	let response_json: Value = response.json().await?;
-	
+
 	let message = response_json
 		.get("choices")
 		.and_then(|choices| choices.get(0))
