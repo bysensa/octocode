@@ -134,6 +134,34 @@ impl PathUtils {
 	}
 }
 
+/// Get file modification time as seconds since Unix epoch
+pub fn get_file_mtime(file_path: &std::path::Path) -> Result<u64> {
+	let metadata = std::fs::metadata(file_path)?;
+	let mtime = metadata.modified()?
+		.duration_since(std::time::UNIX_EPOCH)?
+		.as_secs();
+	Ok(mtime)
+}
+
+/// Check if file should be skipped based on modification time
+async fn should_skip_file(store: &Store, file_path: &str, actual_mtime: u64, force_reindex: bool) -> Result<bool> {
+	// Always process if force reindex
+	if force_reindex {
+		return Ok(false);
+	}
+
+	// Check if we have stored metadata for this file
+	if let Ok(Some(stored_mtime)) = store.get_file_mtime(file_path).await {
+		// Skip if file hasn't been modified
+		if actual_mtime <= stored_mtime {
+			return Ok(true);
+		}
+	}
+
+	// Process the file (either new or modified)
+	Ok(false)
+}
+
 // Detect language based on file extension
 pub fn detect_language(path: &std::path::Path) -> Option<&str> {
 	match path.extension()?.to_str()? {
@@ -1046,8 +1074,23 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 		// Create relative path from the current directory using our utility
 		let file_path = PathUtils::to_relative_string(entry.path(), &current_dir);
 
+		// OPTIMIZATION: Check file modification time to skip unchanged files
+		let force_reindex = state.read().force_reindex;
+		if let Ok(actual_mtime) = get_file_mtime(entry.path()) {
+			if let Ok(should_skip) = should_skip_file(store, &file_path, actual_mtime, force_reindex).await {
+				if should_skip {
+					// File hasn't changed, skip processing entirely
+					state.write().indexed_files += 1;
+					continue;
+				}
+			}
+		}
+
 		if let Some(language) = detect_language(entry.path()) {
 			if let Ok(contents) = fs::read_to_string(entry.path()) {
+				// Store the file modification time after successful processing
+				let file_processed;
+
 				if language == "markdown" {
 					// Handle markdown files specially - index as document blocks
 					process_markdown_file_differential(
@@ -1058,6 +1101,7 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 						config,
 						state.clone()
 					).await?;
+					file_processed = true;
 				} else {
 					// Handle code files - index as semantic code blocks only
 					let ctx = ProcessFileContext {
@@ -1074,6 +1118,14 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 						&mut text_blocks_batch, // Will remain empty for code files
 						&mut all_code_blocks,
 					).await?;
+					file_processed = true;
+				}
+
+				// Store file modification time after successful processing
+				if file_processed {
+					if let Ok(actual_mtime) = get_file_mtime(entry.path()) {
+						let _ = store.store_file_metadata(&file_path, actual_mtime).await;
+					}
 				}
 
 				state.write().indexed_files += 1;
@@ -1111,6 +1163,11 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 							config,
 							state.clone()
 						).await?;
+
+						// Store file modification time after successful processing
+						if let Ok(actual_mtime) = get_file_mtime(entry.path()) {
+							let _ = store.store_file_metadata(&file_path, actual_mtime).await;
+						}
 
 						state.write().indexed_files += 1;
 

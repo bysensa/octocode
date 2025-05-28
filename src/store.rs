@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 // Arrow imports
-use arrow::array::{Array, FixedSizeListArray, Float32Array, StringArray, UInt32Array};
+use arrow::array::{Array, FixedSizeListArray, Float32Array, StringArray, UInt32Array, Int64Array};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 
@@ -1793,6 +1793,90 @@ impl Store {
 
 	pub fn get_code_vector_dim(&self) -> usize {
 		self.code_vector_dim
+	}
+
+	// Store file metadata (modification time, etc.)
+	pub async fn store_file_metadata(&self, file_path: &str, mtime: u64) -> Result<()> {
+		// Check if table exists, create if not
+		let table_names = self.db.table_names().execute().await?;
+		if !table_names.contains(&"file_metadata".to_string()) {
+			self.create_file_metadata_table().await?;
+		}
+
+		let table = self.db.open_table("file_metadata").execute().await?;
+		
+		// Delete existing record for this file path
+		table.delete(&format!("path = '{}'", file_path.replace("'", "''"))).await?;
+		
+		// Create new record batch
+		let schema = Arc::new(Schema::new(vec![
+			Field::new("path", DataType::Utf8, false),
+			Field::new("mtime", DataType::Int64, false),
+			Field::new("indexed_at", DataType::Int64, false),
+		]));
+
+		let batch = RecordBatch::try_new(
+			schema.clone(),
+			vec![
+				Arc::new(StringArray::from(vec![file_path])),
+				Arc::new(Int64Array::from(vec![mtime as i64])),
+				Arc::new(Int64Array::from(vec![std::time::SystemTime::now()
+					.duration_since(std::time::UNIX_EPOCH)
+					.unwrap()
+					.as_secs() as i64])),
+			],
+		)?;
+		
+		// Create an iterator that yields this single batch
+		use std::iter::once;
+		let batches = once(Ok(batch));
+		let batch_reader = arrow::record_batch::RecordBatchIterator::new(batches, schema);
+
+		table.add(batch_reader).execute().await?;
+		Ok(())
+	}
+
+	// Get file modification time from metadata
+	pub async fn get_file_mtime(&self, file_path: &str) -> Result<Option<u64>> {
+		let table_names = self.db.table_names().execute().await?;
+		if !table_names.contains(&"file_metadata".to_string()) {
+			return Ok(None);
+		}
+
+		let table = self.db.open_table("file_metadata").execute().await?;
+		
+		let mut results = table
+			.query()
+			.only_if(format!("path = '{}'", file_path.replace("'", "''")))
+			.select(Select::Columns(vec!["mtime".to_string()]))
+			.limit(1)
+			.execute()
+			.await?;
+
+		while let Some(batch) = results.try_next().await? {
+			if batch.num_rows() > 0 {
+				if let Some(mtime_array) = batch.column_by_name("mtime") {
+					if let Some(int_array) = mtime_array.as_any().downcast_ref::<Int64Array>() {
+						let mtime = int_array.value(0);
+						return Ok(Some(mtime as u64));
+					}
+				}
+			}
+		}
+		
+		Ok(None)
+	}
+
+	// Create file metadata table
+	async fn create_file_metadata_table(&self) -> Result<()> {
+		let schema = Arc::new(Schema::new(vec![
+			Field::new("path", DataType::Utf8, false),
+			Field::new("mtime", DataType::Int64, false),
+			Field::new("indexed_at", DataType::Int64, false),
+		]));
+
+		let _table = self.db.create_empty_table("file_metadata", schema).execute().await?;
+		Ok(())
 	}
 
 	// Debug function to list all files currently in the database
