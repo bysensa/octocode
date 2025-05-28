@@ -50,6 +50,9 @@ enum Commands {
 
 	/// Generate and create git commit with AI assistance
 	Commit(commands::CommitArgs),
+
+	/// Review staged changes for best practices and potential issues
+	Review(commands::ReviewArgs),
 }
 
 #[tokio::main]
@@ -72,6 +75,11 @@ async fn main() -> Result<(), anyhow::Error> {
 	// Handle the Commit command separately (doesn't need store)
 	if let Commands::Commit(commit_args) = &args.command {
 		return commands::commit::execute(&config, commit_args).await;
+	}
+
+	// Handle the Review command separately (doesn't need store)
+	if let Commands::Review(review_args) = &args.command {
+		return commands::review::execute(&config, review_args).await;
 	}
 
 	// Initialize the store
@@ -104,6 +112,7 @@ async fn main() -> Result<(), anyhow::Error> {
 		Commands::Config(_) => unreachable!(), // Already handled above
 		Commands::Mcp(_) => unreachable!(), // Already handled above
 		Commands::Commit(_) => unreachable!(), // Already handled above
+		Commands::Review(_) => unreachable!(), // Already handled above
 	}
 
 	Ok(())

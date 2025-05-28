@@ -35,6 +35,7 @@ Octocode is a smart code indexer and semantic search tool that builds intelligen
 ### **AI-Powered Git Integration**
 - **Smart Commit Messages**: Generate intelligent commit messages using AI
 - **Staged Changes Analysis**: Automatic analysis of your staged changes
+- **Code Review Assistant**: Comprehensive analysis of code changes for best practices and issues
 - **Multiple LLM Support**: Works with any OpenRouter-compatible model
 - **Interactive Workflow**: Review and edit generated messages before committing
 
@@ -80,6 +81,9 @@ octocode search "HTTP request handling"
 # Generate AI commit message
 git add .
 octocode commit
+
+# Review staged changes for issues and best practices
+octocode review
 
 # Enable GraphRAG for relationship building
 echo 'OPENROUTER_API_KEY="your-key-here"' > .env
@@ -474,6 +478,47 @@ octocode commit --all --yes
 # - Add comprehensive test coverage
 ```
 
+### AI-Powered Code Review
+```bash
+# Review staged changes for best practices and issues
+git add .
+octocode review
+
+# Review all changes at once
+octocode review --all
+
+# Focus on specific areas
+octocode review --focus security
+octocode review --focus performance
+octocode review --focus maintainability
+
+# Filter by severity level
+octocode review --severity critical    # Only critical issues
+octocode review --severity high        # Critical and high issues
+octocode review --severity low         # All issues
+
+# Output in JSON for integration with other tools
+octocode review --json
+
+# The review command uses structured output for reliable JSON parsing
+
+# Example output:
+# 📊 Code Review Summary
+# ═══════════════════════════════════════════════
+# 📁 Files reviewed: 3
+# 🔍 Total issues found: 5
+# 🚨 Critical: 1 | ⚠️  High: 2 | 📝 Medium: 2 | 💡 Low: 0
+# 📈 Overall Score: 75/100
+#
+# 🚨 Issues Found
+# ═══════════════════════════════════════════════
+# 🔥 Hardcoded API Key [CRITICAL]
+#    Category: Security
+#    Location: src/api.rs:42-44
+#    Description: API key hardcoded in source code
+#    💡 Suggestion: Move to environment variables or config file
+```
+
 ### Custom Models
 Use any OpenRouter-compatible model:
 
@@ -555,6 +600,7 @@ octocode view "src/**/*.rs" --md > code-signatures.md
 | `octocode config` | Manage configuration | `--show`, `--model`, `--graphrag-enabled` |
 | `octocode mcp` | Start MCP server | `--debug`, `--path` |
 | `octocode commit` | AI-powered git commit | `--all`, `--message`, `--yes` |
+| `octocode review` | AI-powered code review | `--all`, `--focus`, `--severity`, `--json` |
 | `octocode clear` | Clear all data | |
 | `octocode debug` | Debug and troubleshooting | `--list-files` |
 
