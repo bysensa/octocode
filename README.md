@@ -4,7 +4,7 @@
 
 ---
 
-Octocode is a smart code indexer and semantic search tool that builds intelligent knowledge graphs of your codebase. It provides powerful semantic search capabilities across multiple programming languages, creates file-level relationship graphs for better code understanding, and includes an MCP (Model Context Protocol) server for seamless AI integration.
+Octocode is a smart code indexer and semantic search tool that builds intelligent knowledge graphs of your codebase. It provides powerful semantic search capabilities across multiple programming languages, creates file-level relationship graphs for better code understanding, includes an MCP (Model Context Protocol) server for seamless AI integration, and features AI-powered memory management and git commit assistance.
 
 ## 🚀 Key Features
 
@@ -25,12 +25,27 @@ Octocode is a smart code indexer and semantic search tool that builds intelligen
 - **Real-time File Watching**: Automatic reindexing when code changes are detected
 - **Memory System**: Persistent storage for important insights and context
 
+### **Memory Management System**
+- **AI-Powered Memory**: Store and retrieve important insights, decisions, and context
+- **Semantic Memory Search**: Find stored information using natural language queries
+- **Git Integration**: Automatic tagging with commit hashes and file relationships
+- **Memory Types**: Support for code, architecture, bug fixes, features, decisions, and notes
+- **Relationship Tracking**: Automatic discovery of related memories
+
+### **AI-Powered Git Integration**
+- **Smart Commit Messages**: Generate intelligent commit messages using AI
+- **Staged Changes Analysis**: Automatic analysis of your staged changes
+- **Multiple LLM Support**: Works with any OpenRouter-compatible model
+- **Interactive Workflow**: Review and edit generated messages before committing
+
 ### **Advanced Features**
 - **Real-time Watch Mode**: Auto-reindex when files change
 - **Multiple Embedding Providers**: FastEmbed (local), SentenceTransformer (local), Jina AI, Voyage AI, or Google (cloud)
 - **OpenRouter Integration**: Use any LLM model for AI features
 - **Fast Vector Database**: Lance columnar database for efficient storage
 - **Gitignore Respect**: Only indexes files that should be tracked
+- **File Signature Analysis**: Extract and view function/method signatures from code
+- **Debug Tools**: Built-in debugging commands for troubleshooting
 
 ## 📦 Installation
 
@@ -61,6 +76,10 @@ octocode index
 
 # Search your codebase
 octocode search "HTTP request handling"
+
+# Generate AI commit message
+git add .
+octocode commit
 
 # Enable GraphRAG for relationship building
 echo 'OPENROUTER_API_KEY="your-key-here"' > .env
@@ -147,6 +166,10 @@ similarity_threshold = 0.1
 [index]
 chunk_size = 2000
 graphrag_enabled = true
+
+[memory]
+enabled = true
+max_memories = 10000
 ```
 
 ### Supported Embedding Providers
@@ -212,6 +235,11 @@ octocode search "error handling and exceptions"
 
 # Search for specific functions
 octocode search "authentication middleware"
+
+# Search with different modes and thresholds
+octocode search "API endpoints" --mode code --threshold 0.7
+octocode search "documentation" --mode docs --threshold 0.5
+octocode search "configuration files" --mode text --threshold 0.3
 ```
 
 ### Knowledge Graph Operations
@@ -230,6 +258,33 @@ octocode graphrag find-path --source-id "src/auth/mod.rs" --target-id "src/datab
 
 # Get graph overview
 octocode graphrag overview
+```
+
+### Memory Management
+```bash
+# Store important information
+octocode mcp  # Then use memorize tool via AI assistant
+
+# Or use memory through MCP tools:
+# - memorize: Store insights, decisions, and context
+# - remember: Search stored memories
+# - forget: Remove outdated information
+```
+
+### AI-Powered Git Workflow
+```bash
+# Add changes and generate commit message
+git add .
+octocode commit
+
+# Add all changes in one command
+octocode commit --all
+
+# Custom commit message (skips AI generation)
+octocode commit --message "fix: resolve authentication bug"
+
+# Skip confirmation prompt
+octocode commit --all --yes
 ```
 
 ### MCP Server for AI Assistants
@@ -263,8 +318,11 @@ octocode view "src/**/*.rs"
 # Output in JSON format
 octocode view --json
 
-# Output in Markdown format
+# Output in Markdown format (great for AI analysis)
 octocode view --md
+
+# View specific file patterns with markdown output
+octocode view "src/**/*.rs" --md
 ```
 
 ### Real-time Monitoring
@@ -286,6 +344,18 @@ octocode clear
 
 # Reindex everything from scratch
 octocode index --reindex
+
+# Skip git requirements for non-git projects
+octocode index --no-git
+```
+
+### Debug and Troubleshooting
+```bash
+# List all indexed files
+octocode debug --list-files
+
+# Clear all data and start fresh
+octocode clear
 ```
 
 ## 🏗️ Architecture
@@ -299,6 +369,7 @@ octocode index --reindex
 5. **Search Engine**: Semantic similarity with keyword boosting
 6. **MCP Server**: Model Context Protocol server for AI assistant integration
 7. **Memory System**: Persistent storage for insights and contextual information
+8. **Git Integration**: Smart commit message generation and change tracking
 
 ### Knowledge Graph Structure
 
@@ -338,7 +409,7 @@ Octocode includes a built-in Model Context Protocol (MCP) server that provides A
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
-| **search_code** | Semantic code search across the codebase | `query` (string) |
+| **search_code** | Semantic code search across the codebase | `query` (string), `mode` (string: all/code/docs/text) |
 | **search_graphrag** | Relationship-aware search using GraphRAG | `query` (string) |
 | **memorize** | Store important information for future reference | `title` (string), `content` (string), `tags` (array) |
 | **remember** | Retrieve stored information by query | `query` (string) |
@@ -371,8 +442,28 @@ Octocode includes a built-in Model Context Protocol (MCP) server that provides A
 - **Memory Persistence**: Stores insights across sessions
 - **Multi-tool Integration**: Combines search and memory capabilities
 - **Debug Mode**: Enhanced logging for troubleshooting
+- **Git Context**: Memory entries automatically tagged with commit info
 
 ## 🔧 Advanced Usage
+
+### AI-Powered Git Workflow
+```bash
+# Basic usage - analyze staged changes and generate commit message
+git add .
+octocode commit
+
+# Add all changes and commit in one step
+octocode commit --all
+
+# Use custom message (skips AI generation)
+octocode commit --message "feat: add new authentication module"
+
+# Auto-commit without confirmation
+octocode commit --all --yes
+
+# The AI analyzes your staged changes and creates contextual commit messages
+# following conventional commit format with proper scope and description
+```
 
 ### Custom Models
 Use any OpenRouter-compatible model:
@@ -390,6 +481,36 @@ description_model = "openai/gpt-4o"
 relationship_model = "anthropic/claude-3.5-sonnet"' >> .octocode/config.toml
 ```
 
+### Memory Management through MCP
+```bash
+# Start MCP server to access memory tools
+octocode mcp
+
+# Then use through AI assistants:
+# - Store architectural decisions
+# - Remember bug fixes and their solutions
+# - Track feature requirements and implementation notes
+# - Maintain development insights across sessions
+```
+
+### Advanced Search Options
+```bash
+# Search with specific similarity thresholds
+octocode search "error handling" --threshold 0.8  # High precision
+octocode search "API calls" --threshold 0.3       # Broad results
+
+# Search specific content types
+octocode search "database schema" --mode code      # Only code
+octocode search "API documentation" --mode docs    # Only docs
+octocode search "configuration" --mode text        # Only text files
+
+# Expand symbol context
+octocode search "user authentication" --expand     # Include related code
+
+# Output formats for integration
+octocode search "JWT tokens" --json               # JSON output
+octocode search "middleware" --md                 # Markdown output
+```
 ### Batch Operations
 ```bash
 # Clear and rebuild entire index
@@ -406,23 +527,27 @@ octocode index && octocode mcp
 ```bash
 # JSON output for programmatic use
 octocode search "API endpoints" --json
+octocode view "src/**/*.rs" --json
 
 # Markdown for documentation
 octocode graphrag overview --md > project-structure.md
+octocode view "src/**/*.rs" --md > code-signatures.md
 ```
 
 ## 📋 Command Reference
 
 | Command | Description | Key Options |
 |---------|-------------|-------------|
-| `octocode index` | Index the codebase | `--reindex` |
-| `octocode search <query>` | Search code semantically | `--json`, `--expand` |
+| `octocode index` | Index the codebase | `--reindex`, `--no-git` |
+| `octocode search <query>` | Search code semantically | `--json`, `--md`, `--expand`, `--mode`, `--threshold` |
 | `octocode graphrag <operation>` | GraphRAG operations | `--query`, `--node-id`, `--json`, `--md` |
 | `octocode view [files]` | View file signatures | `--json`, `--md` |
-| `octocode watch` | Auto-reindex on changes | `--quiet`, `--debounce` |
+| `octocode watch` | Auto-reindex on changes | `--quiet`, `--debounce`, `--no-git` |
 | `octocode config` | Manage configuration | `--show`, `--model`, `--graphrag-enabled` |
 | `octocode mcp` | Start MCP server | `--debug`, `--path` |
+| `octocode commit` | AI-powered git commit | `--all`, `--message`, `--yes` |
 | `octocode clear` | Clear all data | |
+| `octocode debug` | Debug and troubleshooting | `--list-files` |
 
 ### GraphRAG Operations
 - `search`: Search nodes by semantic query
