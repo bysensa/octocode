@@ -1436,10 +1436,17 @@ impl Store {
 
 				for i in 0..path_array.len() {
 					let path = path_array.value(i).to_string();
-					// For text blocks, extract the base path (remove chunk suffix #N)
-					let base_path = if let Some(hash_pos) = path.find('#') {
-						path[..hash_pos].to_string()
+					// Since text blocks now store clean paths, no need to extract base path
+					// But handle legacy data that might still have chunk suffixes
+					let base_path = if path.contains('#') {
+						// Legacy chunked path - extract base path
+						if let Some(hash_pos) = path.find('#') {
+							path[..hash_pos].to_string()
+						} else {
+							path
+						}
 					} else {
+						// New clean path format
 						path
 					};
 					all_paths.insert(base_path);

@@ -46,6 +46,7 @@ pub struct NoindexWalker;
 
 impl NoindexWalker {
 	/// Creates a WalkBuilder that respects .gitignore and .noindex files
+	/// ENHANCED: Better error handling and debugging for .noindex files
 	pub fn create_walker(current_dir: &Path) -> ignore::WalkBuilder {
 		let mut builder = ignore::WalkBuilder::new(current_dir);
 
@@ -59,28 +60,63 @@ impl NoindexWalker {
 		// Add .noindex support by adding it as an additional ignore file
 		let noindex_path = current_dir.join(".noindex");
 		if noindex_path.exists() {
-			if let Some(e) = builder.add_ignore(&noindex_path) {
-				eprintln!("Warning: Failed to load .noindex file: {}", e);
+			println!("Found .noindex file at: {}", noindex_path.display());
+			match builder.add_ignore(&noindex_path) {
+				Some(e) => {
+					eprintln!("Warning: Failed to load .noindex file: {}", e);
+				},
+				None => {
+					println!("Successfully loaded .noindex file");
+					// Try to read and display the .noindex contents for debugging
+					if let Ok(contents) = std::fs::read_to_string(&noindex_path) {
+						println!("Contents of .noindex file:");
+						for line in contents.lines() {
+							if !line.trim().is_empty() && !line.starts_with('#') {
+								println!("  - {}", line);
+							}
+						}
+					}
+				}
 			}
+		} else {
+			println!("No .noindex file found at: {}", noindex_path.display());
 		}
 
 		builder
 	}
 
 	/// Creates a GitignoreBuilder for checking individual files against both .gitignore and .noindex
+	/// ENHANCED: Better error handling and debugging
 	pub fn create_matcher(current_dir: &Path) -> Result<ignore::gitignore::Gitignore> {
 		let mut builder = ignore::gitignore::GitignoreBuilder::new(current_dir);
 
 		// Add .gitignore files
 		let gitignore_path = current_dir.join(".gitignore");
 		if gitignore_path.exists() {
-			builder.add(&gitignore_path);
+			match builder.add(&gitignore_path) {
+				Some(e) => eprintln!("Warning: Failed to load .gitignore file: {}", e),
+				None => println!("Successfully loaded .gitignore file"),
+			}
 		}
 
 		// Add .noindex file if it exists
 		let noindex_path = current_dir.join(".noindex");
 		if noindex_path.exists() {
-			builder.add(&noindex_path);
+			println!("Loading .noindex file for matcher: {}", noindex_path.display());
+			match builder.add(&noindex_path) {
+				Some(e) => eprintln!("Warning: Failed to load .noindex file for matcher: {}", e),
+				None => {
+					println!("Successfully loaded .noindex file for matcher");
+					if let Ok(contents) = std::fs::read_to_string(&noindex_path) {
+						println!("Matcher will ignore patterns:");
+						for line in contents.lines() {
+							if !line.trim().is_empty() && !line.starts_with('#') {
+								println!("  - {}", line);
+							}
+						}
+					}
+				}
+			}
 		}
 
 		Ok(builder.build()?)
@@ -1776,6 +1812,7 @@ fn chunk_text(content: &str, chunk_size: usize, overlap: usize) -> Vec<String> {
 /// binary files, lock files, and other non-useful content.
 /// Supported extensions: txt, log, xml, html, css, sql, csv, yaml, toml, ini, conf, etc.
 /// Chunk size: 2000 characters with 200 character overlap.
+/// FIXED: Now stores simple path without chunk numbers for better display
 async fn process_text_file(
 	store: &Store,
 	contents: &str,
@@ -1790,6 +1827,7 @@ async fn process_text_file(
 	let chunks = chunk_text(contents, DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP);
 
 	for (chunk_idx, chunk) in chunks.iter().enumerate() {
+		// Use chunk index in hash for uniqueness but keep path clean
 		let chunk_hash = calculate_unique_content_hash(chunk, &format!("{}#{}", file_path, chunk_idx));
 
 		// Skip the check if force_reindex is true
@@ -1802,7 +1840,7 @@ async fn process_text_file(
 			let chunk_line_count = chunk.lines().count();
 
 			text_blocks_batch.push(TextBlock {
-				path: format!("{}#{}", file_path, chunk_idx), // Add chunk index to path for uniqueness
+				path: file_path.to_string(), // Store clean path without chunk number
 				language: "text".to_string(),
 				content: chunk.clone(),
 				start_line: lines_before_chunk,
@@ -1945,6 +1983,7 @@ async fn process_file_differential(
 }
 
 // Differential processing for text files - only updates changed blocks
+// FIXED: Now stores simple path without chunk numbers
 async fn process_text_file_differential(
 	store: &Store,
 	contents: &str,
@@ -1959,20 +1998,8 @@ async fn process_text_file_differential(
 	let existing_hashes = if force_reindex {
 		Vec::new()
 	} else {
-		// Get all text blocks that start with this file path
-		let mut all_existing = store.get_file_blocks_metadata(file_path, "text_blocks").await?;
-
-		// Also get chunked versions (path#N)
-		for i in 0..100 { // Reasonable upper limit for chunks
-			let chunked_path = format!("{}#{}", file_path, i);
-			let chunked_hashes = store.get_file_blocks_metadata(&chunked_path, "text_blocks").await?;
-			if chunked_hashes.is_empty() {
-				break; // No more chunks
-			}
-			all_existing.extend(chunked_hashes);
-		}
-
-		all_existing
+		// Get blocks for this file path (the chunks will have same path now)
+		store.get_file_blocks_metadata(file_path, "text_blocks").await?
 	};
 
 	// Split content into chunks
@@ -1980,6 +2007,7 @@ async fn process_text_file_differential(
 	let mut new_hashes = std::collections::HashSet::new();
 
 	for (chunk_idx, chunk) in chunks.iter().enumerate() {
+		// Use chunk index in hash for uniqueness but keep path clean
 		let chunk_hash = calculate_unique_content_hash(chunk, &format!("{}#{}", file_path, chunk_idx));
 		new_hashes.insert(chunk_hash.clone());
 
@@ -1993,7 +2021,7 @@ async fn process_text_file_differential(
 			let chunk_line_count = chunk.lines().count();
 
 			text_blocks_batch.push(TextBlock {
-				path: format!("{}#{}", file_path, chunk_idx), // Add chunk index to path for uniqueness
+				path: file_path.to_string(), // Store clean path without chunk number
 				language: "text".to_string(),
 				content: chunk.clone(),
 				start_line: lines_before_chunk,
