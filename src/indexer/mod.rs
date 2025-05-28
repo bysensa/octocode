@@ -48,12 +48,12 @@ impl NoindexWalker {
 	/// Creates a WalkBuilder that respects .gitignore and .noindex files
 	pub fn create_walker(current_dir: &Path) -> ignore::WalkBuilder {
 		let mut builder = ignore::WalkBuilder::new(current_dir);
-		
+
 		// Standard git ignore settings
 		builder
 			.hidden(false)       // Don't ignore hidden files (unless in ignore files)
 			.git_ignore(true)    // Respect .gitignore files
-			.git_global(true)    // Respect global git ignore files  
+			.git_global(true)    // Respect global git ignore files
 			.git_exclude(true);  // Respect .git/info/exclude files
 
 		// Add .noindex support by adding it as an additional ignore file
@@ -71,7 +71,7 @@ impl NoindexWalker {
 	pub fn create_matcher(current_dir: &Path) -> Result<ignore::gitignore::Gitignore> {
 		let mut builder = ignore::gitignore::GitignoreBuilder::new(current_dir);
 
-		// Add .gitignore files  
+		// Add .gitignore files
 		let gitignore_path = current_dir.join(".gitignore");
 		if gitignore_path.exists() {
 			builder.add(&gitignore_path);
@@ -108,7 +108,7 @@ impl PathUtils {
 	/// Creates a relative path for display purposes, ensuring it never shows absolute paths
 	pub fn for_display(path: &Path, current_dir: &Path) -> String {
 		let relative = Self::to_relative_string(path, current_dir);
-		
+
 		// If the path starts with '/', it means strip_prefix failed and we got an absolute path
 		// In this case, just show the filename or a sanitized version
 		if relative.starts_with('/') {
@@ -952,29 +952,29 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 			let mut state_guard = state.write();
 			state_guard.status_message = "Checking for deleted files...".to_string();
 		}
-		
+
 		// Get all indexed file paths from the database
 		let indexed_files = store.get_all_indexed_file_paths().await?;
 		println!("Found {} indexed files in database", indexed_files.len());
-		
+
 		// Check which indexed files no longer exist on disk
 		let mut deleted_files = Vec::new();
 		for indexed_file in &indexed_files {
 			// Always treat indexed paths as relative to current directory
 			let absolute_path = current_dir.join(indexed_file);
-			
+
 			if !absolute_path.exists() {
 				deleted_files.push(indexed_file.clone());
 				println!("Detected deleted file: {}", indexed_file);
 			}
 		}
-		
+
 		// Remove blocks for deleted files from ALL tables
 		if !deleted_files.is_empty() {
 			println!("Removing {} deleted files from database...", deleted_files.len());
 			for deleted_file in &deleted_files {
 				println!("Removing all blocks for deleted file: {}", deleted_file);
-				
+
 				// Use the comprehensive removal function which handles all tables
 				match store.remove_blocks_by_path(deleted_file).await {
 					Ok(_) => println!("Successfully removed blocks for: {}", deleted_file),
@@ -984,7 +984,7 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 					}
 				}
 			}
-			
+
 			println!("Finished removing {} deleted files from database", deleted_files.len());
 			// Force flush to ensure deletions are persisted
 			println!("Flushing database to persist deletions...");
@@ -993,7 +993,7 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 		} else {
 			println!("No deleted files detected - database is up to date");
 		}
-		
+
 		{
 			let mut state_guard = state.write();
 			state_guard.status_message = "".to_string();
@@ -1007,7 +1007,7 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 		let mut state_guard = state.write();
 		state_guard.status_message = "Counting files...".to_string();
 	}
-	
+
 	let total_files = count_indexable_files(&current_dir)?;
 
 	{
@@ -1207,7 +1207,7 @@ pub async fn handle_file_change(store: &Store, file_path: &str, config: &Config)
 	if path.exists() {
 		// Get the current directory for proper relative path handling
 		let current_dir = std::env::current_dir()?;
-		
+
 		// Convert relative path to absolute for ignore checking
 		let absolute_path = if path.is_absolute() {
 			path.to_path_buf()
@@ -1229,7 +1229,7 @@ pub async fn handle_file_change(store: &Store, file_path: &str, config: &Config)
 			if let Ok(contents) = fs::read_to_string(&absolute_path) {
 				// Ensure we use relative path for storage
 				let relative_file_path = PathUtils::to_relative_string(&absolute_path, &current_dir);
-				
+
 				if language == "markdown" {
 					// Handle markdown files specially
 					let mut document_blocks_batch = Vec::new();
@@ -1289,7 +1289,7 @@ pub async fn handle_file_change(store: &Store, file_path: &str, config: &Config)
 					if is_text_file(&contents) {
 						// Ensure we use relative path for storage
 						let relative_file_path = PathUtils::to_relative_string(&absolute_path, &current_dir);
-						
+
 						let mut text_blocks_batch = Vec::new();
 						process_text_file(
 							store,
@@ -1912,9 +1912,6 @@ async fn process_file_differential(
 				graphrag_blocks_added += 1;
 			}
 		} else {
-			// Debug: show when blocks are being skipped
-			println!("DEBUG: Skipping existing code block for file {} (hash: {})", file_path, &content_hash[..8]);
-			
 			if ctx.config.graphrag.enabled {
 				// If skipping because block exists, but we need for GraphRAG, fetch from store
 				if let Ok(existing_block) = ctx.store.get_code_block_by_hash(&content_hash).await {
@@ -1964,7 +1961,7 @@ async fn process_text_file_differential(
 	} else {
 		// Get all text blocks that start with this file path
 		let mut all_existing = store.get_file_blocks_metadata(file_path, "text_blocks").await?;
-		
+
 		// Also get chunked versions (path#N)
 		for i in 0..100 { // Reasonable upper limit for chunks
 			let chunked_path = format!("{}#{}", file_path, i);
@@ -1974,7 +1971,7 @@ async fn process_text_file_differential(
 			}
 			all_existing.extend(chunked_hashes);
 		}
-		
+
 		all_existing
 	};
 

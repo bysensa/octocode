@@ -603,9 +603,9 @@ impl Store {
 									"text_blocks" | "document_blocks" => text_vector_dim as i32,
 									_ => continue,
 								};
-								
+
 								if size != &expected_dim {
-									println!("Schema mismatch detected for table '{}': expected dimension {}, found {}. Dropping table for recreation.", 
+									println!("Schema mismatch detected for table '{}': expected dimension {}, found {}. Dropping table for recreation.",
 										table_name, expected_dim, size);
 									drop(table); // Release table handle before dropping
 									if let Err(e) = db.drop_table(table_name).await {
@@ -1192,7 +1192,7 @@ impl Store {
 		// Delete from code_blocks table if it exists
 		if table_names.contains(&"code_blocks".to_string()) {
 			let code_blocks_table = self.db.open_table("code_blocks").execute().await?;
-			
+
 			// First count how many we're going to delete
 			let count_results = code_blocks_table
 				.query()
@@ -1202,9 +1202,9 @@ impl Store {
 				.await?
 				.try_collect::<Vec<_>>()
 				.await?;
-			
+
 			let count = if !count_results.is_empty() { count_results[0].num_rows() } else { 0 };
-			
+
 			// Now delete them
 			match code_blocks_table.delete(&format!("path = '{}'", escaped_path)).await {
 				Ok(_) => {
@@ -1224,7 +1224,7 @@ impl Store {
 		// Delete from text_blocks table if it exists
 		if table_names.contains(&"text_blocks".to_string()) {
 			let text_blocks_table = self.db.open_table("text_blocks").execute().await?;
-			
+
 			// For text blocks, delete exact match first
 			let count_results = text_blocks_table
 				.query()
@@ -1234,9 +1234,9 @@ impl Store {
 				.await?
 				.try_collect::<Vec<_>>()
 				.await?;
-			
+
 			let exact_count = if !count_results.is_empty() { count_results[0].num_rows() } else { 0 };
-			
+
 			match text_blocks_table.delete(&format!("path = '{}'", escaped_path)).await {
 				Ok(_) => {
 					if exact_count > 0 {
@@ -1250,7 +1250,7 @@ impl Store {
 					errors.push(error_msg);
 				}
 			}
-			
+
 			// Also delete chunked versions (path starts with file_path and contains '#')
 			let chunked_count_results = text_blocks_table
 				.query()
@@ -1260,9 +1260,9 @@ impl Store {
 				.await?
 				.try_collect::<Vec<_>>()
 				.await?;
-			
+
 			let chunked_count = if !chunked_count_results.is_empty() { chunked_count_results[0].num_rows() } else { 0 };
-			
+
 			match text_blocks_table.delete(&format!("path LIKE '{}#%'", escaped_path)).await {
 				Ok(_) => {
 					if chunked_count > 0 {
@@ -1281,7 +1281,7 @@ impl Store {
 		// Delete from document_blocks table if it exists
 		if table_names.contains(&"document_blocks".to_string()) {
 			let document_blocks_table = self.db.open_table("document_blocks").execute().await?;
-			
+
 			let count_results = document_blocks_table
 				.query()
 				.only_if(format!("path = '{}'", escaped_path))
@@ -1290,9 +1290,9 @@ impl Store {
 				.await?
 				.try_collect::<Vec<_>>()
 				.await?;
-			
+
 			let count = if !count_results.is_empty() { count_results[0].num_rows() } else { 0 };
-			
+
 			match document_blocks_table.delete(&format!("path = '{}'", escaped_path)).await {
 				Ok(_) => {
 					if count > 0 {
@@ -1321,7 +1321,7 @@ impl Store {
 				eprintln!("  - {}", error);
 			}
 		}
-		
+
 		Ok(())
 	}
 
@@ -1338,13 +1338,13 @@ impl Store {
 		}
 
 		let table = self.db.open_table(table_name).execute().await?;
-		
+
 		// Build a SQL IN clause for the hashes
 		let hash_list = hashes.iter()
 			.map(|h| format!("'{}'", h))
 			.collect::<Vec<_>>()
 			.join(", ");
-		
+
 		table.delete(&format!("hash IN ({})", hash_list)).await?;
 		Ok(())
 	}
@@ -1745,7 +1745,7 @@ impl Store {
 	// Debug function to list all files currently in the database
 	pub async fn debug_list_all_files(&self) -> Result<()> {
 		let table_names = self.db.table_names().execute().await?;
-		
+
 		for table_name in &["code_blocks", "text_blocks", "document_blocks"] {
 			if table_names.contains(&table_name.to_string()) {
 				println!("\n=== Files in {} table ===", table_name);
@@ -1758,34 +1758,36 @@ impl Store {
 					.try_collect::<Vec<_>>()
 				.await?;
 
-				if !results.is_empty() && results[0].num_rows() > 0 {
-					let path_array = results[0].column_by_name("path")
-						.ok_or_else(|| anyhow::anyhow!("Path column not found"))?
-						.as_any()
-						.downcast_ref::<StringArray>()
-						.ok_or_else(|| anyhow::anyhow!("Path column is not a StringArray"))?;
-
+				if !results.is_empty() {
 					let mut unique_paths = std::collections::HashSet::new();
-					for i in 0..path_array.len() {
-						let path = path_array.value(i).to_string();
-						// For text blocks, extract the base path (remove chunk suffix #N)
-						let base_path = if *table_name == "text_blocks" {
-							if let Some(hash_pos) = path.find('#') {
-								path[..hash_pos].to_string()
+
+					// Process all result batches
+					for batch in &results {
+						if batch.num_rows() > 0 {
+							if let Some(column) = batch.column_by_name("path") {
+								if let Some(path_array) = column.as_any().downcast_ref::<StringArray>() {
+									for i in 0..path_array.len() {
+										let path = path_array.value(i).to_string();
+										unique_paths.insert(path);
+									}
+								} else {
+									return Err(anyhow::anyhow!("Path column is not a StringArray"));
+								}
 							} else {
-								path
+								return Err(anyhow::anyhow!("Path column not found"));
 							}
-						} else {
-							path
-						};
-						unique_paths.insert(base_path);
+						}
 					}
 
-					let count = unique_paths.len();
-					for path in unique_paths {
-						println!("  - {}", path);
+					if !unique_paths.is_empty() {
+						let count = unique_paths.len();
+						for path in unique_paths {
+							println!("  - {}", path);
+						}
+						println!("Total unique files: {}", count);
+					} else {
+						println!("  (no files)");
 					}
-					println!("Total unique files: {}", count);
 				} else {
 					println!("  (no files)");
 				}
