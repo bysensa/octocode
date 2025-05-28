@@ -1,10 +1,10 @@
-# Octocode - Intelligent Code Indexergand Graph Builder
+# Octocode - Intelligent Code Indexer and Graph Builder
 
 **© 2025 Muvon Un Limited (Hong Kong)** | Contact: [opensource@muvon.io](mailto:opensource@muvon.io) | Website: [muvon.io](https://muvon.io) | Product: [octocode.muvon.io](https://octocode.muvon.io)
 
 ---
 
-Octocode is a smart code indexer and semantic search tool that builds intelligent knowledge graphs of your codebase. It provides powerful semantic search capabilities across multiple programming languages and creates file-level relationship graphs for better code understanding.
+Octocode is a smart code indexer and semantic search tool that builds intelligent knowledge graphs of your codebase. It provides powerful semantic search capabilities across multiple programming languages, creates file-level relationship graphs for better code understanding, and includes an MCP (Model Context Protocol) server for seamless AI integration.
 
 ## 🚀 Key Features
 
@@ -18,6 +18,12 @@ Octocode is a smart code indexer and semantic search tool that builds intelligen
 - **Import/Export Tracking**: Automatic detection of dependencies between files
 - **Module Hierarchy**: Visualize parent-child and sibling module relationships
 - **AI-Powered Descriptions**: Intelligent summaries of what each file does
+
+### **MCP Server Integration**
+- **Model Context Protocol Server**: Built-in MCP server for seamless AI tool integration
+- **AI Assistant Tools**: `search_code`, `search_graphrag`, `memorize`, `remember`, and `forget` tools
+- **Real-time File Watching**: Automatic reindexing when code changes are detected
+- **Memory System**: Persistent storage for important insights and context
 
 ### **Advanced Features**
 - **Real-time Watch Mode**: Auto-reindex when files change
@@ -65,6 +71,12 @@ octocode index
 
 # Search the knowledge graph
 octocode graphrag search --query "authentication modules"
+
+# Start MCP server for AI assistant integration
+octocode mcp
+
+# Clear index and start fresh
+octocode clear
 ```
 
 ## ⚙️ Configuration
@@ -220,10 +232,33 @@ octocode graphrag find-path --source-id "src/auth/mod.rs" --target-id "src/datab
 octocode graphrag overview
 ```
 
+### MCP Server for AI Assistants
+```bash
+# Start MCP server (default: current directory)
+octocode mcp
+
+# Start with debug logging
+octocode mcp --debug
+
+# Serve a specific directory
+octocode mcp --path /path/to/project
+
+# Use with AI assistants that support MCP (Claude Desktop, etc.)
+# The server provides these tools:
+# - search_code: Semantic code search
+# - search_graphrag: Relationship-aware search  
+# - memorize: Store important information
+# - remember: Retrieve stored information
+# - forget: Remove stored information
+```
+
 ### File Signatures and Structure
 ```bash
 # View code signatures in current directory
 octocode view
+
+# View specific files with glob patterns
+octocode view "src/**/*.rs"
 
 # Output in JSON format
 octocode view --json
@@ -236,6 +271,21 @@ octocode view --md
 ```bash
 # Watch for changes and auto-reindex
 octocode watch
+
+# Watch with custom debounce time
+octocode watch --debounce 5
+
+# Watch in quiet mode
+octocode watch --quiet
+```
+
+### Database Management
+```bash
+# Clear all data and start fresh
+octocode clear
+
+# Reindex everything from scratch
+octocode index --reindex
 ```
 
 ## 🏗️ Architecture
@@ -243,10 +293,12 @@ octocode watch
 ### Core Components
 
 1. **Indexer Engine**: Multi-language code parser using Tree-sitter
-2. **Embedding System**: FastEmbed or Jina AI for semantic vectors
+2. **Embedding System**: FastEmbed, SentenceTransformer, or cloud providers for semantic vectors
 3. **Vector Database**: Lance columnar database for fast similarity search
 4. **GraphRAG Builder**: AI-powered file relationship extraction
 5. **Search Engine**: Semantic similarity with keyword boosting
+6. **MCP Server**: Model Context Protocol server for AI assistant integration
+7. **Memory System**: Persistent storage for insights and contextual information
 
 ### Knowledge Graph Structure
 
@@ -278,6 +330,48 @@ octocode watch
 | **Bash**    | `.sh`, `.bash`       | Function and variable extraction |
 | **Markdown** | `.md`               | Document section indexing |
 
+## 🤖 MCP Server Integration
+
+Octocode includes a built-in Model Context Protocol (MCP) server that provides AI assistants with powerful tools for code analysis and memory management.
+
+### Available MCP Tools
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| **search_code** | Semantic code search across the codebase | `query` (string) |
+| **search_graphrag** | Relationship-aware search using GraphRAG | `query` (string) |
+| **memorize** | Store important information for future reference | `title` (string), `content` (string), `tags` (array) |
+| **remember** | Retrieve stored information by query | `query` (string) |
+| **forget** | Remove stored information | `query` (string), `confirm` (boolean) |
+
+### Setting Up MCP Server
+
+1. **Start the server:**
+   ```bash
+   octocode mcp --path /path/to/your/project
+   ```
+
+2. **Configure in Claude Desktop** (add to config):
+   ```json
+   {
+     "mcpServers": {
+       "octocode": {
+         "command": "octocode",
+         "args": ["mcp", "--path", "/path/to/your/project"]
+       }
+     }
+   }
+   ```
+
+3. **Use with other MCP-compatible AI assistants** by configuring the server endpoint
+
+### Key Features
+
+- **Automatic File Watching**: Reindexes code when files change
+- **Memory Persistence**: Stores insights across sessions
+- **Multi-tool Integration**: Combines search and memory capabilities
+- **Debug Mode**: Enhanced logging for troubleshooting
+
 ## 🔧 Advanced Usage
 
 ### Custom Models
@@ -302,7 +396,10 @@ relationship_model = "anthropic/claude-3.5-sonnet"' >> .octocode/config.toml
 octocode clear && octocode index
 
 # Force reindex all files
-octocode index --force
+octocode index --reindex
+
+# Start MCP server after indexing
+octocode index && octocode mcp
 ```
 
 ### Output Formats
@@ -314,12 +411,33 @@ octocode search "API endpoints" --json
 octocode graphrag overview --md > project-structure.md
 ```
 
+## 📋 Command Reference
+
+| Command | Description | Key Options |
+|---------|-------------|-------------|
+| `octocode index` | Index the codebase | `--reindex` |
+| `octocode search <query>` | Search code semantically | `--json`, `--expand` |
+| `octocode graphrag <operation>` | GraphRAG operations | `--query`, `--node-id`, `--json`, `--md` |
+| `octocode view [files]` | View file signatures | `--json`, `--md` |
+| `octocode watch` | Auto-reindex on changes | `--quiet`, `--debounce` |
+| `octocode config` | Manage configuration | `--show`, `--model`, `--graphrag-enabled` |
+| `octocode mcp` | Start MCP server | `--debug`, `--path` |
+| `octocode clear` | Clear all data | |
+
+### GraphRAG Operations
+- `search`: Search nodes by semantic query
+- `get-node`: Get detailed node information  
+- `get-relationships`: Get node relationships
+- `find-path`: Find paths between nodes
+- `overview`: Get graph structure overview
+
 ## 🔒 Privacy & Security
 
-- **Local-First**: FastEmbed runs entirely offline
+- **Local-First**: FastEmbed and SentenceTransformer run entirely offline
 - **API Security**: OpenRouter/Jina keys stored locally only
 - **No Code Upload**: Only file metadata and descriptions sent to AI APIs
 - **Gitignore Respect**: Never indexes sensitive files like `.env`, `secrets/`
+- **MCP Server Security**: Runs locally, no external network access for search operations
 
 ## 📊 Performance
 
