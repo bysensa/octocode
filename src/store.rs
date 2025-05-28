@@ -55,7 +55,8 @@ pub struct DocumentBlock {
 
 pub struct Store {
 	db: Connection,
-	vector_dim: usize,  // Size of embedding vectors
+	code_vector_dim: usize,  // Size of code embedding vectors
+	text_vector_dim: usize,  // Size of text embedding vectors
 }
 
 // Helper struct for converting between Arrow RecordBatch and our domain models
@@ -560,10 +561,10 @@ impl Store {
 
 		// Get the project database path using the new storage system
 		let index_path = crate::storage::get_project_database_path(&current_dir)?;
-		
+
 		// Ensure the directory exists
 		crate::storage::ensure_project_storage_exists(&current_dir)?;
-		
+
 		// Ensure the database directory exists
 		if !index_path.exists() {
 			std::fs::create_dir_all(&index_path)?;
@@ -575,17 +576,53 @@ impl Store {
 
 		// Load the config to get the embedding provider and model info
 		let config = crate::config::Config::load()?;
-		
-		// Get vector dimension from the code model configuration
-		let (provider, model) = crate::embedding::parse_provider_model(&config.embedding.code_model);
-		let vector_dim = config.embedding.get_vector_dimension(&provider, &model);
+
+		// Get vector dimensions from both code and text model configurations
+		let (code_provider, code_model) = crate::embedding::parse_provider_model(&config.embedding.code_model);
+		let code_vector_dim = config.embedding.get_vector_dimension(&code_provider, &code_model);
+
+		let (text_provider, text_model) = crate::embedding::parse_provider_model(&config.embedding.text_model);
+		let text_vector_dim = config.embedding.get_vector_dimension(&text_provider, &text_model);
 
 		// Connect to LanceDB
 		let db = connect(storage_path).execute().await?;
 
+		// Check if tables exist and if their schema matches the current configuration
+		let table_names = db.table_names().execute().await?;
+
+		// Check for schema mismatches and recreate tables if necessary
+		for table_name in ["code_blocks", "text_blocks", "document_blocks", "graphrag_nodes"] {
+			if table_names.contains(&table_name.to_string()) {
+				if let Ok(table) = db.open_table(table_name).execute().await {
+					if let Ok(schema) = table.schema().await {
+						// Check if embedding field has the right dimension
+						if let Ok(field) = schema.field_with_name("embedding") {
+							if let DataType::FixedSizeList(_, size) = field.data_type() {
+								let expected_dim = match table_name {
+									"code_blocks" | "graphrag_nodes" => code_vector_dim as i32,
+									"text_blocks" | "document_blocks" => text_vector_dim as i32,
+									_ => continue,
+								};
+								
+								if size != &expected_dim {
+									println!("Schema mismatch detected for table '{}': expected dimension {}, found {}. Dropping table for recreation.", 
+										table_name, expected_dim, size);
+									drop(table); // Release table handle before dropping
+									if let Err(e) = db.drop_table(table_name).await {
+										eprintln!("Warning: Failed to drop table {}: {}", table_name, e);
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
 		Ok(Self {
 			db,
-			vector_dim,
+			code_vector_dim,
+			text_vector_dim,
 		})
 	}
 
@@ -609,7 +646,7 @@ impl Store {
 					"embedding",
 					DataType::FixedSizeList(
 						Arc::new(Field::new("item", DataType::Float32, true)),
-						self.vector_dim as i32,
+						self.code_vector_dim as i32,
 					),
 					true,
 				),
@@ -635,7 +672,7 @@ impl Store {
 					"embedding",
 					DataType::FixedSizeList(
 						Arc::new(Field::new("item", DataType::Float32, true)),
-						self.vector_dim as i32,
+						self.text_vector_dim as i32,
 					),
 					true,
 				),
@@ -662,7 +699,7 @@ impl Store {
 					"embedding",
 					DataType::FixedSizeList(
 						Arc::new(Field::new("item", DataType::Float32, true)),
-						self.vector_dim as i32,
+						self.text_vector_dim as i32,
 					),
 					true,
 				),
@@ -688,7 +725,7 @@ impl Store {
 					"embedding",
 					DataType::FixedSizeList(
 						Arc::new(Field::new("item", DataType::Float32, true)),
-						self.vector_dim as i32,
+						self.code_vector_dim as i32,
 					),
 					true,
 				),
@@ -738,14 +775,14 @@ impl Store {
 
 		// Check for dimension mismatches and handle them
 		for (i, embedding) in embeddings.iter().enumerate() {
-			if embedding.len() != self.vector_dim {
-				return Err(anyhow::anyhow!("Embedding at index {} has dimension {} but expected {}",
-					i, embedding.len(), self.vector_dim));
+			if embedding.len() != self.code_vector_dim {
+				return Err(anyhow::anyhow!("Code embedding at index {} has dimension {} but expected {}",
+					i, embedding.len(), self.code_vector_dim));
 			}
 		}
 
 		// Convert blocks to RecordBatch
-		let converter = BatchConverter::new(self.vector_dim);
+		let converter = BatchConverter::new(self.code_vector_dim);
 		let batch = converter.code_block_to_batch(blocks, &embeddings)?;
 
 		// Open or create the table
@@ -778,14 +815,14 @@ impl Store {
 
 		// Check for dimension mismatches and handle them
 		for (i, embedding) in embeddings.iter().enumerate() {
-			if embedding.len() != self.vector_dim {
-				return Err(anyhow::anyhow!("Embedding at index {} has dimension {} but expected {}",
-					i, embedding.len(), self.vector_dim));
+			if embedding.len() != self.text_vector_dim {
+				return Err(anyhow::anyhow!("Text embedding at index {} has dimension {} but expected {}",
+					i, embedding.len(), self.text_vector_dim));
 			}
 		}
 
 		// Convert blocks to RecordBatch
-		let converter = BatchConverter::new(self.vector_dim);
+		let converter = BatchConverter::new(self.text_vector_dim);
 		let batch = converter.text_block_to_batch(blocks, &embeddings)?;
 
 		// Open or create the table
@@ -818,14 +855,14 @@ impl Store {
 
 		// Check for dimension mismatches and handle them
 		for (i, embedding) in embeddings.iter().enumerate() {
-			if embedding.len() != self.vector_dim {
-				return Err(anyhow::anyhow!("Embedding at index {} has dimension {} but expected {}",
-					i, embedding.len(), self.vector_dim));
+			if embedding.len() != self.text_vector_dim {
+				return Err(anyhow::anyhow!("Document embedding at index {} has dimension {} but expected {}",
+					i, embedding.len(), self.text_vector_dim));
 			}
 		}
 
 		// Convert blocks to RecordBatch
-		let converter = BatchConverter::new(self.vector_dim);
+		let converter = BatchConverter::new(self.text_vector_dim);
 		let batch = converter.document_block_to_batch(blocks, &embeddings)?;
 
 		// Open or create the table
@@ -857,9 +894,9 @@ impl Store {
 
 	pub async fn get_code_blocks_with_config(&self, embedding: Vec<f32>, max_results: Option<usize>, similarity_threshold: Option<f32>) -> Result<Vec<CodeBlock>> {
 		// Check embedding dimension
-		if embedding.len() != self.vector_dim {
+		if embedding.len() != self.code_vector_dim {
 			return Err(anyhow::anyhow!("Search embedding has dimension {} but expected {}",
-				embedding.len(), self.vector_dim));
+				embedding.len(), self.code_vector_dim));
 		}
 
 		// Open the table
@@ -910,7 +947,7 @@ impl Store {
 			.collect();
 
 		// Convert results to CodeBlock structs
-		let converter = BatchConverter::new(self.vector_dim);
+		let converter = BatchConverter::new(self.code_vector_dim);
 		let mut code_blocks = converter.batch_to_code_blocks(&results[0], Some(distances))?;
 
 		// Filter by similarity threshold if provided
@@ -943,9 +980,9 @@ impl Store {
 
 	pub async fn get_document_blocks_with_config(&self, embedding: Vec<f32>, max_results: Option<usize>, similarity_threshold: Option<f32>) -> Result<Vec<DocumentBlock>> {
 		// Check embedding dimension
-		if embedding.len() != self.vector_dim {
+		if embedding.len() != self.text_vector_dim {
 			return Err(anyhow::anyhow!("Search embedding has dimension {} but expected {}",
-				embedding.len(), self.vector_dim));
+				embedding.len(), self.text_vector_dim));
 		}
 
 		// Open the table
@@ -996,7 +1033,7 @@ impl Store {
 			.collect();
 
 		// Convert results to DocumentBlock structs
-		let converter = BatchConverter::new(self.vector_dim);
+		let converter = BatchConverter::new(self.text_vector_dim);
 		let mut document_blocks = converter.batch_to_document_blocks(&results[0], Some(distances))?;
 
 		// Filter by similarity threshold if provided
@@ -1029,9 +1066,9 @@ impl Store {
 
 	pub async fn get_text_blocks_with_config(&self, embedding: Vec<f32>, max_results: Option<usize>, similarity_threshold: Option<f32>) -> Result<Vec<TextBlock>> {
 		// Check embedding dimension
-		if embedding.len() != self.vector_dim {
+		if embedding.len() != self.text_vector_dim {
 			return Err(anyhow::anyhow!("Search embedding has dimension {} but expected {}",
-				embedding.len(), self.vector_dim));
+				embedding.len(), self.text_vector_dim));
 		}
 
 		// Open the table
@@ -1082,7 +1119,7 @@ impl Store {
 			.collect();
 
 		// Convert results to TextBlock structs
-		let converter = BatchConverter::new(self.vector_dim);
+		let converter = BatchConverter::new(self.text_vector_dim);
 		let mut text_blocks = converter.batch_to_text_blocks(&results[0], Some(distances))?;
 
 		// Filter by similarity threshold if provided
@@ -1135,7 +1172,7 @@ impl Store {
 		}
 
 		// Convert results to CodeBlock structs
-		let converter = BatchConverter::new(self.vector_dim);
+		let converter = BatchConverter::new(self.code_vector_dim);
 		let code_blocks = converter.batch_to_code_blocks(&results[0], None)?;
 
 		// Return the first (and only) code block
@@ -1196,7 +1233,7 @@ impl Store {
 		}
 
 		// Convert results to CodeBlock structs
-		let converter = BatchConverter::new(self.vector_dim);
+		let converter = BatchConverter::new(self.code_vector_dim);
 		let code_blocks = converter.batch_to_code_blocks(&results[0], None)?;
 
 		// Return the first (and only) code block
@@ -1225,24 +1262,21 @@ impl Store {
 		Ok(())
 	}
 
-	// Clear all tables (remove all records)
+	// Clear all tables (drop tables completely to reset schema)
 	pub async fn clear_all_tables(&self) -> Result<()> {
 		// Get table names
 		let table_names = self.db.table_names().execute().await?;
 
-		// Remove all data from each table
+		// Drop each table completely (this removes both data and schema)
 		for table_name in table_names {
-			let table = self.db.open_table(&table_name).execute().await?;
-			table.delete("TRUE").await?;
-			println!("Cleared table: {}", table_name);
+			if let Err(e) = self.db.drop_table(&table_name).await {
+				eprintln!("Warning: Failed to drop table {}: {}", table_name, e);
+			} else {
+				println!("Dropped table: {}", table_name);
+			}
 		}
 
 		Ok(())
-	}
-
-	// Get the vector dimension of the store
-	pub fn get_vector_dim(&self) -> usize {
-		self.vector_dim
 	}
 
 	// Check if tables exist in the database
@@ -1320,9 +1354,9 @@ impl Store {
 	// Search for graph nodes by vector similarity
 	pub async fn search_graph_nodes(&self, embedding: &[f32], limit: usize) -> Result<RecordBatch> {
 		// Check embedding dimension
-		if embedding.len() != self.vector_dim {
+		if embedding.len() != self.code_vector_dim {
 			return Err(anyhow::anyhow!("Search embedding has dimension {} but expected {}",
-				embedding.len(), self.vector_dim));
+				embedding.len(), self.code_vector_dim));
 		}
 
 		// Open the table
@@ -1344,7 +1378,7 @@ impl Store {
 					"embedding",
 					DataType::FixedSizeList(
 						Arc::new(Field::new("item", DataType::Float32, true)),
-						self.vector_dim as i32,
+						self.code_vector_dim as i32,
 					),
 					true,
 				),
@@ -1383,7 +1417,7 @@ impl Store {
 					"embedding",
 					DataType::FixedSizeList(
 						Arc::new(Field::new("item", DataType::Float32, true)),
-						self.vector_dim as i32,
+						self.code_vector_dim as i32,
 					),
 					true,
 				),
@@ -1435,5 +1469,9 @@ impl Store {
 		}
 
 		Ok(results[0].clone())
+	}
+
+	pub fn get_code_vector_dim(&self) -> usize {
+		self.code_vector_dim
 	}
 }

@@ -38,7 +38,9 @@ pub async fn generate_embeddings_batch(texts: Vec<String>, is_code: bool, config
 	let (provider, model) = parse_provider_model(model_string);
 	
 	let provider_impl = create_embedding_provider_from_parts(&provider, &model)?;
-	provider_impl.generate_embeddings_batch(texts).await
+	let embeddings = provider_impl.generate_embeddings_batch(texts).await?;
+	
+	Ok(embeddings)
 }
 
 /// Calculate a unique hash for content including file path

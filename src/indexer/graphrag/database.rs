@@ -29,7 +29,7 @@ impl<'a> DatabaseOperations<'a> {
 		}
 
 		// Get vector dimension for embedding work
-		let vector_dim = self.store.get_vector_dim();
+		let vector_dim = self.store.get_code_vector_dim();
 
 		// Get all nodes
 		let node_batch = self.store.search_graph_nodes(&vec![0.0; vector_dim], 10000).await?;
@@ -318,7 +318,7 @@ impl<'a> DatabaseOperations<'a> {
 	// Convert nodes to a RecordBatch for database storage with updated schema
 	async fn nodes_to_batch(&self, nodes: &HashMap<String, CodeNode>) -> Result<arrow::record_batch::RecordBatch> {
 		// Get the vector dimension from the store
-		let vector_dim = self.store.get_vector_dim();
+		let vector_dim = self.store.get_code_vector_dim();
 
 		// Create updated schema with new fields
 		let schema = Arc::new(Schema::new(vec![

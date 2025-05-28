@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde_json::{json, Value};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use fastembed::{TextEmbedding, InitOptions, EmbeddingModel};
 
 use super::types::EmbeddingProviderType;
@@ -41,13 +41,26 @@ pub fn create_embedding_provider_from_parts(provider: &EmbeddingProviderType, mo
 
 /// FastEmbed provider implementation for trait
 pub struct FastEmbedProviderImpl {
-	model_name: String,
+	model: Arc<TextEmbedding>,
 }
 
 impl FastEmbedProviderImpl {
-	pub fn new(model: &str) -> Result<Self> {
+	pub fn new(model_name: &str) -> Result<Self> {
+		let model_enum = FastEmbedProvider::map_model_to_fastembed(model_name);
+		
+		// Use system-wide cache for FastEmbed models
+		let cache_dir = crate::storage::get_fastembed_cache_dir()
+			.context("Failed to get FastEmbed cache directory")?;
+
+		let model = TextEmbedding::try_new(
+			InitOptions::new(model_enum)
+				.with_show_download_progress(true)
+				.with_cache_dir(cache_dir),
+		)
+			.context("Failed to initialize FastEmbed model")?;
+
 		Ok(Self {
-			model_name: model.to_string(),
+			model: Arc::new(model),
 		})
 	}
 }
@@ -55,11 +68,33 @@ impl FastEmbedProviderImpl {
 #[async_trait::async_trait]
 impl EmbeddingProvider for FastEmbedProviderImpl {
 	async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>> {
-		FastEmbedProvider::generate_embeddings(text, &self.model_name, false).await
+		let text = text.to_string();
+		let model = self.model.clone();
+
+		let embedding = tokio::task::spawn_blocking(move || -> Result<Vec<f32>> {
+			let embedding = model.embed(vec![text], None)?;
+
+			if embedding.is_empty() {
+				return Err(anyhow::anyhow!("No embeddings were generated"));
+			}
+
+			Ok(embedding[0].clone())
+		}).await??;
+
+		Ok(embedding)
 	}
 
 	async fn generate_embeddings_batch(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>> {
-		FastEmbedProvider::generate_embeddings_batch(texts, &self.model_name, false).await
+		let model = self.model.clone();
+
+		let embeddings = tokio::task::spawn_blocking(move || -> Result<Vec<Vec<f32>>> {
+			let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+			let embeddings = model.embed(text_refs, None)?;
+
+			Ok(embeddings)
+		}).await??;
+
+		Ok(embeddings)
 	}
 }
 
@@ -164,56 +199,7 @@ impl EmbeddingProvider for SentenceTransformerProviderImpl {
 /// FastEmbed provider implementation
 pub struct FastEmbedProvider;
 
-// Create a lazy-loaded FastEmbed embedding model cache
-lazy_static::lazy_static! {
-	static ref CODE_EMBEDDING_MODEL: Arc<Mutex<Option<Arc<TextEmbedding>>>> = Arc::new(Mutex::new(None));
-	static ref TEXT_EMBEDDING_MODEL: Arc<Mutex<Option<Arc<TextEmbedding>>>> = Arc::new(Mutex::new(None));
-}
-
 impl FastEmbedProvider {
-	/// Initialize models on first use
-	fn get_code_embedding_model(model_name: EmbeddingModel) -> Result<Arc<TextEmbedding>> {
-		let mut model_guard = CODE_EMBEDDING_MODEL.lock().unwrap();
-
-		if model_guard.is_none() {
-			// Use system-wide cache for FastEmbed models
-			let cache_dir = crate::storage::get_fastembed_cache_dir()
-				.context("Failed to get FastEmbed cache directory")?;
-
-			let model = TextEmbedding::try_new(
-				InitOptions::new(model_name)
-					.with_show_download_progress(true)
-					.with_cache_dir(cache_dir),
-			)
-				.context("Failed to initialize FastEmbed code model")?;
-
-			*model_guard = Some(Arc::new(model));
-		}
-
-		Ok(model_guard.as_ref().unwrap().clone())
-	}
-
-	fn get_text_embedding_model(model_name: EmbeddingModel) -> Result<Arc<TextEmbedding>> {
-		let mut model_guard = TEXT_EMBEDDING_MODEL.lock().unwrap();
-
-		if model_guard.is_none() {
-			// Use system-wide cache for FastEmbed models
-			let cache_dir = crate::storage::get_fastembed_cache_dir()
-				.context("Failed to get FastEmbed cache directory")?;
-
-			let model = TextEmbedding::try_new(
-				InitOptions::new(model_name)
-					.with_show_download_progress(true)
-					.with_cache_dir(cache_dir),
-			)
-				.context("Failed to initialize FastEmbed text model")?;
-
-			*model_guard = Some(Arc::new(model));
-		}
-
-		Ok(model_guard.as_ref().unwrap().clone())
-	}
-
 	/// Map model name to FastEmbed model enum
 	fn map_model_to_fastembed(model: &str) -> EmbeddingModel {
 		match model {
@@ -248,49 +234,7 @@ impl FastEmbedProvider {
 			"Qdrant/clip-ViT-B-32-text" => EmbeddingModel::ClipVitB32,
 			"jinaai/jina-embeddings-v2-base-code" => EmbeddingModel::JinaEmbeddingsV2BaseCode,
 			_ => panic!("Unsupported embedding model: {}", model),
-			}
-	}
-
-	pub async fn generate_embeddings(contents: &str, model: &str, is_code: bool) -> Result<Vec<f32>> {
-		let contents = contents.to_string();
-		let model_name = Self::map_model_to_fastembed(model);
-
-		let embedding = tokio::task::spawn_blocking(move || -> Result<Vec<f32>> {
-			let model = if is_code {
-				Self::get_code_embedding_model(model_name)?
-			} else {
-				Self::get_text_embedding_model(model_name)?
-			};
-
-			let embedding = model.embed(vec![contents], None)?;
-
-			if embedding.is_empty() {
-				return Err(anyhow::anyhow!("No embeddings were generated"));
-			}
-
-			Ok(embedding[0].clone())
-		}).await??;
-
-		Ok(embedding)
-	}
-
-	pub async fn generate_embeddings_batch(texts: Vec<String>, model: &str, is_code: bool) -> Result<Vec<Vec<f32>>> {
-		let model_name = Self::map_model_to_fastembed(model);
-
-		let embeddings = tokio::task::spawn_blocking(move || -> Result<Vec<Vec<f32>>> {
-			let model = if is_code {
-				Self::get_code_embedding_model(model_name)?
-			} else {
-				Self::get_text_embedding_model(model_name)?
-			};
-
-			let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
-			let embeddings = model.embed(text_refs, None)?;
-
-			Ok(embeddings)
-		}).await??;
-
-		Ok(embeddings)
+		}
 	}
 }
 
