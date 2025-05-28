@@ -1244,7 +1244,6 @@ impl Store {
 			match code_blocks_table.delete(&format!("path = '{}'", escaped_path)).await {
 				Ok(_) => {
 					if count > 0 {
-						println!("Removed {} code blocks for file: {}", count, file_path);
 						total_removed += count;
 					}
 				},
@@ -1276,7 +1275,6 @@ impl Store {
 			match text_blocks_table.delete(&format!("path = '{}'", escaped_path)).await {
 				Ok(_) => {
 					if exact_count > 0 {
-						println!("Removed {} exact text blocks for file: {}", exact_count, file_path);
 						total_removed += exact_count;
 					}
 				},
@@ -1303,7 +1301,6 @@ impl Store {
 			match text_blocks_table.delete(&format!("path LIKE '{}#%'", escaped_path)).await {
 				Ok(_) => {
 					if chunked_count > 0 {
-						println!("Removed {} chunked text blocks for file: {}", chunked_count, file_path);
 						total_removed += chunked_count;
 					}
 				},
@@ -1334,7 +1331,6 @@ impl Store {
 			match document_blocks_table.delete(&format!("path = '{}'", escaped_path)).await {
 				Ok(_) => {
 					if count > 0 {
-						println!("Removed {} document blocks for file: {}", count, file_path);
 						total_removed += count;
 					}
 				},
@@ -1346,17 +1342,18 @@ impl Store {
 			}
 		}
 
-		if total_removed > 0 {
-			println!("Successfully removed {} total blocks for file: {}", total_removed, file_path);
-		} else {
-			println!("No blocks found to remove for file: {}", file_path);
-		}
-
-		// If we had errors, report them but don't fail completely
-		if !errors.is_empty() {
-			eprintln!("Encountered {} errors during deletion for file {}", errors.len(), file_path);
-			for error in &errors {
-				eprintln!("  - {}", error);
+		// Only report if there were significant actions or errors
+		if total_removed > 0 || !errors.is_empty() {
+			if total_removed > 0 {
+				// Only show summary for significant removals
+			}
+			
+			// Always report errors
+			if !errors.is_empty() {
+				eprintln!("Encountered {} errors during deletion for file {}", errors.len(), file_path);
+				for error in &errors {
+					eprintln!("  - {}", error);
+				}
 			}
 		}
 

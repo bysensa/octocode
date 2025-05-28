@@ -2,7 +2,7 @@
 // This would typically go in tests/ directory or within the module
 
 #[cfg(test)]
-mod tests {
+mod embedding_tests {
     use crate::config::Config;
     use crate::embedding::{EmbeddingProviderType, create_embedding_provider_from_parts};
     use crate::embedding::types::{parse_provider_model, EmbeddingConfig};

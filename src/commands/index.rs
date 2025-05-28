@@ -24,13 +24,8 @@ pub async fn execute(store: &Store, config: &Config, args: &IndexArgs) -> Result
 
 	// Set reindex flag in state if requested
 	if args.reindex {
-		println!("Reindex flag set - clearing existing data and forcing reindex of all files");
-		
 		// Clear all existing data before reindexing
-		println!("Clearing all database tables...");
 		store.clear_all_tables().await?;
-		println!("Successfully cleared all tables.");
-		
 		state.write().force_reindex = true;
 	}
 

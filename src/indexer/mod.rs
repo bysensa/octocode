@@ -60,26 +60,14 @@ impl NoindexWalker {
 		// Add .noindex support by adding it as an additional ignore file
 		let noindex_path = current_dir.join(".noindex");
 		if noindex_path.exists() {
-			println!("Found .noindex file at: {}", noindex_path.display());
 			match builder.add_ignore(&noindex_path) {
 				Some(e) => {
 					eprintln!("Warning: Failed to load .noindex file: {}", e);
 				},
 				None => {
-					println!("Successfully loaded .noindex file");
-					// Try to read and display the .noindex contents for debugging
-					if let Ok(contents) = std::fs::read_to_string(&noindex_path) {
-						println!("Contents of .noindex file:");
-						for line in contents.lines() {
-							if !line.trim().is_empty() && !line.starts_with('#') {
-								println!("  - {}", line);
-							}
-						}
-					}
+					// Successfully loaded - no need to be verbose
 				}
 			}
-		} else {
-			println!("No .noindex file found at: {}", noindex_path.display());
 		}
 
 		builder
@@ -93,30 +81,17 @@ impl NoindexWalker {
 		// Add .gitignore files
 		let gitignore_path = current_dir.join(".gitignore");
 		if gitignore_path.exists() {
-			match builder.add(&gitignore_path) {
-				Some(e) => eprintln!("Warning: Failed to load .gitignore file: {}", e),
-				None => println!("Successfully loaded .gitignore file"),
-			}
+			if let Some(e) = builder.add(&gitignore_path) {
+				eprintln!("Warning: Failed to load .gitignore file: {}", e);
+			} // Successfully loaded
 		}
 
 		// Add .noindex file if it exists
 		let noindex_path = current_dir.join(".noindex");
 		if noindex_path.exists() {
-			println!("Loading .noindex file for matcher: {}", noindex_path.display());
-			match builder.add(&noindex_path) {
-				Some(e) => eprintln!("Warning: Failed to load .noindex file for matcher: {}", e),
-				None => {
-					println!("Successfully loaded .noindex file for matcher");
-					if let Ok(contents) = std::fs::read_to_string(&noindex_path) {
-						println!("Matcher will ignore patterns:");
-						for line in contents.lines() {
-							if !line.trim().is_empty() && !line.starts_with('#') {
-								println!("  - {}", line);
-							}
-						}
-					}
-				}
-			}
+			if let Some(e) = builder.add(&noindex_path) {
+				eprintln!("Warning: Failed to load .noindex file for matcher: {}", e);
+			} // Successfully loaded
 		}
 
 		Ok(builder.build()?)
@@ -991,7 +966,6 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 
 		// Get all indexed file paths from the database
 		let indexed_files = store.get_all_indexed_file_paths().await?;
-		println!("Found {} indexed files in database", indexed_files.len());
 
 		// Create ignore matcher to check against .noindex and .gitignore patterns
 		let ignore_matcher = NoindexWalker::create_matcher(&current_dir)?;
@@ -1005,40 +979,30 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 			// Check if file was deleted
 			if !absolute_path.exists() {
 				files_to_remove.push((indexed_file.clone(), "deleted".to_string()));
-				println!("Detected deleted file: {}", indexed_file);
 			} else {
 				// Check if file is now ignored by .noindex or .gitignore patterns
 				let is_ignored = ignore_matcher.matched(&absolute_path, absolute_path.is_dir()).is_ignore();
 				if is_ignored {
 					files_to_remove.push((indexed_file.clone(), "ignored".to_string()));
-					println!("Detected file now ignored by .noindex/.gitignore: {}", indexed_file);
 				}
 			}
 		}
 
 		// Remove blocks for files that were deleted or are now ignored
 		if !files_to_remove.is_empty() {
-			println!("Removing {} files from database (deleted or ignored)...", files_to_remove.len());
-			for (file_to_remove, reason) in &files_to_remove {
-				println!("Removing all blocks for {} file: {}", reason, file_to_remove);
-
+			for (file_to_remove, _reason) in &files_to_remove {
 				// Use the comprehensive removal function which handles all tables
 				match store.remove_blocks_by_path(file_to_remove).await {
-					Ok(_) => println!("Successfully removed blocks for {}: {}", reason, file_to_remove),
+					Ok(_) => {}, // Success - no need to be verbose
 					Err(e) => {
-						eprintln!("ERROR: Failed to remove blocks for {} {}: {}", reason, file_to_remove, e);
+						eprintln!("ERROR: Failed to remove blocks for {}: {}", file_to_remove, e);
 						// Continue with other files even if one fails
 					}
 				}
 			}
 
-			println!("Finished removing {} files from database", files_to_remove.len());
 			// Force flush to ensure deletions are persisted
-			println!("Flushing database to persist deletions...");
 			store.flush().await?;
-			println!("Database flush completed");
-		} else {
-			println!("No deleted or ignored files detected - database is up to date");
 		}
 
 		{
@@ -1046,7 +1010,7 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 			state_guard.status_message = "".to_string();
 		}
 	} else {
-		println!("Force reindex mode - skipping deleted/ignored file cleanup (will clear all tables instead)");
+		// Force reindex mode - skip deleted/ignored file cleanup
 	}
 
 	// First pass: count all files to be processed
@@ -1960,14 +1924,12 @@ async fn process_file_differential(
 				all_code_blocks.push(code_block);
 				graphrag_blocks_added += 1;
 			}
-		} else {
-			if ctx.config.graphrag.enabled {
-				// If skipping because block exists, but we need for GraphRAG, fetch from store
-				if let Ok(existing_block) = ctx.store.get_code_block_by_hash(&content_hash).await {
-					// Add the existing block to the GraphRAG collection
-					all_code_blocks.push(existing_block);
-					graphrag_blocks_added += 1;
-				}
+		} else if ctx.config.graphrag.enabled {
+			// If skipping because block exists, but we need for GraphRAG, fetch from store
+			if let Ok(existing_block) = ctx.store.get_code_block_by_hash(&content_hash).await {
+				// Add the existing block to the GraphRAG collection
+				all_code_blocks.push(existing_block);
+				graphrag_blocks_added += 1;
 			}
 		}
 	}
