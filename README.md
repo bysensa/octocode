@@ -455,14 +455,23 @@ octocode commit
 # Add all changes and commit in one step
 octocode commit --all
 
-# Use custom message (skips AI generation)
-octocode commit --message "feat: add new authentication module"
+# Provide extra context to help AI generate better commit message
+octocode commit --message "Refactoring the authentication system to support OAuth2"
 
 # Auto-commit without confirmation
 octocode commit --all --yes
 
 # The AI analyzes your staged changes and creates contextual commit messages
 # following conventional commit format with proper scope and description
+# For large changes affecting multiple files, it automatically adds detailed bullet points
+
+# Example output for multi-file changes:
+# feat(auth): implement OAuth2 authentication
+# 
+# - Add OAuth2 provider configuration
+# - Implement token validation middleware
+# - Update user model with OAuth2 fields
+# - Add comprehensive test coverage
 ```
 
 ### Custom Models

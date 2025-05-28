@@ -11,7 +11,7 @@ pub struct CommitArgs {
 	#[arg(short, long)]
 	pub all: bool,
 
-	/// Custom commit message (skips LLM generation)
+	/// Additional context to help AI generate better commit message
 	#[arg(short, long)]
 	pub message: Option<String>,
 
@@ -63,13 +63,9 @@ pub async fn execute(config: &Config, args: &CommitArgs) -> Result<()> {
 		println!("  • {}", file);
 	}
 
-	// Generate commit message
-	let commit_message = if let Some(message) = &args.message {
-		message.clone()
-	} else {
-		println!("\n🤖 Generating commit message...");
-		generate_commit_message(&current_dir, config).await?
-	};
+	// Generate commit message using AI (always, but with optional context)
+	println!("\n🤖 Generating commit message...");
+	let commit_message = generate_commit_message(&current_dir, config, args.message.as_deref()).await?;
 
 	println!("\n📝 Generated commit message:");
 	println!("═══════════════════════════════════");
@@ -118,7 +114,7 @@ pub async fn execute(config: &Config, args: &CommitArgs) -> Result<()> {
 	Ok(())
 }
 
-async fn generate_commit_message(repo_path: &std::path::Path, config: &Config) -> Result<String> {
+async fn generate_commit_message(repo_path: &std::path::Path, config: &Config, extra_context: Option<&str>) -> Result<String> {
 	// Get the diff of staged changes
 	let output = Command::new("git")
 		.args(&["diff", "--cached"])
@@ -136,50 +132,96 @@ async fn generate_commit_message(repo_path: &std::path::Path, config: &Config) -
 		return Err(anyhow::anyhow!("No staged changes found"));
 	}
 
-	// Prepare the prompt for the LLM
+	// Get list of changed files with brief stats
+	let stats_output = Command::new("git")
+		.args(&["diff", "--cached", "--stat"])
+		.current_dir(repo_path)
+		.output()?;
+
+	let file_stats = if stats_output.status.success() {
+		String::from_utf8_lossy(&stats_output.stdout).to_string()
+	} else {
+		String::new()
+	};
+
+	// Count files and changes
+	let file_count = diff.matches("diff --git").count();
+	let additions = diff.matches("\n+").count().saturating_sub(diff.matches("\n+++").count());
+	let deletions = diff.matches("\n-").count().saturating_sub(diff.matches("\n---").count());
+
+	// Build the context section
+	let mut context_section = String::new();
+	if let Some(context) = extra_context {
+		context_section = format!("\n\nAdditional context from user:\n{}", context);
+	}
+
+	// Prepare the enhanced prompt for the LLM
 	let prompt = format!(
-		"You are a Git commit message generator. Analyze the following git diff and generate a concise, \
-		descriptive commit message following conventional commit format.\n\n\
+		"You are a Git commit message generator. Analyze the following git diff and generate a well-structured commit message.\n\n\
 		Rules:\n\
 		1. Use conventional commit format: type(scope): description\n\
-		2. Types: feat, fix, docs, style, refactor, test, chore\n\
-		3. Keep the firstline of description under 50 characters\n\
-		4. Focus on WHAT changed, not HOW\n\
+		2. Types: feat, fix, docs, style, refactor, test, chore, perf, ci, build\n\
+		3. Keep the subject line under 50 characters\n\
+		4. Focus on WHAT changed and WHY, not HOW\n\
 		5. Use imperative mood (\"add\" not \"added\")\n\
-		6. Don't include file names unless critical\n\
-		7. Include short list of short details if applicable to current change\n\
-		8.Keep clean and do not overcomplicate\n\n\
+		6. If changes affect multiple files ({} files) or are substantial ({} additions, {} deletions), add a body with bullet points\n\
+		7. Body format (if needed):\n\
+		   - Use blank line after subject\n\
+		   - Start each detail with \"- \" (dash and space)\n\
+		   - Keep details concise (max 1 line each)\n\
+		   - Focus on key changes, not every file\n\
+		8. Don't include file names in subject unless critical\n\
+		9. Be specific about the nature of changes\n\n\
+		File statistics:\n\
+		{}\n\n\
 		Git diff:\n\
-		```\n{}\n```\n\n\
-		Generate only the commit message, nothing else:",
-		// Truncate diff if it's too long (keep first 4000 chars)
-		if diff.len() > 4000 {
-			format!("{}...\n[diff truncated for brevity]", &diff[..4000])
+		```\n{}\n```{}\n\n\
+		Generate the commit message (subject + optional body if warranted):",
+		file_count,
+		additions,
+		deletions,
+		if file_stats.trim().is_empty() { "No stats available" } else { &file_stats },
+		// Truncate diff if it's too long (keep first 6000 chars for better analysis)
+		if diff.len() > 6000 {
+			format!("{}...\n[diff truncated for brevity]", &diff[..6000])
 		} else {
 			diff
-		}
+		},
+		context_section
 	);
 
 	// Call the LLM using existing infrastructure
 	match call_llm_for_commit_message(&prompt, config).await {
 		Ok(message) => {
-			// Clean up the response
+			// Clean up the response but preserve multi-line structure
 			let cleaned = message
 				.trim()
-				.lines()
-				.next() // Take only the first line
-				.unwrap_or("chore: update files")
 				.trim_matches('"') // Remove quotes if present
 				.trim();
 
 			// Validate the message
 			if cleaned.is_empty() {
 				Ok("chore: update files".to_string())
-			} else if cleaned.len() > 72 {
-				// Truncate if too long
-				Ok(format!("{}...", &cleaned[..69]))
 			} else {
-				Ok(cleaned.to_string())
+				// Split into lines and validate subject line length
+				let lines: Vec<&str> = cleaned.lines().collect();
+				if let Some(subject) = lines.first() {
+					let subject = subject.trim();
+					if subject.len() > 72 {
+						// Truncate subject if too long but keep body if present
+						let truncated_subject = format!("{}...", &subject[..69]);
+						if lines.len() > 1 {
+							let body = lines[1..].join("\n");
+							Ok(format!("{}\n{}", truncated_subject, body))
+						} else {
+							Ok(truncated_subject)
+						}
+					} else {
+						Ok(cleaned.to_string())
+					}
+				} else {
+					Ok("chore: update files".to_string())
+				}
 			}
 		},
 		Err(e) => {
@@ -214,7 +256,7 @@ async fn call_llm_for_commit_message(prompt: &str, config: &Config) -> Result<St
 			}
 		],
 		"temperature": 0.1,
-		"max_tokens": 100
+		"max_tokens": 200
 	});
 
 	let response = client
