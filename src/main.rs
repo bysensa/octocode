@@ -47,6 +47,9 @@ enum Commands {
 
 	/// Debug commands for troubleshooting
 	Debug(commands::DebugArgs),
+
+	/// Generate and create git commit with AI assistance
+	Commit(commands::CommitArgs),
 }
 
 #[tokio::main]
@@ -64,6 +67,11 @@ async fn main() -> Result<(), anyhow::Error> {
 	// Handle the MCP command separately (doesn't need store)
 	if let Commands::Mcp(mcp_args) = &args.command {
 		return commands::mcp::run(mcp_args.clone()).await;
+	}
+
+	// Handle the Commit command separately (doesn't need store)
+	if let Commands::Commit(commit_args) = &args.command {
+		return commands::commit::execute(&config, commit_args).await;
 	}
 
 	// Initialize the store
@@ -95,6 +103,7 @@ async fn main() -> Result<(), anyhow::Error> {
 		},
 		Commands::Config(_) => unreachable!(), // Already handled above
 		Commands::Mcp(_) => unreachable!(), // Already handled above
+		Commands::Commit(_) => unreachable!(), // Already handled above
 	}
 
 	Ok(())

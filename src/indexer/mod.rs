@@ -134,6 +134,169 @@ impl PathUtils {
 	}
 }
 
+/// Git utilities for repository management
+pub mod git {
+	use anyhow::Result;
+	use std::process::Command;
+	use std::path::Path;
+
+	/// Check if current directory is a git repository root
+	pub fn is_git_repo_root(path: &Path) -> bool {
+		path.join(".git").exists()
+	}
+
+	/// Find git repository root from current path
+	pub fn find_git_root(start_path: &Path) -> Option<std::path::PathBuf> {
+		let mut current = start_path;
+		loop {
+			if is_git_repo_root(current) {
+				return Some(current.to_path_buf());
+			}
+			
+			if let Some(parent) = current.parent() {
+				current = parent;
+			} else {
+				break;
+			}
+		}
+		None
+	}
+
+	/// Get current git commit hash
+	pub fn get_current_commit_hash(repo_path: &Path) -> Result<String> {
+		let output = Command::new("git")
+			.args(&["rev-parse", "HEAD"])
+			.current_dir(repo_path)
+			.output()?;
+
+		if !output.status.success() {
+			return Err(anyhow::anyhow!("Failed to get git commit hash: {}", 
+				String::from_utf8_lossy(&output.stderr)));
+		}
+
+		Ok(String::from_utf8(output.stdout)?.trim().to_string())
+	}
+
+	/// Get files changed between two commits (including unstaged changes)
+	pub fn get_changed_files_since_commit(repo_path: &Path, since_commit: &str) -> Result<Vec<String>> {
+		let mut changed_files = std::collections::HashSet::new();
+
+		// Get committed changes since the specified commit
+		let output = Command::new("git")
+			.args(&["diff", "--name-only", &format!("{}..HEAD", since_commit)])
+			.current_dir(repo_path)
+			.output()?;
+
+		if output.status.success() {
+			let committed_files = String::from_utf8(output.stdout)?;
+			for file in committed_files.lines() {
+				if !file.trim().is_empty() {
+					changed_files.insert(file.trim().to_string());
+				}
+			}
+		}
+
+		// Get unstaged changes
+		let output = Command::new("git")
+			.args(&["diff", "--name-only"])
+			.current_dir(repo_path)
+			.output()?;
+
+		if output.status.success() {
+			let unstaged_files = String::from_utf8(output.stdout)?;
+			for file in unstaged_files.lines() {
+				if !file.trim().is_empty() {
+					changed_files.insert(file.trim().to_string());
+				}
+			}
+		}
+
+		// Get staged changes
+		let output = Command::new("git")
+			.args(&["diff", "--cached", "--name-only"])
+			.current_dir(repo_path)
+			.output()?;
+
+		if output.status.success() {
+			let staged_files = String::from_utf8(output.stdout)?;
+			for file in staged_files.lines() {
+				if !file.trim().is_empty() {
+					changed_files.insert(file.trim().to_string());
+				}
+			}
+		}
+
+		// Get untracked files
+		let output = Command::new("git")
+			.args(&["ls-files", "--others", "--exclude-standard"])
+			.current_dir(repo_path)
+			.output()?;
+
+		if output.status.success() {
+			let untracked_files = String::from_utf8(output.stdout)?;
+			for file in untracked_files.lines() {
+				if !file.trim().is_empty() {
+					changed_files.insert(file.trim().to_string());
+				}
+			}
+		}
+
+		Ok(changed_files.into_iter().collect())
+	}
+
+	/// Get all changed files (committed + staged + unstaged + untracked)
+	pub fn get_all_changed_files(repo_path: &Path) -> Result<Vec<String>> {
+		let mut changed_files = std::collections::HashSet::new();
+
+		// Get unstaged changes
+		let output = Command::new("git")
+			.args(&["diff", "--name-only"])
+			.current_dir(repo_path)
+			.output()?;
+
+		if output.status.success() {
+			let unstaged_files = String::from_utf8(output.stdout)?;
+			for file in unstaged_files.lines() {
+				if !file.trim().is_empty() {
+					changed_files.insert(file.trim().to_string());
+				}
+			}
+		}
+
+		// Get staged changes
+		let output = Command::new("git")
+			.args(&["diff", "--cached", "--name-only"])
+			.current_dir(repo_path)
+			.output()?;
+
+		if output.status.success() {
+			let staged_files = String::from_utf8(output.stdout)?;
+			for file in staged_files.lines() {
+				if !file.trim().is_empty() {
+					changed_files.insert(file.trim().to_string());
+				}
+			}
+		}
+
+		// Get untracked files
+		let output = Command::new("git")
+			.args(&["ls-files", "--others", "--exclude-standard"])
+			.current_dir(repo_path)
+			.output()?;
+
+		if output.status.success() {
+			let untracked_files = String::from_utf8(output.stdout)?;
+			for file in untracked_files.lines() {
+				if !file.trim().is_empty() {
+					changed_files.insert(file.trim().to_string());
+				}
+			}
+		}
+
+		Ok(changed_files.into_iter().collect())
+	}
+}
+
 /// Get file modification time as seconds since Unix epoch
 pub fn get_file_mtime(file_path: &std::path::Path) -> Result<u64> {
 	let metadata = std::fs::metadata(file_path)?;
@@ -964,8 +1127,8 @@ pub fn render_signatures_json(signatures: &[FileSignature]) -> Result<()> {
 	Ok(())
 }
 
-// Main function to index files
-pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> Result<()> {
+// Main function to index files with optional git optimization
+pub async fn index_files(store: &Store, state: SharedState, config: &Config, git_repo_root: Option<&Path>) -> Result<()> {
 	let current_dir = state.read().current_directory.clone();
 	let mut code_blocks_batch = Vec::new();
 	let mut text_blocks_batch = Vec::new();
@@ -983,6 +1146,72 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 		state_guard.counting_files = true;
 		state_guard.status_message = "Counting files...".to_string();
 	}
+
+	// Get force_reindex flag from state
+	let force_reindex = state.read().force_reindex;
+
+	// Git-based optimization: Get changed files if we have a git repository
+	let git_changed_files = if let Some(git_root) = git_repo_root {
+		if !force_reindex {
+			// Try to get the last indexed commit
+			if let Ok(Some(last_commit)) = store.get_last_commit_hash().await {
+				// Get current commit
+				if let Ok(current_commit) = git::get_current_commit_hash(git_root) {
+					if last_commit != current_commit {
+						// Get files changed since last indexed commit
+						match git::get_changed_files_since_commit(git_root, &last_commit) {
+							Ok(changed_files) => {
+								println!("🚀 Git optimization: Found {} changed files since last commit", changed_files.len());
+								Some(changed_files.into_iter().collect::<std::collections::HashSet<_>>())
+							},
+							Err(e) => {
+								eprintln!("Warning: Could not get git changes, indexing all files: {}", e);
+								None
+							}
+						}
+					} else {
+						// Same commit, only check for uncommitted changes
+						match git::get_all_changed_files(git_root) {
+							Ok(changed_files) => {
+								if changed_files.is_empty() {
+									println!("✅ No changes since last index, skipping");
+									{
+										let mut state_guard = state.write();
+										state_guard.indexing_complete = true;
+									}
+									return Ok(());
+								} else {
+									println!("🚀 Git optimization: Found {} uncommitted changes", changed_files.len());
+									Some(changed_files.into_iter().collect::<std::collections::HashSet<_>>())
+								}
+							},
+							Err(e) => {
+								eprintln!("Warning: Could not get git status, indexing all files: {}", e);
+								None
+							}
+						}
+					}
+				} else {
+					None
+				}
+			} else {
+				// No previous commit stored, get all current changes for baseline
+				match git::get_all_changed_files(git_root) {
+					Ok(changed_files) => {
+						println!("📋 First-time git indexing with {} current changes", changed_files.len());
+						Some(changed_files.into_iter().collect::<std::collections::HashSet<_>>())
+					},
+					Err(_) => None
+				}
+			}
+		} else {
+			// Force reindex, ignore git optimization
+			None
+		}
+	} else {
+		// No git repository, use file-based optimization
+		None
+	};
 
 	// First, check for deleted files and files now ignored by .noindex and remove their blocks from the database
 	let force_reindex = state.read().force_reindex;
@@ -1073,6 +1302,15 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 
 		// Create relative path from the current directory using our utility
 		let file_path = PathUtils::to_relative_string(entry.path(), &current_dir);
+
+		// GIT OPTIMIZATION: Skip files not in the changed set (if git optimization is active)
+		if let Some(ref changed_files) = git_changed_files {
+			if !changed_files.contains(&file_path) {
+				// File not in git changes, skip processing entirely
+				state.write().indexed_files += 1;
+				continue;
+			}
+		}
 
 		// OPTIMIZATION: Check file modification time to skip unchanged files
 		let force_reindex = state.read().force_reindex;
@@ -1222,6 +1460,15 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config) -> 
 		let mut state_guard = state.write();
 		state_guard.indexing_complete = true;
 		state_guard.embedding_calls = embedding_calls;
+	}
+
+	// Store current git commit hash for future optimization
+	if let Some(git_root) = git_repo_root {
+		if let Ok(current_commit) = git::get_current_commit_hash(git_root) {
+			if let Err(e) = store.store_git_metadata(&current_commit).await {
+				eprintln!("Warning: Could not store git metadata: {}", e);
+			}
+		}
 	}
 
 	// Flush the store to ensure all data is persisted

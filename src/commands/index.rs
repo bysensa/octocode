@@ -13,11 +13,43 @@ pub struct IndexArgs {
 	/// Clear all existing data and reindex all files from scratch
 	#[arg(long)]
 	pub reindex: bool,
+
+	/// Skip git repository requirement and git-based optimizations
+	#[arg(long)]
+	pub no_git: bool,
 }
 
 pub async fn execute(store: &Store, config: &Config, args: &IndexArgs) -> Result<(), anyhow::Error> {
 	let current_dir = std::env::current_dir()?;
-	println!("Indexing current directory: {}", current_dir.display());
+	
+	// Git repository validation and optimization
+	let git_repo_root = if !args.no_git && config.index.require_git {
+		// Check if we're in a git repository root
+		if !indexer::git::is_git_repo_root(&current_dir) {
+			return Err(anyhow::anyhow!(
+				"❌ Error: Not in a git repository root!\n\n\
+				This tool requires running from the root of a git repository.\n\
+				Please:\n\
+				1. Navigate to your git repository root (where .git/ folder exists)\n\
+				2. Or use --no-git flag to skip git requirement\n\
+				3. Or set index.require_git = false in your config"
+			));
+		}
+		Some(current_dir.clone())
+	} else if !args.no_git {
+		// Try to find git root (for optimization even if not required)
+		indexer::git::find_git_root(&current_dir)
+	} else {
+		None
+	};
+
+	if let Some(ref git_root) = git_repo_root {
+		println!("✓ Git repository detected: {}", git_root.display());
+	} else if args.no_git {
+		println!("⚠️  Git integration disabled (--no-git flag)");
+	} else {
+		println!("⚠️  No git repository found, using file-based indexing");
+	}
 
 	let state = state::create_shared_state();
 	state.write().current_directory = current_dir;
@@ -32,8 +64,8 @@ pub async fn execute(store: &Store, config: &Config, args: &IndexArgs) -> Result
 	// Spawn the progress display task
 	let progress_handle = tokio::spawn(display_indexing_progress(state.clone()));
 
-	// Start indexing
-	indexer::index_files(store, state.clone(), config).await?;
+	// Start indexing with git optimization
+	indexer::index_files(store, state.clone(), config, git_repo_root.as_deref()).await?;
 
 	// Wait for the progress display to finish
 	let _ = progress_handle.await;

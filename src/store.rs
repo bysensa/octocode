@@ -1795,6 +1795,85 @@ impl Store {
 		self.code_vector_dim
 	}
 
+	// Store git metadata (commit hash, etc.)
+	pub async fn store_git_metadata(&self, commit_hash: &str) -> Result<()> {
+		// Check if table exists, create if not
+		let table_names = self.db.table_names().execute().await?;
+		if !table_names.contains(&"git_metadata".to_string()) {
+			self.create_git_metadata_table().await?;
+		}
+
+		let table = self.db.open_table("git_metadata").execute().await?;
+		
+		// Delete existing records (we only store one)
+		table.delete("TRUE").await?;
+		
+		// Create new record batch
+		let schema = Arc::new(Schema::new(vec![
+			Field::new("commit_hash", DataType::Utf8, false),
+			Field::new("indexed_at", DataType::Int64, false),
+		]));
+
+		let batch = RecordBatch::try_new(
+			schema.clone(),
+			vec![
+				Arc::new(StringArray::from(vec![commit_hash])),
+				Arc::new(Int64Array::from(vec![std::time::SystemTime::now()
+					.duration_since(std::time::UNIX_EPOCH)
+					.unwrap()
+					.as_secs() as i64])),
+			],
+		)?;
+		
+		// Create an iterator that yields this single batch
+		use std::iter::once;
+		let batches = once(Ok(batch));
+		let batch_reader = arrow::record_batch::RecordBatchIterator::new(batches, schema);
+
+		table.add(batch_reader).execute().await?;
+		Ok(())
+	}
+
+	// Get last indexed git commit hash
+	pub async fn get_last_commit_hash(&self) -> Result<Option<String>> {
+		let table_names = self.db.table_names().execute().await?;
+		if !table_names.contains(&"git_metadata".to_string()) {
+			return Ok(None);
+		}
+
+		let table = self.db.open_table("git_metadata").execute().await?;
+		
+		let mut results = table
+			.query()
+			.select(Select::Columns(vec!["commit_hash".to_string()]))
+			.limit(1)
+			.execute()
+			.await?;
+
+		while let Some(batch) = results.try_next().await? {
+			if batch.num_rows() > 0 {
+				if let Some(commit_array) = batch.column_by_name("commit_hash") {
+					if let Some(string_array) = commit_array.as_any().downcast_ref::<StringArray>() {
+						return Ok(Some(string_array.value(0).to_string()));
+					}
+				}
+			}
+		}
+		
+		Ok(None)
+	}
+
+	// Create git metadata table
+	async fn create_git_metadata_table(&self) -> Result<()> {
+		let schema = Arc::new(Schema::new(vec![
+			Field::new("commit_hash", DataType::Utf8, false),
+			Field::new("indexed_at", DataType::Int64, false),
+		]));
+
+		let _table = self.db.create_empty_table("git_metadata", schema).execute().await?;
+		Ok(())
+	}
+
 	// Store file metadata (modification time, etc.)
 	pub async fn store_file_metadata(&self, file_path: &str, mtime: u64) -> Result<()> {
 		// Check if table exists, create if not

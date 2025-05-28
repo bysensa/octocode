@@ -16,6 +16,10 @@ pub struct WatchArgs {
 	/// Change debounce time in seconds
 	#[arg(long, short)]
 	pub debounce: Option<u64>,
+
+	/// Skip git repository requirement and git-based optimizations
+	#[arg(long)]
+	pub no_git: bool,
 }
 
 pub async fn execute(store: &Store, config: &Config, args: &WatchArgs) -> Result<(), anyhow::Error> {
@@ -30,12 +34,20 @@ pub async fn execute(store: &Store, config: &Config, args: &WatchArgs) -> Result
 	// Do initial indexing
 	if !args.quiet {
 		// If not in quiet mode, use the regular indexing with progress display
-		super::index::execute(store, config, &IndexArgs { reindex: false }).await?
+		super::index::execute(store, config, &IndexArgs { reindex: false, no_git: args.no_git }).await?
 	} else {
 		// In quiet mode, just do the indexing without progress display
 		let state = state::create_shared_state();
 		state.write().current_directory = current_dir.clone();
-		indexer::index_files(store, state.clone(), config).await?;
+		
+		// Get git root for optimization
+		let git_repo_root = if !args.no_git {
+			indexer::git::find_git_root(&current_dir)
+		} else {
+			None
+		};
+		
+		indexer::index_files(store, state.clone(), config, git_repo_root.as_deref()).await?;
 	}
 
 	if !args.quiet {
@@ -110,10 +122,15 @@ pub async fn execute(store: &Store, config: &Config, args: &WatchArgs) -> Result
 
 				if !args.quiet {
 					// Use regular indexing with progress in non-quiet mode
-					super::index::execute(store, &config, &IndexArgs { reindex: false }).await?
+					super::index::execute(store, &config, &IndexArgs { reindex: false, no_git: args.no_git }).await?
 				} else {
 					// In quiet mode, just do the indexing without progress display
-					indexer::index_files(store, state.clone(), &config).await?;
+					let git_repo_root = if !args.no_git {
+						indexer::git::find_git_root(&state.read().current_directory)
+					} else {
+						None
+					};
+					indexer::index_files(store, state.clone(), &config, git_repo_root.as_deref()).await?;
 				}
 			},
 			Err(e) => {

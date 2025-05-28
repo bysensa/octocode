@@ -7,6 +7,7 @@ pub mod graphrag;
 pub mod clear;
 pub mod mcp;
 pub mod debug;
+pub mod commit;
 
 // Re-export all the command structs and enums
 pub use index::IndexArgs;
@@ -17,3 +18,4 @@ pub use config::ConfigArgs;
 pub use graphrag::GraphRAGArgs;
 pub use mcp::McpArgs;
 pub use debug::DebugArgs;
+pub use commit::CommitArgs;

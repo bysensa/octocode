@@ -142,8 +142,16 @@ pub struct IndexConfig {
 	#[serde(default = "default_graphrag_enabled")]
 	pub llm_enabled: bool,
 
+	/// Require git repository for indexing (default: true)
+	#[serde(default = "default_require_git")]
+	pub require_git: bool,
+
 	#[serde(default)]
 	pub ignore_patterns: Vec<String>,
+}
+
+fn default_require_git() -> bool {
+	true
 }
 
 impl Default for IndexConfig {
@@ -154,6 +162,7 @@ impl Default for IndexConfig {
 			embeddings_batch_size: default_embeddings_batch_size(),
 			graphrag_enabled: default_graphrag_enabled(),
 			llm_enabled: default_graphrag_enabled(),
+			require_git: default_require_git(),
 			ignore_patterns: vec![
 				".git/".to_string(),
 				"target/".to_string(),
