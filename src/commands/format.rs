@@ -7,23 +7,18 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use anyhow::{anyhow, Context, Result};
 use clap::Args;
-use walkdir::WalkDir;
 
 #[derive(Args)]
 pub struct FormatArgs {
-	/// Apply formatting to files (dry-run by default)
-	#[arg(short, long)]
-	pub apply: bool,
+	/// Show what would be changed without applying (dry-run mode)
+	#[arg(long)]
+	pub dry_run: bool,
 
-	/// Commit changes after formatting with a standard message
+	/// Commit changes after formatting
 	#[arg(short, long)]
 	pub commit: bool,
 
-	/// Custom commit message (only used with --commit)
-	#[arg(short = 'm', long)]
-	pub message: Option<String>,
-
-	/// Specific files to format (default: all source files)
+	/// Specific files to format (default: all git-tracked and unstaged files)
 	pub files: Vec<PathBuf>,
 
 	/// Show verbose output
@@ -47,9 +42,19 @@ pub async fn execute(format_args: &FormatArgs) -> Result<()> {
 	}
 
 	let files_to_format = if format_args.files.is_empty() {
-		find_source_files(&git_root)?
+		get_git_files(&git_root)?
 	} else {
-		format_args.files.clone()
+		// Convert relative paths to absolute and validate they exist
+		format_args.files.iter()
+			.map(|f| {
+				if f.is_absolute() {
+					f.clone()
+				} else {
+					git_root.join(f)
+				}
+			})
+			.filter(|f| f.exists())
+			.collect()
 	};
 
 	if files_to_format.is_empty() {
@@ -57,22 +62,19 @@ pub async fn execute(format_args: &FormatArgs) -> Result<()> {
 		return Ok(());
 	}
 
+	if format_args.verbose {
+		println!("Found {} files to process", files_to_format.len());
+	}
+
 	let mut formatted_files = Vec::new();
 	let mut total_changes = 0;
 
 	for file_path in &files_to_format {
-		if !file_path.exists() {
-			if format_args.verbose {
-				println!("Skipping non-existent file: {}", file_path.display());
-			}
-			continue;
-		}
-
 		if format_args.verbose {
 			println!("Processing: {}", file_path.display());
 		}
 
-		let changes = format_file(file_path, format_args.apply, format_args.verbose)
+		let changes = format_file(file_path, !format_args.dry_run, format_args.verbose)
 			.with_context(|| format!("Failed to format file: {}", file_path.display()))?;
 
 		if changes > 0 {
@@ -86,15 +88,16 @@ pub async fn execute(format_args: &FormatArgs) -> Result<()> {
 		return Ok(());
 	}
 
+	let action = if format_args.dry_run { "would be applied" } else { "applied" };
 	println!(
-		"Formatting complete: {} changes across {} files{}",
+		"Formatting complete: {} changes across {} files ({})",
 		total_changes,
 		formatted_files.len(),
-		if format_args.apply { " (applied)" } else { " (dry-run)" }
+		action
 	);
 
-	if format_args.apply && format_args.commit {
-		commit_changes(&formatted_files, format_args.message.as_deref())?;
+	if !format_args.dry_run && format_args.commit {
+		commit_changes(&formatted_files)?;
 	}
 
 	Ok(())
@@ -118,50 +121,145 @@ fn find_git_root() -> Result<PathBuf> {
 	}
 }
 
-fn find_source_files(root: &Path) -> Result<Vec<PathBuf>> {
+fn get_git_files(git_root: &Path) -> Result<Vec<PathBuf>> {
 	let mut files = Vec::new();
 
-	// Common source file extensions
-	let source_extensions = [
-		"rs", "py", "js", "ts", "go", "java", "cpp", "c", "h", "hpp",
-		"php", "rb", "sh", "bash", "yml", "yaml", "toml", "json",
-		"md", "txt", "html", "css", "scss", "sql"
-	];
+	// Get all tracked files
+	let output = Command::new("git")
+		.args(["ls-files"])
+		.current_dir(git_root)
+		.output()
+		.context("Failed to execute 'git ls-files'")?;
 
-	for entry in WalkDir::new(root)
-		.follow_links(false)
-		.into_iter()
-		.filter_map(|e| e.ok())
-	{
-		let path = entry.path();
+	if !output.status.success() {
+		return Err(anyhow!(
+			"Git ls-files failed: {}",
+			String::from_utf8_lossy(&output.stderr)
+		));
+	}
 
-		// Skip hidden directories and files
-		if path.components().any(|c| {
-			c.as_os_str().to_string_lossy().starts_with('.')
-		}) {
-			continue;
+	let tracked_files = String::from_utf8_lossy(&output.stdout);
+	for line in tracked_files.lines() {
+		if !line.trim().is_empty() {
+			files.push(git_root.join(line.trim()));
 		}
+	}
 
-		// Skip common build/dependency directories
-		if path.components().any(|c| {
-			matches!(c.as_os_str().to_string_lossy().as_ref(),
-				"target" | "node_modules" | "dist" | "build" |
-				"__pycache__" | ".git" | ".svn" | ".hg")
-		}) {
-			continue;
-		}
+	// Get untracked files that are not ignored
+	let output = Command::new("git")
+		.args(["status", "--porcelain", "--untracked-files=all"])
+		.current_dir(git_root)
+		.output()
+		.context("Failed to execute 'git status'")?;
 
-		if path.is_file() {
-			if let Some(extension) = path.extension() {
-				let ext = extension.to_string_lossy().to_lowercase();
-				if source_extensions.contains(&ext.as_str()) {
-					files.push(path.to_path_buf());
+	if !output.status.success() {
+		return Err(anyhow!(
+			"Git status failed: {}",
+			String::from_utf8_lossy(&output.stderr)
+		));
+	}
+
+	let status_output = String::from_utf8_lossy(&output.stdout);
+	for line in status_output.lines() {
+		if line.len() >= 3 {
+			let status = &line[0..2];
+			let file_path = &line[3..];
+
+			// Include untracked files (status starts with ??)
+			if status == "??" {
+				let full_path = git_root.join(file_path.trim());
+				if full_path.exists() && full_path.is_file() {
+					files.push(full_path);
 				}
 			}
 		}
 	}
 
-	Ok(files)
+	// Filter out files that should be ignored (check if git would ignore them)
+	let mut final_files = Vec::new();
+	for file in files {
+		if is_text_file(&file)? {
+			final_files.push(file);
+		}
+	}
+
+	Ok(final_files)
+}
+
+fn is_text_file(file_path: &Path) -> Result<bool> {
+	// Check if git considers this file as text
+	let output = Command::new("git")
+		.args(["check-attr", "--all", &file_path.to_string_lossy()])
+		.output()
+		.context("Failed to execute 'git check-attr'")?;
+
+	if !output.status.success() {
+		// If git check-attr fails, fall back to simple heuristics
+		return Ok(is_likely_text_file(file_path));
+	}
+
+	let attr_output = String::from_utf8_lossy(&output.stdout);
+
+	// Check if file is marked as binary
+	if attr_output.contains("binary: set") || attr_output.contains("binary: true") {
+		return Ok(false);
+	}
+
+	// If no binary attribute, assume it's text if it has a reasonable extension or passes heuristic
+	Ok(is_likely_text_file(file_path))
+}
+
+fn is_likely_text_file(file_path: &Path) -> bool {
+	// Common text file extensions
+	let text_extensions = [
+		"rs", "py", "js", "ts", "jsx", "tsx", "go", "java", "kt", "scala",
+		"cpp", "c", "h", "hpp", "cc", "cxx", "cs", "php", "rb", "pl", "pm",
+		"sh", "bash", "zsh", "fish", "ps1", "bat", "cmd",
+		"html", "htm", "xml", "xhtml", "svg", "css", "scss", "sass", "less",
+		"json", "yaml", "yml", "toml", "ini", "cfg", "conf", "config",
+		"md", "markdown", "rst", "txt", "text", "rtf",
+		"sql", "ddl", "dml", "graphql", "gql",
+		"dockerfile", "makefile", "cmake", "gradle", "maven",
+		"vue", "svelte", "astro", "ejs", "hbs", "mustache",
+		"r", "m", "swift", "dart", "lua", "nim", "zig", "v",
+	];
+
+	if let Some(extension) = file_path.extension() {
+		let ext = extension.to_string_lossy().to_lowercase();
+		if text_extensions.contains(&ext.as_str()) {
+			return true;
+		}
+	}
+
+	// Check filename patterns
+	let filename = file_path.file_name()
+		.map(|n| n.to_string_lossy().to_lowercase())
+		.unwrap_or_default();
+
+	let text_filenames = [
+		"dockerfile", "makefile", "rakefile", "gemfile", "podfile",
+		"license", "readme", "changelog", "authors", "contributors",
+		"copying", "install", "news", "todo", "version",
+		".gitignore", ".gitattributes", ".editorconfig", ".eslintrc",
+		".prettierrc", ".babelrc", ".nvmrc", ".rustfmt.toml",
+	];
+
+	for pattern in &text_filenames {
+		if filename.contains(pattern) {
+			return true;
+		}
+	}
+
+	// If no extension and not a known filename, check if file starts with shebang
+	if file_path.extension().is_none() {
+		if let Ok(content) = fs::read_to_string(file_path) {
+			if content.starts_with("#!") {
+				return true;
+			}
+		}
+	}
+
+	false
 }
 
 fn format_file(
@@ -208,11 +306,8 @@ fn format_file(
 
 	// 2. Handle charset (for now, just ensure UTF-8)
 	if let Some(charset) = properties.get("charset") {
-		if charset == "utf-8" {
-			// Content is already read as UTF-8, so this is mainly a validation
-			if verbose {
-				println!("  - Verified UTF-8 encoding");
-			}
+		if charset == "utf-8" && verbose {
+			println!("  - Verified UTF-8 encoding");
 		}
 	}
 
@@ -385,7 +480,7 @@ fn convert_indentation(
 	}
 }
 
-fn commit_changes(files: &[PathBuf], custom_message: Option<&str>) -> Result<()> {
+fn commit_changes(files: &[PathBuf]) -> Result<()> {
 	// Add files to git
 	for file in files {
 		let output = Command::new("git")
@@ -403,7 +498,7 @@ fn commit_changes(files: &[PathBuf], custom_message: Option<&str>) -> Result<()>
 	}
 
 	// Create commit message
-	let commit_message = custom_message.unwrap_or("Format code according to .editorconfig");
+	let commit_message = "Format code according to .editorconfig";
 
 	// Commit changes
 	let output = Command::new("git")

@@ -67,7 +67,6 @@ tokenizers = "0.20.3"
 hf-hub = { version = "0.3.2", features = ["tokio"] }
 # EditorConfig parsing and formatting
 editorconfig = "1.0.0"
-walkdir = "2.5.0"
 
 [profile.dev]
 opt-level = 1          # Basic optimizations without slowing compilation too much
