@@ -10,10 +10,6 @@ use octocode::indexer;
 
 #[derive(Args, Debug)]
 pub struct IndexArgs {
-	/// Clear all existing data and reindex all files from scratch
-	#[arg(long)]
-	pub reindex: bool,
-
 	/// Skip git repository requirement and git-based optimizations
 	#[arg(long)]
 	pub no_git: bool,
@@ -53,13 +49,6 @@ pub async fn execute(store: &Store, config: &Config, args: &IndexArgs) -> Result
 
 	let state = state::create_shared_state();
 	state.write().current_directory = current_dir;
-
-	// Set reindex flag in state if requested
-	if args.reindex {
-		// Clear all existing data before reindexing
-		store.clear_all_tables().await?;
-		state.write().force_reindex = true;
-	}
 
 	// Spawn the progress display task
 	let progress_handle = tokio::spawn(display_indexing_progress(state.clone()));

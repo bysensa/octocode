@@ -1195,14 +1195,9 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config, git
 					None
 				}
 			} else {
-				// No previous commit stored, get all current changes for baseline
-				match git::get_all_changed_files(git_root) {
-					Ok(changed_files) => {
-						println!("📋 First-time git indexing with {} current changes", changed_files.len());
-						Some(changed_files.into_iter().collect::<std::collections::HashSet<_>>())
-					},
-					Err(_) => None
-				}
+				// No previous commit stored, need to index all files for baseline
+				println!("📋 First-time git indexing: indexing all files");
+				None
 			}
 		} else {
 			// Force reindex, ignore git optimization
@@ -1214,8 +1209,19 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config, git
 	};
 
 	// First, check for deleted files and files now ignored by .noindex and remove their blocks from the database
-	let force_reindex = state.read().force_reindex;
-	if !force_reindex {
+	// Note: Skip cleanup for force reindex or if this appears to be a fresh database
+	let should_cleanup_deleted_files = {
+		let force_reindex = state.read().force_reindex;
+		if force_reindex {
+			false  // Skip cleanup during force reindex
+		} else {
+			// Check if this looks like a fresh database by seeing if we have any indexed files
+			let indexed_files = store.get_all_indexed_file_paths().await.unwrap_or_default();
+			!indexed_files.is_empty()  // Only cleanup if we have existing indexed files
+		}
+	};
+
+	if should_cleanup_deleted_files {
 		{
 			let mut state_guard = state.write();
 			state_guard.status_message = "Checking for deleted and ignored files...".to_string();
@@ -1266,9 +1272,7 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config, git
 			let mut state_guard = state.write();
 			state_guard.status_message = "".to_string();
 		}
-	} else {
-		// Force reindex mode - skip deleted/ignored file cleanup
-	}
+	} // End of deleted files cleanup
 
 	// First pass: count all files to be processed
 	{

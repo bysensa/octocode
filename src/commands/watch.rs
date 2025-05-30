@@ -34,7 +34,7 @@ pub async fn execute(store: &Store, config: &Config, args: &WatchArgs) -> Result
 	// Do initial indexing
 	if !args.quiet {
 		// If not in quiet mode, use the regular indexing with progress display
-		super::index::execute(store, config, &IndexArgs { reindex: false, no_git: args.no_git }).await?
+		super::index::execute(store, config, &IndexArgs { no_git: args.no_git }).await?
 	} else {
 		// In quiet mode, just do the indexing without progress display
 		let state = state::create_shared_state();
@@ -122,7 +122,7 @@ pub async fn execute(store: &Store, config: &Config, args: &WatchArgs) -> Result
 
 				if !args.quiet {
 					// Use regular indexing with progress in non-quiet mode
-					super::index::execute(store, &config, &IndexArgs { reindex: false, no_git: args.no_git }).await?
+					super::index::execute(store, &config, &IndexArgs { no_git: args.no_git }).await?
 				} else {
 					// In quiet mode, just do the indexing without progress display
 					let git_repo_root = if !args.no_git {
