@@ -57,7 +57,7 @@ pub fn execute(args: &ConfigArgs, mut config: Config) -> Result<()> {
 	if args.show {
 		println!("=== Octocode Configuration ===");
 		println!();
-		
+
 		// Show configuration file location
 		if let Ok(config_path) = Config::get_system_config_path() {
 			println!("📄 Configuration file: {}", config_path.display());
@@ -68,7 +68,7 @@ pub fn execute(args: &ConfigArgs, mut config: Config) -> Result<()> {
 			}
 		}
 		println!();
-		
+
 		// LLM Configuration
 		println!("🤖 LLM Configuration:");
 		println!("   Model: {}", config.openrouter.model);
@@ -76,37 +76,37 @@ pub fn execute(args: &ConfigArgs, mut config: Config) -> Result<()> {
 		println!("   Timeout: {}s", config.openrouter.timeout);
 		println!("   API Key: {}", if config.openrouter.api_key.is_some() { "✅ Set" } else { "❌ Not set" });
 		println!();
-		
+
 		// Embedding Configuration
 		println!("🔍 Embedding Configuration:");
 		let active_provider = config.embedding.get_active_provider();
 		println!("   Active provider: {:?} (auto-detected)", active_provider);
 		println!("   Code model: {}", config.embedding.code_model);
 		println!("   Text model: {}", config.embedding.text_model);
-		
+
 		// Show API key status for providers that need them
 		match active_provider {
 			EmbeddingProviderType::Jina => {
-				let api_key_status = if config.embedding.get_api_key(&active_provider).is_some() { 
-					"✅ Set" 
-				} else { 
-					"❌ Not set" 
+				let api_key_status = if config.embedding.get_api_key(&active_provider).is_some() {
+					"✅ Set"
+				} else {
+					"❌ Not set"
 				};
 				println!("   Jina API key: {}", api_key_status);
 			},
 			EmbeddingProviderType::Voyage => {
-				let api_key_status = if config.embedding.get_api_key(&active_provider).is_some() { 
-					"✅ Set" 
-				} else { 
-					"❌ Not set" 
+				let api_key_status = if config.embedding.get_api_key(&active_provider).is_some() {
+					"✅ Set"
+				} else {
+					"❌ Not set"
 				};
 				println!("   Voyage API key: {}", api_key_status);
 			},
 			EmbeddingProviderType::Google => {
-				let api_key_status = if config.embedding.get_api_key(&active_provider).is_some() { 
-					"✅ Set" 
-				} else { 
-					"❌ Not set" 
+				let api_key_status = if config.embedding.get_api_key(&active_provider).is_some() {
+					"✅ Set"
+				} else {
+					"❌ Not set"
 				};
 				println!("   Google API key: {}", api_key_status);
 			},
@@ -116,7 +116,7 @@ pub fn execute(args: &ConfigArgs, mut config: Config) -> Result<()> {
 			}
 		}
 		println!();
-		
+
 		// Indexing Configuration
 		println!("📚 Indexing Configuration:");
 		println!("   Chunk size: {} characters", config.index.chunk_size);
@@ -125,7 +125,7 @@ pub fn execute(args: &ConfigArgs, mut config: Config) -> Result<()> {
 		println!("   GraphRAG: {}", if config.index.graphrag_enabled { "✅ Enabled" } else { "❌ Disabled" });
 		println!("   LLM processing: {}", if config.index.llm_enabled { "✅ Enabled" } else { "❌ Disabled" });
 		println!();
-		
+
 		// Search Configuration
 		println!("🔎 Search Configuration:");
 		println!("   Max results: {}", config.search.max_results);
@@ -136,7 +136,7 @@ pub fn execute(args: &ConfigArgs, mut config: Config) -> Result<()> {
 		println!("   Context lines: {}", config.search.context_lines);
 		println!("   Block max chars: {}", config.search.search_block_max_characters);
 		println!();
-		
+
 		// Storage Locations
 		println!("💾 Storage Locations:");
 		if let Ok(storage_dir) = octocode::storage::get_system_storage_dir() {
@@ -154,7 +154,7 @@ pub fn execute(args: &ConfigArgs, mut config: Config) -> Result<()> {
 				}
 			}
 		}
-		
+
 		// GraphRAG Configuration (if enabled)
 		if config.index.graphrag_enabled {
 			println!();
@@ -162,7 +162,7 @@ pub fn execute(args: &ConfigArgs, mut config: Config) -> Result<()> {
 			println!("   Description model: {}", config.graphrag.description_model);
 			println!("   Relationship model: {}", config.graphrag.relationship_model);
 		}
-		
+
 		return Ok(());
 	}
 

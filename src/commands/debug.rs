@@ -17,6 +17,6 @@ pub async fn execute(store: &Store, _config: &Config, args: &DebugArgs) -> Resul
 		println!("Debug options:");
 		println!("  --list-files    List all files currently indexed in the database");
 	}
-	
+
 	Ok(())
 }

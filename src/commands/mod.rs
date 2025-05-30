@@ -9,6 +9,7 @@ pub mod mcp;
 pub mod debug;
 pub mod commit;
 pub mod review;
+pub mod format;
 
 // Re-export all the command structs and enums
 pub use index::IndexArgs;
@@ -21,3 +22,4 @@ pub use mcp::McpArgs;
 pub use debug::DebugArgs;
 pub use commit::CommitArgs;
 pub use review::ReviewArgs;
+pub use format::FormatArgs;

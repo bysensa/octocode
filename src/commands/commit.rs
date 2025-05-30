@@ -166,10 +166,10 @@ async fn generate_commit_message(repo_path: &std::path::Path, config: &Config, e
 		5. Use imperative mood (\"add\" not \"added\")\n\
 		6. If changes affect multiple files ({} files) or are substantial ({} additions, {} deletions), add a body with bullet points\n\
 		7. Body format (if needed):\n\
-		   - Use blank line after subject\n\
-		   - Start each detail with \"- \" (dash and space)\n\
-		   - Keep details concise (max 1 line each)\n\
-		   - Focus on key changes, not every file\n\
+			- Use blank line after subject\n\
+			- Start each detail with \"- \" (dash and space)\n\
+			- Keep details concise (max 1 line each)\n\
+			- Focus on key changes, not every file\n\
 		8. Don't include file names in subject unless critical\n\
 		9. Be specific about the nature of changes\n\n\
 		File statistics:\n\

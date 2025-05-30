@@ -305,7 +305,7 @@ octocode mcp --path /path/to/project
 # Use with AI assistants that support MCP (Claude Desktop, etc.)
 # The server provides these tools:
 # - search_code: Semantic code search
-# - search_graphrag: Relationship-aware search  
+# - search_graphrag: Relationship-aware search
 # - memorize: Store important information
 # - remember: Retrieve stored information
 # - forget: Remove stored information
@@ -422,21 +422,21 @@ Octocode includes a built-in Model Context Protocol (MCP) server that provides A
 ### Setting Up MCP Server
 
 1. **Start the server:**
-   ```bash
-   octocode mcp --path /path/to/your/project
-   ```
+  ```bash
+  octocode mcp --path /path/to/your/project
+  ```
 
 2. **Configure in Claude Desktop** (add to config):
-   ```json
-   {
-     "mcpServers": {
-       "octocode": {
-         "command": "octocode",
-         "args": ["mcp", "--path", "/path/to/your/project"]
-       }
-     }
-   }
-   ```
+  ```json
+  {
+    "mcpServers": {
+      "octocode": {
+        "command": "octocode",
+        "args": ["mcp", "--path", "/path/to/your/project"]
+      }
+    }
+  }
+  ```
 
 3. **Use with other MCP-compatible AI assistants** by configuring the server endpoint
 
@@ -471,7 +471,7 @@ octocode commit --all --yes
 
 # Example output for multi-file changes:
 # feat(auth): implement OAuth2 authentication
-# 
+#
 # - Add OAuth2 provider configuration
 # - Implement token validation middleware
 # - Update user model with OAuth2 fields
@@ -606,7 +606,7 @@ octocode view "src/**/*.rs" --md > code-signatures.md
 
 ### GraphRAG Operations
 - `search`: Search nodes by semantic query
-- `get-node`: Get detailed node information  
+- `get-node`: Get detailed node information
 - `get-relationships`: Get node relationships
 - `find-path`: Find paths between nodes
 - `overview`: Get graph structure overview

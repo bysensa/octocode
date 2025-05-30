@@ -1204,7 +1204,7 @@ impl Store {
 				// Convert results to CodeBlock structs
 				let converter = BatchConverter::new(self.code_vector_dim);
 				let code_blocks = converter.batch_to_code_blocks(&batch, None)?;
-				
+
 				// Return the first (and only) code block
 				return Ok(code_blocks.into_iter().next());
 			}
@@ -1347,7 +1347,7 @@ impl Store {
 			if total_removed > 0 {
 				// Only show summary for significant removals
 			}
-			
+
 			// Always report errors
 			if !errors.is_empty() {
 				eprintln!("Encountered {} errors during deletion for file {}", errors.len(), file_path);
@@ -1403,7 +1403,7 @@ impl Store {
 			.await?;
 
 		let mut hashes = Vec::new();
-		
+
 		// Process all batches
 		while let Some(batch) = results.try_next().await? {
 			if batch.num_rows() == 0 {
@@ -1804,10 +1804,10 @@ impl Store {
 		}
 
 		let table = self.db.open_table("git_metadata").execute().await?;
-		
+
 		// Delete existing records (we only store one)
 		table.delete("TRUE").await?;
-		
+
 		// Create new record batch
 		let schema = Arc::new(Schema::new(vec![
 			Field::new("commit_hash", DataType::Utf8, false),
@@ -1824,7 +1824,7 @@ impl Store {
 					.as_secs() as i64])),
 			],
 		)?;
-		
+
 		// Create an iterator that yields this single batch
 		use std::iter::once;
 		let batches = once(Ok(batch));
@@ -1842,7 +1842,7 @@ impl Store {
 		}
 
 		let table = self.db.open_table("git_metadata").execute().await?;
-		
+
 		let mut results = table
 			.query()
 			.select(Select::Columns(vec!["commit_hash".to_string()]))
@@ -1859,7 +1859,7 @@ impl Store {
 				}
 			}
 		}
-		
+
 		Ok(None)
 	}
 
@@ -1883,10 +1883,10 @@ impl Store {
 		}
 
 		let table = self.db.open_table("file_metadata").execute().await?;
-		
+
 		// Delete existing record for this file path
 		table.delete(&format!("path = '{}'", file_path.replace("'", "''"))).await?;
-		
+
 		// Create new record batch
 		let schema = Arc::new(Schema::new(vec![
 			Field::new("path", DataType::Utf8, false),
@@ -1905,7 +1905,7 @@ impl Store {
 					.as_secs() as i64])),
 			],
 		)?;
-		
+
 		// Create an iterator that yields this single batch
 		use std::iter::once;
 		let batches = once(Ok(batch));
@@ -1923,7 +1923,7 @@ impl Store {
 		}
 
 		let table = self.db.open_table("file_metadata").execute().await?;
-		
+
 		let mut results = table
 			.query()
 			.only_if(format!("path = '{}'", file_path.replace("'", "''")))
@@ -1942,7 +1942,7 @@ impl Store {
 				}
 			}
 		}
-		
+
 		Ok(None)
 	}
 

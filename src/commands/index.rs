@@ -17,7 +17,7 @@ pub struct IndexArgs {
 
 pub async fn execute(store: &Store, config: &Config, args: &IndexArgs) -> Result<(), anyhow::Error> {
 	let current_dir = std::env::current_dir()?;
-	
+
 	// Git repository validation and optimization
 	let git_repo_root = if !args.no_git && config.index.require_git {
 		// Check if we're in a git repository root

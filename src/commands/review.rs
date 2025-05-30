@@ -232,7 +232,7 @@ async fn perform_code_review(repo_path: &std::path::Path, config: &Config, args:
 
 fn analyze_file_types(files: &[String]) -> String {
 	let mut type_counts: HashMap<String, usize> = HashMap::new();
-	
+
 	for file in files {
 		if let Some(ext) = std::path::Path::new(file).extension() {
 			if let Some(ext_str) = ext.to_str() {
@@ -240,7 +240,7 @@ fn analyze_file_types(files: &[String]) -> String {
 			}
 		}
 	}
-	
+
 	type_counts.iter()
 		.map(|(ext, count)| format!("{}: {}", ext, count))
 		.collect::<Vec<_>>()
@@ -284,7 +284,7 @@ fn display_review_results(review: &ReviewResult, severity_filter: &str) {
 	if !filtered_issues.is_empty() {
 		println!("\n🚨 Issues Found");
 		println!("═══════════════════════════════════════════════");
-		
+
 		for issue in filtered_issues {
 			let severity_emoji = match issue.severity.as_str() {
 				"CRITICAL" => "🔥",
@@ -293,7 +293,7 @@ fn display_review_results(review: &ReviewResult, severity_filter: &str) {
 				"LOW" => "💡",
 				_ => "❓",
 			};
-			
+
 			println!("\n{} {} [{}]", severity_emoji, issue.title, issue.severity);
 			println!("   Category: {}", issue.category);
 			println!("   Description: {}", issue.description);

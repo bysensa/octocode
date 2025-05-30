@@ -53,6 +53,9 @@ enum Commands {
 
 	/// Review staged changes for best practices and potential issues
 	Review(commands::ReviewArgs),
+
+	/// Format code according to .editorconfig rules
+	Format(commands::FormatArgs),
 }
 
 #[tokio::main]
@@ -80,6 +83,11 @@ async fn main() -> Result<(), anyhow::Error> {
 	// Handle the Review command separately (doesn't need store)
 	if let Commands::Review(review_args) = &args.command {
 		return commands::review::execute(&config, review_args).await;
+	}
+
+	// Handle the Format command separately (doesn't need store)
+	if let Commands::Format(format_args) = &args.command {
+		return commands::format::execute(format_args).await;
 	}
 
 	// Initialize the store
@@ -113,6 +121,7 @@ async fn main() -> Result<(), anyhow::Error> {
 		Commands::Mcp(_) => unreachable!(), // Already handled above
 		Commands::Commit(_) => unreachable!(), // Already handled above
 		Commands::Review(_) => unreachable!(), // Already handled above
+		Commands::Format(_) => unreachable!(), // Already handled above
 	}
 
 	Ok(())

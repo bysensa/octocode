@@ -36,7 +36,7 @@ pub struct SearchArgs {
 
 pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Result<(), anyhow::Error> {
 	let current_dir = std::env::current_dir()?;
-	
+
 	// Use the new storage system to check for index
 	let index_path = storage::get_project_database_path(&current_dir)?;
 
@@ -75,7 +75,7 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 			// If different, generate separate embeddings; if same, use one set
 			let code_model = &config.embedding.code_model;
 			let text_model = &config.embedding.text_model;
-			
+
 			if code_model == text_model {
 				// Same model for both - generate once and reuse
 				let embeddings = embedding::generate_embeddings(&args.query, true, config).await?;

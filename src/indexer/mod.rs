@@ -152,7 +152,7 @@ pub mod git {
 			if is_git_repo_root(current) {
 				return Some(current.to_path_buf());
 			}
-			
+
 			if let Some(parent) = current.parent() {
 				current = parent;
 			} else {
@@ -170,7 +170,7 @@ pub mod git {
 			.output()?;
 
 		if !output.status.success() {
-			return Err(anyhow::anyhow!("Failed to get git commit hash: {}", 
+			return Err(anyhow::anyhow!("Failed to get git commit hash: {}",
 				String::from_utf8_lossy(&output.stderr)));
 		}
 

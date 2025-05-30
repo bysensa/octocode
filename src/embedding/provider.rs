@@ -47,7 +47,7 @@ pub struct FastEmbedProviderImpl {
 impl FastEmbedProviderImpl {
 	pub fn new(model_name: &str) -> Result<Self> {
 		let model_enum = FastEmbedProvider::map_model_to_fastembed(model_name);
-		
+
 		// Use system-wide cache for FastEmbed models
 		let cache_dir = crate::storage::get_fastembed_cache_dir()
 			.context("Failed to get FastEmbed cache directory")?;

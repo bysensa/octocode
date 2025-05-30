@@ -39,14 +39,14 @@ pub async fn execute(store: &Store, config: &Config, args: &WatchArgs) -> Result
 		// In quiet mode, just do the indexing without progress display
 		let state = state::create_shared_state();
 		state.write().current_directory = current_dir.clone();
-		
+
 		// Get git root for optimization
 		let git_repo_root = if !args.no_git {
 			indexer::git::find_git_root(&current_dir)
 		} else {
 			None
 		};
-		
+
 		indexer::index_files(store, state.clone(), config, git_repo_root.as_deref()).await?;
 	}
 

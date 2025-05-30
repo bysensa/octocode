@@ -12,15 +12,15 @@ pub use provider::*;
 /// Generate embeddings based on configured provider (supports provider:model format)
 pub async fn generate_embeddings(contents: &str, is_code: bool, config: &Config) -> Result<Vec<f32>> {
 	// Get the model string from config
-	let model_string = if is_code { 
-		&config.embedding.code_model 
-	} else { 
-		&config.embedding.text_model 
+	let model_string = if is_code {
+		&config.embedding.code_model
+	} else {
+		&config.embedding.text_model
 	};
 
 	// Parse provider and model from the string
 	let (provider, model) = parse_provider_model(model_string);
-	
+
 	let provider_impl = create_embedding_provider_from_parts(&provider, &model)?;
 	provider_impl.generate_embedding(contents).await
 }
@@ -28,18 +28,18 @@ pub async fn generate_embeddings(contents: &str, is_code: bool, config: &Config)
 /// Generate batch embeddings based on configured provider (supports provider:model format)
 pub async fn generate_embeddings_batch(texts: Vec<String>, is_code: bool, config: &Config) -> Result<Vec<Vec<f32>>> {
 	// Get the model string from config
-	let model_string = if is_code { 
-		&config.embedding.code_model 
-	} else { 
-		&config.embedding.text_model 
+	let model_string = if is_code {
+		&config.embedding.code_model
+	} else {
+		&config.embedding.text_model
 	};
 
 	// Parse provider and model from the string
 	let (provider, model) = parse_provider_model(model_string);
-	
+
 	let provider_impl = create_embedding_provider_from_parts(&provider, &model)?;
 	let embeddings = provider_impl.generate_embeddings_batch(texts).await?;
-	
+
 	Ok(embeddings)
 }
 
