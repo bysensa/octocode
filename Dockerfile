@@ -4,9 +4,9 @@ FROM rust:1.75-slim as builder
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    pkg-config \
-    libssl-dev \
-    && rm -rf /var/lib/apt/lists/*
+		pkg-config \
+		libssl-dev \
+		&& rm -rf /var/lib/apt/lists/*
 
 # Create app directory
 WORKDIR /app
@@ -25,9 +25,9 @@ FROM debian:bookworm-slim
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && update-ca-certificates
+		ca-certificates \
+		&& rm -rf /var/lib/apt/lists/* \
+		&& update-ca-certificates
 
 # Create a non-root user
 RUN groupadd -r octocode && useradd -r -g octocode octocode
@@ -49,7 +49,7 @@ USER octocode
 
 # Health check (customize based on your application)
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD octocode --help || exit 1
+		CMD octocode --help || exit 1
 
 # Set the entrypoint
 ENTRYPOINT ["octocode"]
