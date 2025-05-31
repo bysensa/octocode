@@ -5,8 +5,11 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
 use anyhow::{anyhow, Context, Result};
 use clap::Args;
+use ec4rs::{properties_of, Properties};
+use ec4rs::property::{EndOfLine, IndentStyle, TabWidth, IndentSize};
 
 #[derive(Args)]
 pub struct FormatArgs {
@@ -270,159 +273,128 @@ fn format_file(
 	let content = fs::read_to_string(file_path)
 		.with_context(|| format!("Failed to read file: {}", file_path.display()))?;
 
-	// Get EditorConfig properties for this file
-	let properties = editorconfig::get_config(file_path)
+	// Get EditorConfig properties for this specific file
+	let properties = properties_of(file_path)
 		.map_err(|e| anyhow!("Failed to get editorconfig properties for {}: {}", file_path.display(), e))?;
 
-	let mut new_content = content.clone();
+	if verbose {
+		println!("  EditorConfig properties for {}:", file_path.display());
+
+		// Display parsed properties
+		if let Ok(charset) = properties.get::<ec4rs::property::Charset>() {
+			println!("    charset: {}", charset);
+		}
+		if let Ok(end_of_line) = properties.get::<EndOfLine>() {
+			println!("    end_of_line: {:?}", end_of_line);
+		}
+		if let Ok(indent_style) = properties.get::<IndentStyle>() {
+			println!("    indent_style: {:?}", indent_style);
+		}
+		if let Ok(indent_size) = properties.get::<IndentSize>() {
+			println!("    indent_size: {:?}", indent_size);
+		}
+		if let Ok(tab_width) = properties.get::<TabWidth>() {
+			println!("    tab_width: {:?}", tab_width);
+		}
+		if let Ok(insert_final_newline) = properties.get::<ec4rs::property::FinalNewline>() {
+			println!("    insert_final_newline: {}", insert_final_newline);
+		}
+		if let Ok(trim_trailing_whitespace) = properties.get::<ec4rs::property::TrimTrailingWs>() {
+			println!("    trim_trailing_whitespace: {}", trim_trailing_whitespace);
+		}
+		if let Ok(max_line_length) = properties.get::<ec4rs::property::MaxLineLen>() {
+			println!("    max_line_length: {:?}", max_line_length);
+		}
+	}
+
 	let mut changes = 0;
+	let mut new_content = content.clone();
 
-	// Apply EditorConfig rules
+	// Apply EditorConfig rules in the correct order
 
-	// 1. Handle line endings
-	if let Some(end_of_line) = properties.get("end_of_line") {
-		let target_ending = match end_of_line.as_str() {
-			"lf" => "\n",
-			"crlf" => "\r\n",
-			"cr" => "\r",
-			_ => "\n", // default
+	// 1. Handle line endings first
+	if let Ok(line_ending) = properties.get::<EndOfLine>() {
+		let target_ending = match line_ending {
+			EndOfLine::Lf => "\n",
+			EndOfLine::CrLf => "\r\n",
+			EndOfLine::Cr => "\r",
 		};
 
 		// Normalize all line endings to \n first, then apply target
 		let normalized = new_content.replace("\r\n", "\n").replace('\r', "\n");
-		if target_ending != "\n" {
-			new_content = normalized.replace('\n', target_ending);
+		let with_target_endings = if target_ending != "\n" {
+			normalized.replace('\n', target_ending)
 		} else {
-			new_content = normalized;
-		}
+			normalized
+		};
 
-		if new_content != content {
+		if with_target_endings != new_content {
+			new_content = with_target_endings;
 			changes += 1;
 			if verbose {
-				println!("  - Fixed line endings");
+				println!("  - Fixed line endings to {:?}", line_ending);
 			}
 		}
 	}
 
-	// 2. Handle charset (for now, just ensure UTF-8)
-	if let Some(charset) = properties.get("charset") {
-		if charset == "utf-8" && verbose {
-			println!("  - Verified UTF-8 encoding");
+	// 2. Handle character encoding (verify UTF-8)
+	if let Ok(charset) = properties.get::<ec4rs::property::Charset>() {
+		// Content is already UTF-8 since we read it as String
+		if verbose {
+			println!("  - Verified charset: {}", charset);
 		}
 	}
 
-	// 3. Handle trailing whitespace
-	if let Some(trim_trailing) = properties.get("trim_trailing_whitespace") {
-		if trim_trailing == "true" {
-			let lines: Vec<&str> = new_content.lines().collect();
-			let trimmed_lines: Vec<String> = lines.iter()
-				.map(|line| line.trim_end().to_string())
-				.collect();
-
-			let line_ending = if new_content.contains("\r\n") {
-				"\r\n"
-			} else if new_content.contains('\r') {
-				"\r"
-			} else {
-				"\n"
-			};
-
-			let trimmed_content = trimmed_lines.join(line_ending);
-
-			// Preserve final newline status
-			let ends_with_newline = new_content.ends_with('\n') || new_content.ends_with('\r');
-			let mut final_content = trimmed_content;
-			if ends_with_newline && !final_content.ends_with('\n') && !final_content.ends_with('\r') {
-				final_content.push_str(line_ending);
-			}
-
-			if final_content != new_content {
-				new_content = final_content;
+	// 3. Handle indentation
+	if let Ok(indent_style) = properties.get::<IndentStyle>() {
+		let indent_size = get_effective_indent_size(&properties);
+		if let Ok(indented_content) = apply_indentation(&new_content, indent_style, indent_size, verbose) {
+			if indented_content != new_content {
+				new_content = indented_content;
 				changes += 1;
-				if verbose {
-					println!("  - Trimmed trailing whitespace");
-				}
 			}
 		}
 	}
 
-	// 4. Handle final newline
-	if let Some(insert_final_newline) = properties.get("insert_final_newline") {
-		if insert_final_newline == "true" {
-			if !new_content.is_empty() && !new_content.ends_with('\n') && !new_content.ends_with('\r') {
-				let line_ending = if new_content.contains("\r\n") {
-					"\r\n"
-				} else if new_content.contains('\r') {
-					"\r"
-				} else {
-					"\n"
-				};
-				new_content.push_str(line_ending);
-				changes += 1;
-				if verbose {
+	// 4. Handle trailing whitespace
+	if let Ok(ec4rs::property::TrimTrailingWs::Value(true)) = properties.get::<ec4rs::property::TrimTrailingWs>() {
+		let trimmed_content = trim_trailing_whitespace(&new_content);
+		if trimmed_content != new_content {
+			new_content = trimmed_content;
+			changes += 1;
+			if verbose {
+				println!("  - Trimmed trailing whitespace");
+			}
+		}
+	}
+
+	// 5. Handle final newline
+	if let Ok(final_newline) = properties.get::<ec4rs::property::FinalNewline>() {
+		let insert_final_newline = match final_newline {
+			ec4rs::property::FinalNewline::Value(val) => val,
+		};
+		let processed_content = handle_final_newline(&new_content, insert_final_newline);
+		if processed_content != new_content {
+			new_content = processed_content;
+			changes += 1;
+			if verbose {
+				if insert_final_newline {
 					println!("  - Added final newline");
-				}
-			}
-		} else if insert_final_newline == "false" {
-			if new_content.ends_with('\n') || new_content.ends_with('\r') {
-				new_content = new_content.trim_end_matches(&['\n', '\r'][..]).to_string();
-				changes += 1;
-				if verbose {
+				} else {
 					println!("  - Removed final newline");
 				}
 			}
 		}
 	}
 
-	// 5. Handle indentation (basic conversion)
-	if let (Some(indent_style), Some(indent_size_str)) = (properties.get("indent_style"), properties.get("indent_size")) {
-		if let Ok(indent_size) = indent_size_str.parse::<usize>() {
-			let lines: Vec<&str> = new_content.lines().collect();
-			let mut converted_lines = Vec::new();
-			let mut indent_changes = 0;
-
-			for line in lines {
-				if line.trim().is_empty() {
-					converted_lines.push(line.to_string());
-					continue;
-				}
-
-				let (leading_whitespace, rest) = split_leading_whitespace(line);
-				let converted_indent = convert_indentation(
-					&leading_whitespace,
-					indent_style,
-					indent_size,
-				);
-
-				if converted_indent != leading_whitespace {
-					indent_changes += 1;
-				}
-
-				converted_lines.push(format!("{}{}", converted_indent, rest));
+	// 6. Handle max line length (optional warning)
+	if let Ok(max_line_length) = properties.get::<ec4rs::property::MaxLineLen>() {
+		match max_line_length {
+			ec4rs::property::MaxLineLen::Value(length) => {
+				check_line_length(&new_content, length as u32, file_path, verbose);
 			}
-
-			if indent_changes > 0 {
-				let line_ending = if new_content.contains("\r\n") {
-					"\r\n"
-				} else if new_content.contains('\r') {
-					"\r"
-				} else {
-					"\n"
-				};
-
-				new_content = converted_lines.join(line_ending);
-
-				// Preserve final newline status
-				if content.ends_with('\n') || content.ends_with('\r') {
-					if !new_content.ends_with('\n') && !new_content.ends_with('\r') {
-						new_content.push_str(line_ending);
-					}
-				}
-
-				changes += 1;
-				if verbose {
-					println!("  - Converted indentation ({} lines)", indent_changes);
-				}
+			ec4rs::property::MaxLineLen::Off => {
+				// No line length limit
 			}
 		}
 	}
@@ -436,47 +408,242 @@ fn format_file(
 	Ok(changes)
 }
 
+fn get_effective_indent_size(properties: &Properties) -> usize {
+	// Try indent_size first, fall back to tab_width, default to 2
+	if let Ok(indent_size) = properties.get::<IndentSize>() {
+		match indent_size {
+			IndentSize::Value(size) => size,
+			IndentSize::UseTabWidth => {
+				// Fall back to tab_width
+				if let Ok(TabWidth::Value(width)) = properties.get::<TabWidth>() {
+					width
+				} else {
+					2 // Default
+				}
+			}
+		}
+	} else if let Ok(TabWidth::Value(width)) = properties.get::<TabWidth>() {
+		width
+	} else {
+		2 // Default for tabs is 2
+	}
+}
+
+fn apply_indentation(
+	content: &str,
+	indent_style: IndentStyle,
+	indent_size: usize,
+	verbose: bool,
+) -> Result<String> {
+	let lines: Vec<&str> = content.lines().collect();
+	let mut converted_lines = Vec::new();
+	let mut indent_changes = 0;
+
+	for line in lines {
+		// Skip empty lines
+		if line.trim().is_empty() {
+			converted_lines.push(line.to_string());
+			continue;
+		}
+
+		let (leading_whitespace, rest) = split_leading_whitespace(line);
+		let converted_indent = convert_indentation_smart(
+			&leading_whitespace,
+			indent_style,
+			indent_size,
+		);
+
+		if converted_indent != leading_whitespace {
+			indent_changes += 1;
+		}
+
+		converted_lines.push(format!("{}{}", converted_indent, rest));
+	}
+
+	if indent_changes > 0 && verbose {
+		println!("  - Converted indentation to {:?} (size: {}) on {} lines",
+			indent_style, indent_size, indent_changes);
+	}
+
+	// Preserve the original line ending structure
+	let line_ending = detect_line_ending(content);
+	let result = converted_lines.join(line_ending);
+
+	// Preserve final newline status
+	let should_end_with_newline = content.ends_with('\n') || content.ends_with('\r');
+	if should_end_with_newline && !result.ends_with('\n') && !result.ends_with('\r') {
+		Ok(format!("{}{}", result, line_ending))
+	} else {
+		Ok(result)
+	}
+}
+
 fn split_leading_whitespace(line: &str) -> (String, &str) {
 	let trimmed = line.trim_start();
 	let leading_len = line.len() - trimmed.len();
 	(line[..leading_len].to_string(), trimmed)
 }
 
-fn convert_indentation(
+fn convert_indentation_smart(
 	whitespace: &str,
-	target_style: &str,
+	target_style: IndentStyle,
 	target_size: usize,
 ) -> String {
-	// Convert existing indentation to logical level
-	let logical_level = match target_style {
-		"tab" => {
-			// When converting to tabs, calculate spaces equivalent
-			whitespace.chars().fold(0, |acc, c| {
-				match c {
-					'\t' => acc + target_size,
-					' ' => acc + 1,
-					_ => acc,
-				}
-			}) / target_size
-		}
-		"space" => {
-			// When converting to spaces, calculate tab equivalent
-			whitespace.chars().fold(0, |acc, c| {
-				match c {
-					'\t' => acc + target_size,
-					' ' => acc + 1,
-					_ => acc,
-				}
-			}) / target_size
-		}
-		_ => return whitespace.to_string(), // Unknown style, keep as is
-	};
-
-	// Generate new indentation
 	match target_style {
-		"tab" => "\t".repeat(logical_level),
-		"space" => " ".repeat(logical_level * target_size),
-		_ => whitespace.to_string(), // Unknown style, keep as is
+		IndentStyle::Tabs => {
+			// Converting TO tabs: determine logical levels and use one tab per level
+			let indent_level = determine_indentation_level(whitespace, target_size);
+			"\t".repeat(indent_level)
+		}
+		IndentStyle::Spaces => {
+			// Converting TO spaces: handle more carefully
+			if whitespace.chars().all(|c| c == ' ') {
+				// Already all spaces - check if it follows the target pattern
+				let space_count = whitespace.len();
+				if space_count % target_size == 0 {
+					// Already correctly formatted for the target size
+					whitespace.to_string()
+				} else {
+					// Reformat to target size
+					let indent_level = determine_indentation_level(whitespace, target_size);
+					" ".repeat(indent_level * target_size)
+				}
+			} else {
+				// Contains tabs or mixed - convert from tabs to spaces
+				let indent_level = determine_indentation_level(whitespace, target_size);
+				" ".repeat(indent_level * target_size)
+			}
+		}
+	}
+}
+
+fn determine_indentation_level(whitespace: &str, reference_size: usize) -> usize {
+	if whitespace.is_empty() {
+		return 0;
+	}
+
+	let mut level = 0;
+	let chars: Vec<char> = whitespace.chars().collect();
+	let mut i = 0;
+
+	while i < chars.len() {
+		match chars[i] {
+			'\t' => {
+				// Each tab represents one indentation level
+				level += 1;
+				i += 1;
+			}
+			' ' => {
+				// Count consecutive spaces
+				let start_i = i;
+				while i < chars.len() && chars[i] == ' ' {
+					i += 1;
+				}
+				let space_count = i - start_i;
+
+				if space_count > 0 {
+					// Detect the likely indentation size by examining the space count
+					// Common indentations are 2, 4, or 8 spaces
+					let detected_indent_size = detect_space_indent_size(space_count, reference_size);
+					level += space_count / detected_indent_size;
+				}
+			}
+			_ => break, // Stop at non-whitespace
+		}
+	}
+
+	level
+}
+
+fn detect_space_indent_size(space_count: usize, _reference_size: usize) -> usize {
+	// When converting FROM spaces TO tabs, we need to detect the actual space-based
+	// indentation pattern, not use the target tab's indent_size
+	// Common indentations are 4, 2, 8, or 1 spaces per logical level
+	// Try the most common first (4), then others
+	for size in [4, 2, 8, 1] {
+		if space_count % size == 0 {
+			return size;
+		}
+	}
+
+	// Fallback to 4 (most common)
+	4
+}
+
+fn trim_trailing_whitespace(content: &str) -> String {
+	let line_ending = detect_line_ending(content);
+	let lines: Vec<String> = content.lines()
+		.map(|line| line.trim_end().to_string())
+		.collect();
+
+	let result = lines.join(line_ending);
+
+	// Preserve final newline status
+	if content.ends_with('\n') || content.ends_with('\r') {
+		if !result.ends_with('\n') && !result.ends_with('\r') {
+			format!("{}{}", result, line_ending)
+		} else {
+			result
+		}
+	} else {
+		result
+	}
+}
+
+fn handle_final_newline(content: &str, insert_final_newline: bool) -> String {
+	let line_ending = detect_line_ending(content);
+	let ends_with_newline = content.ends_with('\n') || content.ends_with('\r');
+
+	if insert_final_newline {
+		if !content.is_empty() && !ends_with_newline {
+			format!("{}{}", content, line_ending)
+		} else {
+			content.to_string()
+		}
+	} else {
+		if ends_with_newline {
+			content.trim_end_matches(&['\n', '\r'][..]).to_string()
+		} else {
+			content.to_string()
+		}
+	}
+}
+
+fn detect_line_ending(content: &str) -> &str {
+	if content.contains("\r\n") {
+		"\r\n"
+	} else if content.contains('\r') {
+		"\r"
+	} else {
+		"\n"
+	}
+}
+
+fn check_line_length(content: &str, max_line_length: u32, file_path: &Path, verbose: bool) {
+	if !verbose {
+		return;
+	}
+
+	let long_lines: Vec<usize> = content.lines()
+		.enumerate()
+		.filter_map(|(i, line)| {
+			if line.len() > max_line_length as usize {
+				Some(i + 1)
+			} else {
+				None
+			}
+		})
+		.take(5) // Limit to first 5 long lines
+		.collect();
+
+	if !long_lines.is_empty() {
+		println!("  - Warning: {} lines exceed max length ({}) in {}",
+			long_lines.len(), max_line_length, file_path.display());
+		if verbose {
+			for line_num in long_lines {
+				println!("    Line {}", line_num);
+			}
+		}
 	}
 }
 

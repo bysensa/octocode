@@ -2,11 +2,12 @@
 // Handles code indexing, embedding, and search functionality
 
 pub mod search; // Search functionality
-mod languages; // Language-specific processors
+pub mod languages; // Language-specific processors
 pub mod graphrag; // GraphRAG generation for code relationships (modular implementation)
 pub mod graph_optimization; // Task-focused graph extraction and optimization
 
 pub use search::*;
+pub use languages::*;
 pub use graphrag::*;
 pub use graph_optimization::*;
 
