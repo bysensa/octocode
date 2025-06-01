@@ -21,7 +21,7 @@ use anyhow::Result;
 use crate::config::Config;
 
 pub use types::*;
-pub use provider::*;
+pub use provider::{EmbeddingProvider, create_embedding_provider_from_parts};
 
 /// Generate embeddings based on configured provider (supports provider:model format)
 pub async fn generate_embeddings(contents: &str, is_code: bool, config: &Config) -> Result<Vec<f32>> {

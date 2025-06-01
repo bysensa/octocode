@@ -11,6 +11,11 @@ keywords = ["code", "search", "indexer", "semantic", "graph"]
 categories = ["development-tools", "command-line-utilities"]
 readme = "README.md"
 
+[features]
+default = ["fastembed", "sentence-transformer"]
+fastembed = ["dep:fastembed"]
+sentence-transformer = ["dep:candle-core", "dep:candle-nn", "dep:candle-transformers", "dep:tokenizers", "dep:hf-hub"]
+
 # Optimized release profile for static linking
 [profile.release]
 lto = true              # Enable Link Time Optimization
@@ -53,19 +58,19 @@ clap = { version = "4.5.26", features = ["derive"] }
 clap_complete = "4.5.39"
 notify = "6.1.1"
 notify-debouncer-mini = "0.4.1"
-fastembed = "4.9.0"
+fastembed = { version = "4.9.0", optional = true }
 toml = "0.8.14"
 lazy_static = "1.4.0"
 futures = "0.3.31"
 globset = "0.4.16"
 regex = "1.11.1"
 dirs = "5.0.1"
-# Candle dependencies for SentenceTransformer support
-candle-core = "0.8.3"
-candle-nn = "0.8.3"
-candle-transformers = "0.8.3"
-tokenizers = "0.20.3"
-hf-hub = { version = "0.3.2", features = ["tokio"] }
+# Candle dependencies for SentenceTransformer support (optional)
+candle-core = { version = "0.8.3", optional = true }
+candle-nn = { version = "0.8.3", optional = true }
+candle-transformers = { version = "0.8.3", optional = true }
+tokenizers = { version = "0.20.3", optional = true }
+hf-hub = { version = "0.3.2", features = ["tokio"], optional = true }
 # EditorConfig parsing and formatting
 ec4rs = "1.2.0"
 
