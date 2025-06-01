@@ -15,7 +15,7 @@
 // GraphRAG core builder implementation
 
 use crate::config::Config;
-use crate::embedding::calculate_unique_content_hash;
+use crate::embedding::{calculate_unique_content_hash, types::parse_provider_model, create_embedding_provider_from_parts, EmbeddingProvider};
 use crate::indexer::graphrag::ai::AIEnhancements;
 use crate::indexer::graphrag::database::DatabaseOperations;
 use crate::indexer::graphrag::relationships::RelationshipDiscovery;
@@ -24,7 +24,6 @@ use crate::indexer::graphrag::utils::{cosine_similarity, detect_project_root, to
 use crate::state::SharedState;
 use crate::store::{CodeBlock, Store};
 use anyhow::{Context, Result};
-use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use reqwest::Client;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -35,7 +34,7 @@ use tokio::sync::RwLock;
 pub struct GraphBuilder {
 	config: Config,
 	graph: Arc<RwLock<CodeGraph>>,
-	embedding_model: Arc<TextEmbedding>,
+	embedding_provider: Arc<Box<dyn EmbeddingProvider>>,
 	store: Store,
 	project_root: PathBuf,  // Project root for relative path calculations
 	ai_enhancements: Option<AIEnhancements>,
@@ -46,15 +45,12 @@ impl GraphBuilder {
 		// Detect project root (look for common indicators)
 		let project_root = detect_project_root()?;
 
-		// Initialize embedding model with system-wide cache
-		let cache_dir = crate::storage::get_fastembed_cache_dir()
-			.context("Failed to get FastEmbed cache directory")?;
-
-		let model = TextEmbedding::try_new(
-			InitOptions::new(EmbeddingModel::AllMiniLML6V2)
-				.with_show_download_progress(true)
-				.with_cache_dir(cache_dir),
-		).context("Failed to initialize embedding model")?;
+		// Initialize embedding provider from config (using text model for graph descriptions)
+		// GraphRAG uses text embeddings for file descriptions and relationships, not code embeddings
+		let model_string = &config.embedding.text_model;
+		let (provider_type, model) = parse_provider_model(model_string);
+		let embedding_provider = Arc::new(create_embedding_provider_from_parts(&provider_type, &model)
+			.context("Failed to initialize embedding provider from config")?);
 
 		// Initialize the store for database access
 		let store = Store::new().await?;
@@ -74,7 +70,7 @@ impl GraphBuilder {
 		Ok(Self {
 			config,
 			graph,
-			embedding_model: Arc::new(model),
+			embedding_provider,
 			store,
 			project_root,
 			ai_enhancements,
@@ -99,11 +95,7 @@ impl GraphBuilder {
 
 	// Generate an embedding for node content
 	async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>> {
-		let embeddings = self.embedding_model.embed(vec![text], None)?;
-		if embeddings.is_empty() {
-			return Err(anyhow::anyhow!("Failed to generate embedding"));
-		}
-		Ok(embeddings[0].clone())
+		self.embedding_provider.generate_embedding(text).await
 	}
 
 	// Process files efficiently using existing code blocks for better performance
