@@ -28,7 +28,7 @@ ignore = "0.4.23"
 parking_lot = "0.12.3"
 lance-table = { version = "0.27.2", default-features = false, features = ["lazy_static"] }
 lance = { version = "0.27.2", default-features = false, features = [] }
-lancedb = { version = "0.19.0", default-features = false }
+lancedb = { version = "0.19.1", default-features = false }
 arrow = { version = "54.2.1", features = ["prettyprint"] }
 serde = { version = "1.0.217", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }
@@ -50,9 +50,10 @@ anyhow = "1.0.95"
 serde_json = "1.0.136"
 sha2 = "0.10.8"
 clap = { version = "4.5.26", features = ["derive"] }
+clap_complete = "4.5.39"
 notify = "6.1.1"
 notify-debouncer-mini = "0.4.1"
-fastembed = "4.8.0"
+fastembed = "4.9.0"
 toml = "0.8.14"
 lazy_static = "1.4.0"
 futures = "0.3.31"
@@ -60,9 +61,9 @@ globset = "0.4.16"
 regex = "1.11.1"
 dirs = "5.0.1"
 # Candle dependencies for SentenceTransformer support
-candle-core = "0.8.0"
-candle-nn = "0.8.0"
-candle-transformers = "0.8.0"
+candle-core = "0.8.3"
+candle-nn = "0.8.3"
+candle-transformers = "0.8.3"
 tokenizers = "0.20.3"
 hf-hub = { version = "0.3.2", features = ["tokio"] }
 # EditorConfig parsing and formatting

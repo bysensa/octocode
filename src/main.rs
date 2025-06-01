@@ -30,7 +30,8 @@
 // Copyright (c) 2025 Muvon Un Limited
 // Licensed under the MIT License
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, CommandFactory};
+use clap_complete::{generate, Shell};
 
 use octocode::config::Config;
 use octocode::store::Store;
@@ -84,6 +85,13 @@ enum Commands {
 
 	/// Format code according to .editorconfig rules
 	Format(commands::FormatArgs),
+
+	/// Generate shell completion scripts
+	Completion {
+		/// The shell to generate completion for
+		#[arg(value_enum)]
+		shell: Shell,
+	},
 }
 
 #[tokio::main]
@@ -118,6 +126,14 @@ async fn main() -> Result<(), anyhow::Error> {
 		return commands::format::execute(format_args).await;
 	}
 
+	// Handle the Completion command separately (doesn't need store)
+	if let Commands::Completion { shell } = &args.command {
+		let mut app = OctocodeArgs::command();
+		let name = app.get_name().to_string();
+		generate(*shell, &mut app, name, &mut std::io::stdout());
+		return Ok(());
+	}
+
 	// Initialize the store
 	let store = Store::new().await?;
 	store.initialize_collections().await?;
@@ -150,6 +166,7 @@ async fn main() -> Result<(), anyhow::Error> {
 		Commands::Commit(_) => unreachable!(), // Already handled above
 		Commands::Review(_) => unreachable!(), // Already handled above
 		Commands::Format(_) => unreachable!(), // Already handled above
+		Commands::Completion { .. } => unreachable!(), // Already handled above
 	}
 
 	Ok(())

@@ -179,6 +179,17 @@ uninstall: ## Uninstall the binary
 	cargo uninstall $(BINARY_NAME)
 	@echo "$(GREEN)$(BINARY_NAME) uninstalled successfully$(NC)"
 
+.PHONY: install-completions
+install-completions: build-release ## Install shell completions
+	@echo "$(YELLOW)Installing shell completions...$(NC)"
+	@./scripts/install-completions.sh
+	@echo "$(GREEN)Shell completions installed!$(NC)"
+
+.PHONY: test-completions
+test-completions: build-release ## Test shell completion generation
+	@echo "$(YELLOW)Testing shell completion generation...$(NC)"
+	@./scripts/test-completions.sh
+
 .PHONY: run
 run: ## Run the application in debug mode
 	@echo "$(YELLOW)Running $(BINARY_NAME) in debug mode...$(NC)"
