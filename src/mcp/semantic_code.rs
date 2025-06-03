@@ -73,7 +73,7 @@ impl SemanticCodeProvider {
 	pub fn get_view_signatures_tool_definition() -> McpTool {
 		McpTool {
 			name: "view_signatures".to_string(),
-			description: "Extract and view function signatures, class definitions, and other meaningful code structures from files. Shows method signatures, class definitions, interfaces, and other declarations without full implementation details. Perfect for getting an overview of code structure and available APIs.".to_string(),
+			description: "Extract and view function signatures, class definitions, and other meaningful code structures from files. Shows method signatures, class definitions, interfaces, and other declarations without full implementation details. Perfect for getting an overview of code structure and available APIs. Output is always in markdown format.".to_string(),
 			input_schema: json!({
 				"type": "object",
 				"properties": {
@@ -86,16 +86,6 @@ impl SemanticCodeProvider {
 						},
 						"minItems": 1,
 						"maxItems": 100
-					},
-					"format": {
-						"type": "string",
-						"description": "Output format for the signatures",
-						"enum": ["markdown", "json"],
-						"default": "markdown",
-						"enumDescriptions": {
-							"markdown": "Human-readable markdown format with syntax highlighting and organized structure",
-							"json": "Structured JSON format suitable for programmatic processing"
-						}
 					}
 				},
 				"required": ["files"],
@@ -176,19 +166,9 @@ impl SemanticCodeProvider {
 			file_patterns.push(pattern.to_string());
 		}
 
-		let format = arguments
-			.get("format")
-			.and_then(|v| v.as_str())
-			.unwrap_or("markdown");
-
-		// Validate format
-		if !["markdown", "json"].contains(&format) {
-			return Err(anyhow::anyhow!("Invalid format '{}': must be either 'markdown' or 'json'", format));
-		}
-
 		if self.debug {
-			eprintln!("Executing view_signatures: files={:?}, format='{}' in directory '{}'",
-				file_patterns, format, self.working_directory.display());
+			eprintln!("Executing view_signatures: files={:?} in directory '{}'",
+				file_patterns, self.working_directory.display());
 		}
 
 		// Change to the working directory for processing
@@ -247,19 +227,8 @@ impl SemanticCodeProvider {
 		// Restore original directory
 		std::env::set_current_dir(&_original_dir)?;
 
-		// Display results in the requested format
-		match format {
-			"json" => {
-				match serde_json::to_string_pretty(&signatures) {
-					Ok(json_output) => Ok(json_output),
-					Err(e) => Err(anyhow::anyhow!("Failed to serialize signatures to JSON: {}", e)),
-				}
-			},
-			"markdown" | _ => {
-				// Use markdown format (default)
-				let markdown = signatures_to_markdown(&signatures);
-				Ok(markdown)
-			}
-		}
+		// Always return markdown format
+		let markdown = signatures_to_markdown(&signatures);
+		Ok(markdown)
 	}
 }
