@@ -31,7 +31,9 @@ Octocode is a powerful code indexer and semantic search engine that builds intel
 ### 🧠 **AI-Powered Features**
 - Smart commit message generation
 - Code review with best practices analysis
-- Memory system for storing insights and decisions
+- **Memory system** for storing insights, decisions, and context
+- **Semantic memory search** with vector similarity
+- **Memory relationships** and automatic context linking
 - Multiple LLM support via OpenRouter
 
 ### 🔌 **MCP Server Integration**
@@ -94,7 +96,28 @@ octocode mcp
 # Provides: search_code, search_graphrag, memorize, remember, forget
 ```
 
-### 4. Advanced Features
+### 4. Memory Management
+```bash
+# Store important insights and decisions
+octocode memory memorize \
+  --title "Authentication Bug Fix" \
+  --content "Fixed JWT token validation in auth middleware" \
+  --memory-type bug_fix \
+  --tags security,jwt,auth
+
+# Search your memory with semantic similarity
+octocode memory remember "JWT authentication issues"
+
+# Get memories by type, tags, or files
+octocode memory by-type bug_fix
+octocode memory by-tags security,auth
+octocode memory for-files src/auth.rs
+
+# Clear all memory data (useful for testing)
+octocode memory clear-all --yes
+```
+
+### 5. Advanced Features
 ```bash
 # Enable GraphRAG with AI descriptions
 export OPENROUTER_API_KEY="your-key"
@@ -118,9 +141,66 @@ octocode watch
 | `octocode view [pattern]` | View code signatures | `octocode view "src/**/*.rs" --md` |
 | `octocode commit` | AI-powered git commit | `octocode commit --all` |
 | `octocode review` | Code review assistant | `octocode review --focus security` |
+| `octocode memory <operation>` | Memory management | `octocode memory remember "auth bugs"` |
 | `octocode mcp` | Start MCP server | `octocode mcp --debug` |
 | `octocode watch` | Auto-reindex on changes | `octocode watch --quiet` |
 | `octocode config` | Manage configuration | `octocode config --show` |
+
+## 🧠 Memory Management
+
+Octocode includes a powerful memory system for storing and retrieving project insights, decisions, and context using semantic search and relationship mapping.
+
+### Memory Operations
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `memorize` | Store new information | `octocode memory memorize --title "Bug Fix" --content "Details..."` |
+| `remember` | Search memories semantically | `octocode memory remember "authentication issues"` |
+| `forget` | Delete specific memories | `octocode memory forget --memory-id abc123` |
+| `update` | Update existing memory | `octocode memory update abc123 --add-tags security` |
+| `get` | Retrieve memory by ID | `octocode memory get abc123` |
+| `recent` | List recent memories | `octocode memory recent --limit 10` |
+| `by-type` | Filter by memory type | `octocode memory by-type bug_fix` |
+| `by-tags` | Filter by tags | `octocode memory by-tags security,auth` |
+| `for-files` | Find memories for files | `octocode memory for-files src/auth.rs` |
+| `stats` | Show memory statistics | `octocode memory stats` |
+| `cleanup` | Remove old memories | `octocode memory cleanup` |
+| `clear-all` | **Delete all memories** | `octocode memory clear-all --yes` |
+| `relate` | Create relationships | `octocode memory relate source-id target-id` |
+
+### Memory Types
+- `code` - Code-related insights and patterns
+- `bug_fix` - Bug reports and solutions  
+- `feature` - Feature implementations and decisions
+- `architecture` - Architectural decisions and patterns
+- `performance` - Performance optimizations and metrics
+- `security` - Security considerations and fixes
+- `testing` - Test strategies and results
+- `documentation` - Documentation notes and updates
+
+### Examples
+
+```bash
+# Store a bug fix with context
+octocode memory memorize \
+  --title "JWT Token Validation Fix" \
+  --content "Fixed race condition in token refresh logic by adding mutex lock" \
+  --memory-type bug_fix \
+  --importance 0.8 \
+  --tags security,jwt,race-condition \
+  --files src/auth/jwt.rs,src/middleware/auth.rs
+
+# Search for authentication-related memories
+octocode memory remember "JWT authentication problems" \
+  --memory-types bug_fix,security \
+  --min-relevance 0.7
+
+# Get all security-related memories
+octocode memory by-tags security --format json
+
+# Clear all memory data (useful for testing/reset)
+octocode memory clear-all --yes
+```
 
 ## 🔧 Configuration
 
