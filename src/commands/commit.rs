@@ -146,18 +146,6 @@ async fn generate_commit_message(repo_path: &std::path::Path, config: &Config, e
 		return Err(anyhow::anyhow!("No staged changes found"));
 	}
 
-	// Get list of changed files with brief stats
-	let stats_output = Command::new("git")
-		.args(&["diff", "--cached", "--stat"])
-		.current_dir(repo_path)
-		.output()?;
-
-	let file_stats = if stats_output.status.success() {
-		String::from_utf8_lossy(&stats_output.stdout).to_string()
-	} else {
-		String::new()
-	};
-
 	// Count files and changes
 	let file_count = diff.matches("diff --git").count();
 	let additions = diff.matches("\n+").count().saturating_sub(diff.matches("\n+++").count());
@@ -171,38 +159,40 @@ async fn generate_commit_message(repo_path: &std::path::Path, config: &Config, e
 
 	// Prepare the enhanced prompt for the LLM
 	let prompt = format!(
-		"You are a Git commit message generator. Analyze the following git diff and generate a well-structured commit message.\n\n\
-		Rules:\n\
-		1. Use conventional commit format: type(scope): description\n\
-		2. Types: feat, fix, docs, style, refactor, test, chore, perf, ci, build\n\
-		3. Keep the main subject line under 50 characters\n\
-		4. Focus on WHAT changed and WHY, not HOW\n\
-		5. Use imperative mood (\"add\" not \"added\")\n\
-		6. If changes affect multiple files ({} files) or are substantial ({} additions, {} deletions), add a body with bullet points\n\
-		7. Body format (if needed):\n\
-			- Use blank line after subject\n\
-			- Start each detail with \"- \" (dash and space)\n\
-			- Keep details concise (max 1 line each)\n\
-			- Focus on key changes, not every file\n\
-		8. Don't include file names in subject unless critical\n\
-		9. Be specific about the nature of changes and precise without adding water, prefer short and concise sentences\n\n\
-		10. If user commit message is provided, use it as the base to understand core changes\n\n\
-		File statistics:\n\
-		{}\n\n\
+		"Create a Git commit message from this diff. Be specific and concise.\n\n\
+		STRICT RULES:\n\
+		- Format: type(scope): description (under 50 chars)\n\
+		- Types: feat, fix, docs, style, refactor, test, chore, perf, ci, build\n\
+		- Be specific, avoid generic words like \"update\", \"change\", \"modify\", \"various\", \"several\"\n\
+		- Use imperative mood: \"add\" not \"added\"\n\
+		- Focus on WHAT functionality changed, not implementation details\n\
+		- If user message provided, align with that intent{}\n\n\
+		BODY RULES (add body with bullet points if ANY of these apply):\n\
+		- 4+ files changed OR 25+ lines changed\n\
+		- Multiple different types of changes (feat+fix, refactor+feat, etc.)\n\
+		- Complex refactoring or architectural changes\n\
+		- Breaking changes or major feature additions\n\
+		- Changes affect multiple modules/components\n\n\
+		Body format when needed:\n\
+		- Blank line after subject\n\
+		- Start each point with \"- \"\n\
+		- Focus on key changes and their purpose\n\
+		- Explain WHY if not obvious from subject\n\
+		- Keep each bullet concise (1 line max)\n\n\
+		Changes: {} files (+{} -{} lines)\n\n\
 		Git diff:\n\
-		```\n{}\n```{}\n\n\
-		Generate the commit message (subject + optional body if warranted):",
+		```\n{}\n```\n\n\
+		Generate commit message:",
+		context_section,
 		file_count,
 		additions,
 		deletions,
-		if file_stats.trim().is_empty() { "No stats available" } else { &file_stats },
-		// Truncate diff if it's too long (keep first 6000 chars for better analysis)
-		if diff.len() > 6000 {
-			format!("{}...\n[diff truncated for brevity]", &diff[..6000])
+		// Truncate diff if it's too long (keep first 4000 chars for better analysis)
+		if diff.len() > 4000 {
+			format!("{}...\n[diff truncated for brevity]", &diff[..4000])
 		} else {
 			diff
-		},
-		context_section
+		}
 	);
 
 	// Call the LLM using existing infrastructure
@@ -271,7 +261,7 @@ async fn call_llm_for_commit_message(prompt: &str, config: &Config) -> Result<St
 			}
 		],
 		"temperature": 0.1,
-		"max_tokens": 200
+		"max_tokens": 180
 	});
 
 	let response = client
