@@ -14,67 +14,245 @@
 
 use anyhow::Result;
 use chrono::Utc;
-use std::collections::HashMap;
+use std::sync::Arc;
+
+// Arrow imports
+use arrow::array::{Array, FixedSizeListArray, Float32Array, StringArray};
+use arrow::datatypes::{DataType, Field, Schema};
+use arrow::record_batch::RecordBatch;
+
+// LanceDB imports
+use futures::TryStreamExt;
+use lancedb::{connect, index::Index, query::{ExecutableQuery, QueryBase}, Connection, DistanceType};
 
 use super::types::{Memory, MemoryConfig, MemoryQuery, MemoryRelationship, MemorySearchResult};
 
-/// Simple in-memory storage for memories with vector search capabilities
-/// This is a simplified implementation to get the memory system working
+/// LanceDB-based storage for memories with vector search capabilities
 pub struct MemoryStore {
-	memories: HashMap<String, Memory>,
-	relationships: HashMap<String, MemoryRelationship>,
+	db: Connection,
 	embedding_provider: Box<dyn crate::embedding::provider::EmbeddingProvider>,
 	config: MemoryConfig,
+	vector_dim: usize,
 }
 
 impl MemoryStore {
 	/// Create a new memory store
 	pub async fn new(
-		_db_path: &str, // For future LanceDB integration
+		db_path: &str,
 		embedding_provider: Box<dyn crate::embedding::provider::EmbeddingProvider>,
 		config: MemoryConfig,
 	) -> Result<Self> {
-		Ok(Self {
-			memories: HashMap::new(),
-			relationships: HashMap::new(),
+		// Connect to LanceDB
+		let db = connect(db_path).execute().await?;
+
+		// Get vector dimension from the embedding provider by testing with a short text
+		let test_embedding = embedding_provider.generate_embedding("test").await?;
+		let vector_dim = test_embedding.len();
+
+		let store = Self {
+			db,
 			embedding_provider,
 			config,
-		})
+			vector_dim,
+		};
+
+		// Initialize tables
+		store.initialize_tables().await?;
+
+		Ok(store)
+	}
+
+	/// Initialize memory and relationship tables
+	async fn initialize_tables(&self) -> Result<()> {
+		let table_names = self.db.table_names().execute().await?;
+
+		// Create memories table if it doesn't exist
+		if !table_names.contains(&"memories".to_string()) {
+			let schema = Arc::new(Schema::new(vec![
+				Field::new("id", DataType::Utf8, false),
+				Field::new("memory_type", DataType::Utf8, false),
+				Field::new("title", DataType::Utf8, false),
+				Field::new("content", DataType::Utf8, false),
+				Field::new("created_at", DataType::Utf8, false),
+				Field::new("updated_at", DataType::Utf8, false),
+				Field::new("importance", DataType::Float32, false),
+				Field::new("confidence", DataType::Float32, false),
+				Field::new("tags", DataType::Utf8, true), // JSON serialized
+				Field::new("related_files", DataType::Utf8, true), // JSON serialized
+				Field::new("git_commit", DataType::Utf8, true),
+				Field::new(
+					"embedding",
+					DataType::FixedSizeList(
+						Arc::new(Field::new("item", DataType::Float32, true)),
+						self.vector_dim as i32,
+					),
+					true,
+				),
+			]));
+
+			self.db.create_empty_table("memories", schema).execute().await?;
+		}
+
+		// Create relationships table if it doesn't exist
+		if !table_names.contains(&"memory_relationships".to_string()) {
+			let schema = Arc::new(Schema::new(vec![
+				Field::new("id", DataType::Utf8, false),
+				Field::new("source_id", DataType::Utf8, false),
+				Field::new("target_id", DataType::Utf8, false),
+				Field::new("relationship_type", DataType::Utf8, false),
+				Field::new("strength", DataType::Float32, false),
+				Field::new("description", DataType::Utf8, false),
+				Field::new("created_at", DataType::Utf8, false),
+			]));
+
+			self.db.create_empty_table("memory_relationships", schema).execute().await?;
+		}
+
+		Ok(())
 	}
 
 	/// Store a memory
 	pub async fn store_memory(&mut self, memory: &Memory) -> Result<()> {
-		self.memories.insert(memory.id.clone(), memory.clone());
+		// Generate embedding for the memory
+		let embedding = self
+			.embedding_provider
+			.generate_embedding(&memory.get_searchable_text())
+			.await?;
+
+		// Create record batch
+		let schema = Arc::new(Schema::new(vec![
+			Field::new("id", DataType::Utf8, false),
+			Field::new("memory_type", DataType::Utf8, false),
+			Field::new("title", DataType::Utf8, false),
+			Field::new("content", DataType::Utf8, false),
+			Field::new("created_at", DataType::Utf8, false),
+			Field::new("updated_at", DataType::Utf8, false),
+			Field::new("importance", DataType::Float32, false),
+			Field::new("confidence", DataType::Float32, false),
+			Field::new("tags", DataType::Utf8, true),
+			Field::new("related_files", DataType::Utf8, true),
+			Field::new("git_commit", DataType::Utf8, true),
+			Field::new(
+				"embedding",
+				DataType::FixedSizeList(
+					Arc::new(Field::new("item", DataType::Float32, true)),
+					self.vector_dim as i32,
+				),
+				true,
+			),
+		]));
+
+		// Prepare data
+		let tags_json = serde_json::to_string(&memory.metadata.tags)?;
+		let files_json = serde_json::to_string(&memory.metadata.related_files)?;
+
+		// Create embedding array
+		let embedding_values = Float32Array::from(embedding);
+		let embedding_array = FixedSizeListArray::new(
+			Arc::new(Field::new("item", DataType::Float32, true)),
+			self.vector_dim as i32,
+			Arc::new(embedding_values),
+			None,
+		);
+
+		let batch = RecordBatch::try_new(
+			schema.clone(),
+			vec![
+				Arc::new(StringArray::from(vec![memory.id.clone()])),
+				Arc::new(StringArray::from(vec![memory.memory_type.to_string()])),
+				Arc::new(StringArray::from(vec![memory.title.clone()])),
+				Arc::new(StringArray::from(vec![memory.content.clone()])),
+				Arc::new(StringArray::from(vec![memory.created_at.to_rfc3339()])),
+				Arc::new(StringArray::from(vec![memory.updated_at.to_rfc3339()])),
+				Arc::new(Float32Array::from(vec![memory.metadata.importance])),
+				Arc::new(Float32Array::from(vec![memory.metadata.confidence])),
+				Arc::new(StringArray::from(vec![tags_json])),
+				Arc::new(StringArray::from(vec![files_json])),
+				Arc::new(StringArray::from(vec![memory.metadata.git_commit.clone()])),
+				Arc::new(embedding_array),
+			],
+		)?;
+
+		// Open table and add the batch
+		let table = self.db.open_table("memories").execute().await?;
+		
+		// Delete existing memory with same ID if it exists
+		table.delete(&format!("id = '{}'", memory.id)).await.ok();
+		
+		// Add new memory
+		use std::iter::once;
+		let batches = once(Ok(batch));
+		let batch_reader = arrow::record_batch::RecordBatchIterator::new(batches, schema);
+		table.add(batch_reader).execute().await?;
+
+		// Create index if needed
+		let row_count = table.count_rows(None).await?;
+		let has_index = table
+			.list_indices()
+			.await?
+			.iter()
+			.any(|idx| idx.columns == vec!["embedding"]);
+		if !has_index && row_count > 10 {
+			table
+				.create_index(&["embedding"], Index::Auto)
+				.execute()
+				.await?;
+		}
+
 		Ok(())
 	}
 
 	/// Store multiple memories in batch
 	pub async fn store_memories(&mut self, memories: &[Memory]) -> Result<()> {
 		for memory in memories {
-			self.memories.insert(memory.id.clone(), memory.clone());
+			self.store_memory(memory).await?;
 		}
 		Ok(())
 	}
 
 	/// Update an existing memory
 	pub async fn update_memory(&mut self, memory: &Memory) -> Result<()> {
-		self.memories.insert(memory.id.clone(), memory.clone());
-		Ok(())
+		// Just use store_memory as it handles updates by deleting and re-inserting
+		self.store_memory(memory).await
 	}
 
 	/// Delete a memory by ID
 	pub async fn delete_memory(&mut self, memory_id: &str) -> Result<()> {
-		self.memories.remove(memory_id);
+		let table = self.db.open_table("memories").execute().await?;
+		table.delete(&format!("id = '{}'", memory_id)).await?;
 
 		// Also delete any relationships involving this memory
-		self.relationships
-			.retain(|_, rel| rel.source_id != memory_id && rel.target_id != memory_id);
+		let rel_table = self.db.open_table("memory_relationships").execute().await?;
+		rel_table.delete(&format!("source_id = '{}' OR target_id = '{}'", memory_id, memory_id)).await.ok();
 
 		Ok(())
 	}
 
+	/// Get a memory by ID
+	pub async fn get_memory(&self, memory_id: &str) -> Result<Option<Memory>> {
+		let table = self.db.open_table("memories").execute().await?;
+		
+		let mut results = table
+			.query()
+			.only_if(format!("id = '{}'", memory_id))
+			.limit(1)
+			.execute()
+			.await?;
+
+		while let Some(batch) = results.try_next().await? {
+			if batch.num_rows() > 0 {
+				let memories = self.batch_to_memories(&batch)?;
+				return Ok(memories.into_iter().next());
+			}
+		}
+
+		Ok(None)
+	}
+
 	/// Search memories using vector similarity and optional filters
 	pub async fn search_memories(&self, query: &MemoryQuery) -> Result<Vec<MemorySearchResult>> {
+		let table = self.db.open_table("memories").execute().await?;
+		
 		let limit = query
 			.limit
 			.unwrap_or(self.config.max_search_results)
@@ -90,40 +268,67 @@ impl MemoryStore {
 				.generate_embedding(query_text)
 				.await?;
 
-			for memory in self.memories.values() {
-				// Apply filters first
-				if !self.matches_filters(memory, query) {
+			// Start with vector search
+			let mut db_results = table
+				.query()
+				.nearest_to(query_embedding.as_slice())?
+				.distance_type(DistanceType::Cosine)
+				.limit(limit * 2) // Get more results to filter
+				.execute()
+				.await?;
+
+			while let Some(batch) = db_results.try_next().await? {
+				if batch.num_rows() == 0 {
 					continue;
 				}
 
-				// Calculate semantic similarity
-				let memory_embedding = self
-					.embedding_provider
-					.generate_embedding(&memory.get_searchable_text())
-					.await?;
-				let similarity =
-					self.calculate_cosine_similarity(&query_embedding, &memory_embedding);
+				// Extract distance column
+				let distance_array = batch
+					.column_by_name("_distance")
+					.and_then(|col| col.as_any().downcast_ref::<Float32Array>())
+					.map(|arr| (0..arr.len()).map(|i| arr.value(i)).collect::<Vec<f32>>())
+					.unwrap_or_default();
 
-				if similarity >= min_relevance {
-					results.push(MemorySearchResult {
-						memory: memory.clone(),
-						relevance_score: similarity,
-						selection_reason: self.generate_selection_reason(query, similarity),
-					});
+				let memories = self.batch_to_memories(&batch)?;
+
+				for (memory, distance) in memories.into_iter().zip(distance_array.into_iter()) {
+					// Apply filters
+					if !self.matches_filters(&memory, query) {
+						continue;
+					}
+
+					// Convert distance to similarity (cosine distance is 1 - similarity)
+					let similarity = 1.0 - distance;
+					if similarity >= min_relevance {
+						results.push(MemorySearchResult {
+							memory,
+							relevance_score: similarity,
+							selection_reason: self.generate_selection_reason(query, similarity),
+						});
+					}
 				}
 			}
 		} else {
-			// No text query, just apply filters and use importance as relevance
-			for memory in self.memories.values() {
-				if self.matches_filters(memory, query) {
-					let relevance_score = memory.metadata.importance;
-					if relevance_score >= min_relevance {
-						results.push(MemorySearchResult {
-							memory: memory.clone(),
-							relevance_score,
-							selection_reason: self
-								.generate_selection_reason(query, relevance_score),
-						});
+			// No text query, just apply filters
+			let mut db_results = table.query().execute().await?;
+
+			while let Some(batch) = db_results.try_next().await? {
+				if batch.num_rows() == 0 {
+					continue;
+				}
+
+				let memories = self.batch_to_memories(&batch)?;
+
+				for memory in memories {
+					if self.matches_filters(&memory, query) {
+						let relevance_score = memory.metadata.importance;
+						if relevance_score >= min_relevance {
+							results.push(MemorySearchResult {
+								memory,
+								relevance_score,
+								selection_reason: self.generate_selection_reason(query, relevance_score),
+							});
+						}
 					}
 				}
 			}
@@ -142,19 +347,31 @@ impl MemoryStore {
 		Ok(results)
 	}
 
-	/// Get a memory by ID
-	pub async fn get_memory(&self, memory_id: &str) -> Result<Option<Memory>> {
-		Ok(self.memories.get(memory_id).cloned())
-	}
-
 	/// Get all memories (paginated)
 	pub async fn get_all_memories(&self, offset: usize, limit: usize) -> Result<Vec<Memory>> {
-		let mut all_memories: Vec<Memory> = self.memories.values().cloned().collect();
+		let table = self.db.open_table("memories").execute().await?;
+		
+		let mut results = table
+			.query()
+			.limit(offset + limit) // LanceDB doesn't have native offset, so we limit and skip
+			.execute()
+			.await?;
+
+		let mut all_memories = Vec::new();
+		
+		while let Some(batch) = results.try_next().await? {
+			if batch.num_rows() == 0 {
+				continue;
+			}
+			
+			let mut batch_memories = self.batch_to_memories(&batch)?;
+			all_memories.append(&mut batch_memories);
+		}
 
 		// Sort by creation date (most recent first)
 		all_memories.sort_by(|a, b| b.created_at.cmp(&a.created_at));
 
-		// Apply pagination
+		// Apply pagination manually
 		let start = offset.min(all_memories.len());
 		let end = (offset + limit).min(all_memories.len());
 
@@ -163,8 +380,40 @@ impl MemoryStore {
 
 	/// Store a memory relationship
 	pub async fn store_relationship(&mut self, relationship: &MemoryRelationship) -> Result<()> {
-		self.relationships
-			.insert(relationship.id.clone(), relationship.clone());
+		let table = self.db.open_table("memory_relationships").execute().await?;
+		
+		let schema = Arc::new(Schema::new(vec![
+			Field::new("id", DataType::Utf8, false),
+			Field::new("source_id", DataType::Utf8, false),
+			Field::new("target_id", DataType::Utf8, false),
+			Field::new("relationship_type", DataType::Utf8, false),
+			Field::new("strength", DataType::Float32, false),
+			Field::new("description", DataType::Utf8, false),
+			Field::new("created_at", DataType::Utf8, false),
+		]));
+
+		let batch = RecordBatch::try_new(
+			schema.clone(),
+			vec![
+				Arc::new(StringArray::from(vec![relationship.id.clone()])),
+				Arc::new(StringArray::from(vec![relationship.source_id.clone()])),
+				Arc::new(StringArray::from(vec![relationship.target_id.clone()])),
+				Arc::new(StringArray::from(vec![relationship.relationship_type.to_string()])),
+				Arc::new(Float32Array::from(vec![relationship.strength])),
+				Arc::new(StringArray::from(vec![relationship.description.clone()])),
+				Arc::new(StringArray::from(vec![relationship.created_at.to_rfc3339()])),
+			],
+		)?;
+
+		// Delete existing relationship with same ID if it exists
+		table.delete(&format!("id = '{}'", relationship.id)).await.ok();
+		
+		// Add new relationship
+		use std::iter::once;
+		let batches = once(Ok(batch));
+		let batch_reader = arrow::record_batch::RecordBatchIterator::new(batches, schema);
+		table.add(batch_reader).execute().await?;
+
 		Ok(())
 	}
 
@@ -173,38 +422,250 @@ impl MemoryStore {
 		&self,
 		memory_id: &str,
 	) -> Result<Vec<MemoryRelationship>> {
-		let relationships: Vec<MemoryRelationship> = self
-			.relationships
-			.values()
-			.filter(|rel| rel.source_id == memory_id || rel.target_id == memory_id)
-			.cloned()
-			.collect();
+		let table = self.db.open_table("memory_relationships").execute().await?;
+		
+		let mut results = table
+			.query()
+			.only_if(format!("source_id = '{}' OR target_id = '{}'", memory_id, memory_id))
+			.execute()
+			.await?;
+
+		let mut relationships = Vec::new();
+		
+		while let Some(batch) = results.try_next().await? {
+			if batch.num_rows() == 0 {
+				continue;
+			}
+			
+			let mut batch_relationships = self.batch_to_relationships(&batch)?;
+			relationships.append(&mut batch_relationships);
+		}
 
 		Ok(relationships)
 	}
 
 	/// Get total count of memories
 	pub async fn get_memory_count(&self) -> Result<usize> {
-		Ok(self.memories.len())
+		let table = self.db.open_table("memories").execute().await?;
+		Ok(table.count_rows(None).await?)
 	}
 
 	/// Clean up old memories based on configuration
 	pub async fn cleanup_old_memories(&mut self) -> Result<usize> {
 		if let Some(cleanup_days) = self.config.auto_cleanup_days {
 			let cutoff_date = Utc::now() - chrono::Duration::days(cleanup_days as i64);
+			let cutoff_str = cutoff_date.to_rfc3339();
 
-			let initial_count = self.memories.len();
+			let table = self.db.open_table("memories").execute().await?;
+			
+			// Count memories to be deleted
+			let mut count_results = table
+				.query()
+				.only_if(format!(
+					"created_at < '{}' AND importance < {}",
+					cutoff_str, self.config.cleanup_min_importance
+				))
+				.execute()
+				.await?;
 
-			self.memories.retain(|_, memory| {
-				memory.created_at >= cutoff_date
-					|| memory.metadata.importance >= self.config.cleanup_min_importance
-			});
+			let mut count = 0;
+			while let Some(batch) = count_results.try_next().await? {
+				count += batch.num_rows();
+			}
 
-			let deleted_count = initial_count - self.memories.len();
-			Ok(deleted_count)
+			// Delete old memories
+			table
+				.delete(&format!(
+					"created_at < '{}' AND importance < {}",
+					cutoff_str, self.config.cleanup_min_importance
+				))
+				.await?;
+
+			Ok(count)
 		} else {
 			Ok(0)
 		}
+	}
+
+	/// Convert RecordBatch to Vec<Memory>
+	fn batch_to_memories(&self, batch: &RecordBatch) -> Result<Vec<Memory>> {
+		use chrono::DateTime;
+		
+		let num_rows = batch.num_rows();
+		let mut memories = Vec::with_capacity(num_rows);
+
+		// Extract all columns
+		let id_array = batch
+			.column_by_name("id")
+			.and_then(|col| col.as_any().downcast_ref::<StringArray>())
+			.ok_or_else(|| anyhow::anyhow!("id column not found or wrong type"))?;
+
+		let memory_type_array = batch
+			.column_by_name("memory_type")
+			.and_then(|col| col.as_any().downcast_ref::<StringArray>())
+			.ok_or_else(|| anyhow::anyhow!("memory_type column not found or wrong type"))?;
+
+		let title_array = batch
+			.column_by_name("title")
+			.and_then(|col| col.as_any().downcast_ref::<StringArray>())
+			.ok_or_else(|| anyhow::anyhow!("title column not found or wrong type"))?;
+
+		let content_array = batch
+			.column_by_name("content")
+			.and_then(|col| col.as_any().downcast_ref::<StringArray>())
+			.ok_or_else(|| anyhow::anyhow!("content column not found or wrong type"))?;
+
+		let created_at_array = batch
+			.column_by_name("created_at")
+			.and_then(|col| col.as_any().downcast_ref::<StringArray>())
+			.ok_or_else(|| anyhow::anyhow!("created_at column not found or wrong type"))?;
+
+		let updated_at_array = batch
+			.column_by_name("updated_at")
+			.and_then(|col| col.as_any().downcast_ref::<StringArray>())
+			.ok_or_else(|| anyhow::anyhow!("updated_at column not found or wrong type"))?;
+
+		let importance_array = batch
+			.column_by_name("importance")
+			.and_then(|col| col.as_any().downcast_ref::<Float32Array>())
+			.ok_or_else(|| anyhow::anyhow!("importance column not found or wrong type"))?;
+
+		let confidence_array = batch
+			.column_by_name("confidence")
+			.and_then(|col| col.as_any().downcast_ref::<Float32Array>())
+			.ok_or_else(|| anyhow::anyhow!("confidence column not found or wrong type"))?;
+
+		let tags_array = batch
+			.column_by_name("tags")
+			.and_then(|col| col.as_any().downcast_ref::<StringArray>())
+			.ok_or_else(|| anyhow::anyhow!("tags column not found or wrong type"))?;
+
+		let files_array = batch
+			.column_by_name("related_files")
+			.and_then(|col| col.as_any().downcast_ref::<StringArray>())
+			.ok_or_else(|| anyhow::anyhow!("related_files column not found or wrong type"))?;
+
+		let git_array = batch
+			.column_by_name("git_commit")
+			.and_then(|col| col.as_any().downcast_ref::<StringArray>())
+			.ok_or_else(|| anyhow::anyhow!("git_commit column not found or wrong type"))?;
+
+		for i in 0..num_rows {
+			let memory_type = super::types::MemoryType::from(memory_type_array.value(i).to_string());
+			
+			let tags: Vec<String> = if tags_array.is_null(i) {
+				Vec::new()
+			} else {
+				serde_json::from_str(tags_array.value(i)).unwrap_or_default()
+			};
+
+			let related_files: Vec<String> = if files_array.is_null(i) {
+				Vec::new()
+			} else {
+				serde_json::from_str(files_array.value(i)).unwrap_or_default()
+			};
+
+			let git_commit = if git_array.is_null(i) {
+				None
+			} else {
+				Some(git_array.value(i).to_string())
+			};
+
+			let metadata = super::types::MemoryMetadata {
+				git_commit,
+				importance: importance_array.value(i),
+				confidence: confidence_array.value(i),
+				tags,
+				related_files,
+				..Default::default()
+			};
+
+			let memory = Memory {
+				id: id_array.value(i).to_string(),
+				memory_type,
+				title: title_array.value(i).to_string(),
+				content: content_array.value(i).to_string(),
+				created_at: DateTime::parse_from_rfc3339(created_at_array.value(i))?.with_timezone(&Utc),
+				updated_at: DateTime::parse_from_rfc3339(updated_at_array.value(i))?.with_timezone(&Utc),
+				metadata,
+				relevance_score: None,
+			};
+
+			memories.push(memory);
+		}
+
+		Ok(memories)
+	}
+
+	/// Convert RecordBatch to Vec<MemoryRelationship>
+	fn batch_to_relationships(&self, batch: &RecordBatch) -> Result<Vec<MemoryRelationship>> {
+		use chrono::DateTime;
+		
+		let num_rows = batch.num_rows();
+		let mut relationships = Vec::with_capacity(num_rows);
+
+		// Extract all columns
+		let id_array = batch
+			.column_by_name("id")
+			.and_then(|col| col.as_any().downcast_ref::<StringArray>())
+			.ok_or_else(|| anyhow::anyhow!("id column not found or wrong type"))?;
+
+		let source_array = batch
+			.column_by_name("source_id")
+			.and_then(|col| col.as_any().downcast_ref::<StringArray>())
+			.ok_or_else(|| anyhow::anyhow!("source_id column not found or wrong type"))?;
+
+		let target_array = batch
+			.column_by_name("target_id")
+			.and_then(|col| col.as_any().downcast_ref::<StringArray>())
+			.ok_or_else(|| anyhow::anyhow!("target_id column not found or wrong type"))?;
+
+		let type_array = batch
+			.column_by_name("relationship_type")
+			.and_then(|col| col.as_any().downcast_ref::<StringArray>())
+			.ok_or_else(|| anyhow::anyhow!("relationship_type column not found or wrong type"))?;
+
+		let strength_array = batch
+			.column_by_name("strength")
+			.and_then(|col| col.as_any().downcast_ref::<Float32Array>())
+			.ok_or_else(|| anyhow::anyhow!("strength column not found or wrong type"))?;
+
+		let desc_array = batch
+			.column_by_name("description")
+			.and_then(|col| col.as_any().downcast_ref::<StringArray>())
+			.ok_or_else(|| anyhow::anyhow!("description column not found or wrong type"))?;
+
+		let created_array = batch
+			.column_by_name("created_at")
+			.and_then(|col| col.as_any().downcast_ref::<StringArray>())
+			.ok_or_else(|| anyhow::anyhow!("created_at column not found or wrong type"))?;
+
+		for i in 0..num_rows {
+			let relationship_type = match type_array.value(i) {
+				"RelatedTo" => super::types::RelationshipType::RelatedTo,
+				"DependsOn" => super::types::RelationshipType::DependsOn,
+				"Supersedes" => super::types::RelationshipType::Supersedes,
+				"Similar" => super::types::RelationshipType::Similar,
+				"Conflicts" => super::types::RelationshipType::Conflicts,
+				"Implements" => super::types::RelationshipType::Implements,
+				"Extends" => super::types::RelationshipType::Extends,
+				other => super::types::RelationshipType::Custom(other.to_string()),
+			};
+
+			let relationship = MemoryRelationship {
+				id: id_array.value(i).to_string(),
+				source_id: source_array.value(i).to_string(),
+				target_id: target_array.value(i).to_string(),
+				relationship_type,
+				strength: strength_array.value(i),
+				description: desc_array.value(i).to_string(),
+				created_at: DateTime::parse_from_rfc3339(created_array.value(i))?.with_timezone(&Utc),
+			};
+
+			relationships.push(relationship);
+		}
+
+		Ok(relationships)
 	}
 
 	/// Check if memory matches the query filters
@@ -268,23 +729,6 @@ impl MemoryStore {
 		}
 
 		true
-	}
-
-	/// Calculate cosine similarity between two vectors
-	fn calculate_cosine_similarity(&self, vec1: &[f32], vec2: &[f32]) -> f32 {
-		if vec1.len() != vec2.len() {
-			return 0.0;
-		}
-
-		let dot_product: f32 = vec1.iter().zip(vec2.iter()).map(|(a, b)| a * b).sum();
-		let magnitude1: f32 = vec1.iter().map(|x| x * x).sum::<f32>().sqrt();
-		let magnitude2: f32 = vec2.iter().map(|x| x * x).sum::<f32>().sqrt();
-
-		if magnitude1 == 0.0 || magnitude2 == 0.0 {
-			return 0.0;
-		}
-
-		dot_product / (magnitude1 * magnitude2)
 	}
 
 	/// Generate selection reason for search results
