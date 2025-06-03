@@ -353,6 +353,11 @@ impl MemoryManager {
 		self.store.cleanup_old_memories().await
 	}
 
+	/// Clear all memory data (DANGEROUS: deletes all memories and relationships)
+	pub async fn clear_all(&mut self) -> Result<usize> {
+		self.store.clear_all_memory_data().await
+	}
+
 	/// Auto-create relationships for a new memory
 	async fn create_automatic_relationships(&mut self, memory: &Memory) -> Result<()> {
 		// Find similar memories based on content similarity

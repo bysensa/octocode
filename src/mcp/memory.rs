@@ -420,7 +420,7 @@ impl MemoryProvider {
 
 		// Create a structured response that is JSON-safe
 		let mut memories_data = Vec::new();
-		
+
 		for (i, result) in results.iter().enumerate() {
 			let memory_data = json!({
 				"index": i + 1,
@@ -491,7 +491,7 @@ impl MemoryProvider {
 						"message": "Memory deleted successfully"
 					});
 					Ok(serde_json::to_string(&response)?)
-				},
+				}
 				Err(e) => {
 					let response = json!({
 						"success": 0,
@@ -567,7 +567,7 @@ impl MemoryProvider {
 						"message": format!("{} memories deleted successfully", deleted_count)
 					});
 					Ok(serde_json::to_string(&response)?)
-				},
+				}
 				Err(e) => {
 					let response = json!({
 						"success": 0,

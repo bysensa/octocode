@@ -23,7 +23,12 @@ use arrow::record_batch::RecordBatch;
 
 // LanceDB imports
 use futures::TryStreamExt;
-use lancedb::{connect, index::Index, query::{ExecutableQuery, QueryBase}, Connection, DistanceType};
+use lancedb::{
+	connect,
+	index::Index,
+	query::{ExecutableQuery, QueryBase},
+	Connection, DistanceType,
+};
 
 use super::types::{Memory, MemoryConfig, MemoryQuery, MemoryRelationship, MemorySearchResult};
 
@@ -90,7 +95,10 @@ impl MemoryStore {
 				),
 			]));
 
-			self.db.create_empty_table("memories", schema).execute().await?;
+			self.db
+				.create_empty_table("memories", schema)
+				.execute()
+				.await?;
 		}
 
 		// Create relationships table if it doesn't exist
@@ -105,7 +113,10 @@ impl MemoryStore {
 				Field::new("created_at", DataType::Utf8, false),
 			]));
 
-			self.db.create_empty_table("memory_relationships", schema).execute().await?;
+			self.db
+				.create_empty_table("memory_relationships", schema)
+				.execute()
+				.await?;
 		}
 
 		Ok(())
@@ -175,10 +186,10 @@ impl MemoryStore {
 
 		// Open table and add the batch
 		let table = self.db.open_table("memories").execute().await?;
-		
+
 		// Delete existing memory with same ID if it exists
 		table.delete(&format!("id = '{}'", memory.id)).await.ok();
-		
+
 		// Add new memory
 		use std::iter::once;
 		let batches = once(Ok(batch));
@@ -223,7 +234,13 @@ impl MemoryStore {
 
 		// Also delete any relationships involving this memory
 		let rel_table = self.db.open_table("memory_relationships").execute().await?;
-		rel_table.delete(&format!("source_id = '{}' OR target_id = '{}'", memory_id, memory_id)).await.ok();
+		rel_table
+			.delete(&format!(
+				"source_id = '{}' OR target_id = '{}'",
+				memory_id, memory_id
+			))
+			.await
+			.ok();
 
 		Ok(())
 	}
@@ -231,7 +248,7 @@ impl MemoryStore {
 	/// Get a memory by ID
 	pub async fn get_memory(&self, memory_id: &str) -> Result<Option<Memory>> {
 		let table = self.db.open_table("memories").execute().await?;
-		
+
 		let mut results = table
 			.query()
 			.only_if(format!("id = '{}'", memory_id))
@@ -252,7 +269,7 @@ impl MemoryStore {
 	/// Search memories using vector similarity and optional filters
 	pub async fn search_memories(&self, query: &MemoryQuery) -> Result<Vec<MemorySearchResult>> {
 		let table = self.db.open_table("memories").execute().await?;
-		
+
 		let limit = query
 			.limit
 			.unwrap_or(self.config.max_search_results)
@@ -326,7 +343,8 @@ impl MemoryStore {
 							results.push(MemorySearchResult {
 								memory,
 								relevance_score,
-								selection_reason: self.generate_selection_reason(query, relevance_score),
+								selection_reason: self
+									.generate_selection_reason(query, relevance_score),
 							});
 						}
 					}
@@ -350,7 +368,7 @@ impl MemoryStore {
 	/// Get all memories (paginated)
 	pub async fn get_all_memories(&self, offset: usize, limit: usize) -> Result<Vec<Memory>> {
 		let table = self.db.open_table("memories").execute().await?;
-		
+
 		let mut results = table
 			.query()
 			.limit(offset + limit) // LanceDB doesn't have native offset, so we limit and skip
@@ -358,12 +376,12 @@ impl MemoryStore {
 			.await?;
 
 		let mut all_memories = Vec::new();
-		
+
 		while let Some(batch) = results.try_next().await? {
 			if batch.num_rows() == 0 {
 				continue;
 			}
-			
+
 			let mut batch_memories = self.batch_to_memories(&batch)?;
 			all_memories.append(&mut batch_memories);
 		}
@@ -381,7 +399,7 @@ impl MemoryStore {
 	/// Store a memory relationship
 	pub async fn store_relationship(&mut self, relationship: &MemoryRelationship) -> Result<()> {
 		let table = self.db.open_table("memory_relationships").execute().await?;
-		
+
 		let schema = Arc::new(Schema::new(vec![
 			Field::new("id", DataType::Utf8, false),
 			Field::new("source_id", DataType::Utf8, false),
@@ -398,16 +416,23 @@ impl MemoryStore {
 				Arc::new(StringArray::from(vec![relationship.id.clone()])),
 				Arc::new(StringArray::from(vec![relationship.source_id.clone()])),
 				Arc::new(StringArray::from(vec![relationship.target_id.clone()])),
-				Arc::new(StringArray::from(vec![relationship.relationship_type.to_string()])),
+				Arc::new(StringArray::from(vec![relationship
+					.relationship_type
+					.to_string()])),
 				Arc::new(Float32Array::from(vec![relationship.strength])),
 				Arc::new(StringArray::from(vec![relationship.description.clone()])),
-				Arc::new(StringArray::from(vec![relationship.created_at.to_rfc3339()])),
+				Arc::new(StringArray::from(vec![relationship
+					.created_at
+					.to_rfc3339()])),
 			],
 		)?;
 
 		// Delete existing relationship with same ID if it exists
-		table.delete(&format!("id = '{}'", relationship.id)).await.ok();
-		
+		table
+			.delete(&format!("id = '{}'", relationship.id))
+			.await
+			.ok();
+
 		// Add new relationship
 		use std::iter::once;
 		let batches = once(Ok(batch));
@@ -423,20 +448,23 @@ impl MemoryStore {
 		memory_id: &str,
 	) -> Result<Vec<MemoryRelationship>> {
 		let table = self.db.open_table("memory_relationships").execute().await?;
-		
+
 		let mut results = table
 			.query()
-			.only_if(format!("source_id = '{}' OR target_id = '{}'", memory_id, memory_id))
+			.only_if(format!(
+				"source_id = '{}' OR target_id = '{}'",
+				memory_id, memory_id
+			))
 			.execute()
 			.await?;
 
 		let mut relationships = Vec::new();
-		
+
 		while let Some(batch) = results.try_next().await? {
 			if batch.num_rows() == 0 {
 				continue;
 			}
-			
+
 			let mut batch_relationships = self.batch_to_relationships(&batch)?;
 			relationships.append(&mut batch_relationships);
 		}
@@ -457,7 +485,7 @@ impl MemoryStore {
 			let cutoff_str = cutoff_date.to_rfc3339();
 
 			let table = self.db.open_table("memories").execute().await?;
-			
+
 			// Count memories to be deleted
 			let mut count_results = table
 				.query()
@@ -490,7 +518,7 @@ impl MemoryStore {
 	/// Convert RecordBatch to Vec<Memory>
 	fn batch_to_memories(&self, batch: &RecordBatch) -> Result<Vec<Memory>> {
 		use chrono::DateTime;
-		
+
 		let num_rows = batch.num_rows();
 		let mut memories = Vec::with_capacity(num_rows);
 
@@ -551,8 +579,9 @@ impl MemoryStore {
 			.ok_or_else(|| anyhow::anyhow!("git_commit column not found or wrong type"))?;
 
 		for i in 0..num_rows {
-			let memory_type = super::types::MemoryType::from(memory_type_array.value(i).to_string());
-			
+			let memory_type =
+				super::types::MemoryType::from(memory_type_array.value(i).to_string());
+
 			let tags: Vec<String> = if tags_array.is_null(i) {
 				Vec::new()
 			} else {
@@ -585,8 +614,10 @@ impl MemoryStore {
 				memory_type,
 				title: title_array.value(i).to_string(),
 				content: content_array.value(i).to_string(),
-				created_at: DateTime::parse_from_rfc3339(created_at_array.value(i))?.with_timezone(&Utc),
-				updated_at: DateTime::parse_from_rfc3339(updated_at_array.value(i))?.with_timezone(&Utc),
+				created_at: DateTime::parse_from_rfc3339(created_at_array.value(i))?
+					.with_timezone(&Utc),
+				updated_at: DateTime::parse_from_rfc3339(updated_at_array.value(i))?
+					.with_timezone(&Utc),
 				metadata,
 				relevance_score: None,
 			};
@@ -600,7 +631,7 @@ impl MemoryStore {
 	/// Convert RecordBatch to Vec<MemoryRelationship>
 	fn batch_to_relationships(&self, batch: &RecordBatch) -> Result<Vec<MemoryRelationship>> {
 		use chrono::DateTime;
-		
+
 		let num_rows = batch.num_rows();
 		let mut relationships = Vec::with_capacity(num_rows);
 
@@ -659,7 +690,8 @@ impl MemoryStore {
 				relationship_type,
 				strength: strength_array.value(i),
 				description: desc_array.value(i).to_string(),
-				created_at: DateTime::parse_from_rfc3339(created_array.value(i))?.with_timezone(&Utc),
+				created_at: DateTime::parse_from_rfc3339(created_array.value(i))?
+					.with_timezone(&Utc),
 			};
 
 			relationships.push(relationship);
@@ -729,6 +761,45 @@ impl MemoryStore {
 		}
 
 		true
+	}
+
+	/// Clear all memory data (memories and relationships)
+	pub async fn clear_all_memory_data(&mut self) -> Result<usize> {
+		// Get current counts before deletion
+		let memory_count = self.get_memory_count().await.unwrap_or(0);
+
+		// Count relationships
+		let rel_table = self.db.open_table("memory_relationships").execute().await?;
+		let relationship_count = rel_table.count_rows(None).await.unwrap_or(0);
+
+		let total_deleted = memory_count + relationship_count;
+
+		// Drop and recreate memories table
+		if self
+			.db
+			.table_names()
+			.execute()
+			.await?
+			.contains(&"memories".to_string())
+		{
+			self.db.drop_table("memories").await?;
+		}
+
+		// Drop and recreate relationships table
+		if self
+			.db
+			.table_names()
+			.execute()
+			.await?
+			.contains(&"memory_relationships".to_string())
+		{
+			self.db.drop_table("memory_relationships").await?;
+		}
+
+		// Recreate tables
+		self.initialize_tables().await?;
+
+		Ok(total_deleted)
 	}
 
 	/// Generate selection reason for search results

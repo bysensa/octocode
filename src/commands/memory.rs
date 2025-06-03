@@ -218,6 +218,13 @@ pub enum MemoryCommand {
 		yes: bool,
 	},
 
+	/// Clear ALL memory data (DANGEROUS: deletes everything)
+	ClearAll {
+		/// Confirm deletion without prompting
+		#[arg(short = 'y', long)]
+		yes: bool,
+	},
+
 	/// Create a relationship between two memories
 	Relate {
 		/// Source memory ID
@@ -293,7 +300,14 @@ pub async fn execute(config: &Config, args: &MemoryArgs) -> Result<()> {
 				.map(|f| f.split(',').map(|s| s.trim().to_string()).collect());
 
 			let memory = memory_manager
-				.memorize(mem_type, title.clone(), content.clone(), *importance, tags_vec, files_vec)
+				.memorize(
+					mem_type,
+					title.clone(),
+					content.clone(),
+					*importance,
+					tags_vec,
+					files_vec,
+				)
 				.await?;
 
 			println!("✅ Memory stored successfully!");
@@ -389,12 +403,18 @@ pub async fn execute(config: &Config, args: &MemoryArgs) -> Result<()> {
 						println!("   Type: {}", result.memory.memory_type);
 						println!("   Relevance: {:.2}", result.relevance_score);
 						println!("   Importance: {:.2}", result.memory.metadata.importance);
-						println!("   Created: {}", result.memory.created_at.format("%Y-%m-%d %H:%M:%S"));
+						println!(
+							"   Created: {}",
+							result.memory.created_at.format("%Y-%m-%d %H:%M:%S")
+						);
 						if !result.memory.metadata.tags.is_empty() {
 							println!("   Tags: {}", result.memory.metadata.tags.join(", "));
 						}
 						if !result.memory.metadata.related_files.is_empty() {
-							println!("   Files: {}", result.memory.metadata.related_files.join(", "));
+							println!(
+								"   Files: {}",
+								result.memory.metadata.related_files.join(", ")
+							);
 						}
 						println!("   Content: {}", result.memory.content);
 						println!("   Why selected: {}", result.selection_reason);
@@ -452,18 +472,26 @@ pub async fn execute(config: &Config, args: &MemoryArgs) -> Result<()> {
 
 				if !yes {
 					// First show what would be deleted
-					let preview_results = memory_manager.remember(q, Some(memory_query.clone())).await?;
+					let preview_results = memory_manager
+						.remember(q, Some(memory_query.clone()))
+						.await?;
 					if preview_results.is_empty() {
 						println!("❌ No memories found matching your query.");
 						return Ok(());
 					}
 
-					println!("Found {} memories that would be deleted:", preview_results.len());
+					println!(
+						"Found {} memories that would be deleted:",
+						preview_results.len()
+					);
 					for result in &preview_results {
 						println!("- [{}] {}", result.memory.id, result.memory.title);
 					}
 
-					print!("Are you sure you want to delete these {} memories? (y/N): ", preview_results.len());
+					print!(
+						"Are you sure you want to delete these {} memories? (y/N): ",
+						preview_results.len()
+					);
 					io::stdout().flush()?;
 					let mut input = String::new();
 					io::stdin().read_line(&mut input)?;
@@ -476,7 +504,9 @@ pub async fn execute(config: &Config, args: &MemoryArgs) -> Result<()> {
 				let deleted_count = memory_manager.forget_matching(memory_query).await?;
 				println!("✅ {} memories deleted successfully.", deleted_count);
 			} else {
-				return Err(anyhow::anyhow!("Either --memory-id or --query must be provided"));
+				return Err(anyhow::anyhow!(
+					"Either --memory-id or --query must be provided"
+				));
 			}
 		}
 
@@ -503,7 +533,9 @@ pub async fn execute(config: &Config, args: &MemoryArgs) -> Result<()> {
 			// Handle tag operations
 			if let Some(tags_to_add) = add_tags {
 				for tag in tags_to_add.split(',') {
-					memory_manager.add_tag(memory_id, tag.trim().to_string()).await?;
+					memory_manager
+						.add_tag(memory_id, tag.trim().to_string())
+						.await?;
 				}
 			}
 			if let Some(tags_to_remove) = remove_tags {
@@ -515,12 +547,16 @@ pub async fn execute(config: &Config, args: &MemoryArgs) -> Result<()> {
 			// Handle file operations
 			if let Some(files_to_add) = add_files {
 				for file in files_to_add.split(',') {
-					memory_manager.add_related_file(memory_id, file.trim().to_string()).await?;
+					memory_manager
+						.add_related_file(memory_id, file.trim().to_string())
+						.await?;
 				}
 			}
 			if let Some(files_to_remove) = remove_files {
 				for file in files_to_remove.split(',') {
-					memory_manager.remove_related_file(memory_id, file.trim()).await?;
+					memory_manager
+						.remove_related_file(memory_id, file.trim())
+						.await?;
 				}
 			}
 
@@ -560,10 +596,16 @@ pub async fn execute(config: &Config, args: &MemoryArgs) -> Result<()> {
 			}
 		}
 
-		MemoryCommand::Recent { limit, memory_type, format } => {
+		MemoryCommand::Recent {
+			limit,
+			memory_type,
+			format,
+		} => {
 			let memories = if let Some(mem_type) = memory_type {
 				let parsed_type = MemoryType::from(mem_type.clone());
-				memory_manager.get_memories_by_type(parsed_type, Some(*limit)).await?
+				memory_manager
+					.get_memories_by_type(parsed_type, Some(*limit))
+					.await?
 			} else {
 				memory_manager.get_recent_memories(*limit).await?
 			};
@@ -576,9 +618,15 @@ pub async fn execute(config: &Config, args: &MemoryArgs) -> Result<()> {
 			format_memories(&memories, format);
 		}
 
-		MemoryCommand::ByType { memory_type, limit, format } => {
+		MemoryCommand::ByType {
+			memory_type,
+			limit,
+			format,
+		} => {
 			let parsed_type = MemoryType::from(memory_type.clone());
-			let memories = memory_manager.get_memories_by_type(parsed_type, Some(*limit)).await?;
+			let memories = memory_manager
+				.get_memories_by_type(parsed_type, Some(*limit))
+				.await?;
 
 			if memories.is_empty() {
 				println!("❌ No memories found for type '{}'.", memory_type);
@@ -644,6 +692,28 @@ pub async fn execute(config: &Config, args: &MemoryArgs) -> Result<()> {
 			println!("✅ Cleaned up {} old memories.", cleaned_count);
 		}
 
+		MemoryCommand::ClearAll { yes } => {
+			if !yes {
+				print!(
+					"⚠️  WARNING: This will delete ALL memories and relationships permanently!\n"
+				);
+				print!("Are you absolutely sure you want to clear ALL memory data? (y/N): ");
+				io::stdout().flush()?;
+				let mut input = String::new();
+				io::stdin().read_line(&mut input)?;
+				if !input.trim().to_lowercase().starts_with('y') {
+					println!("Clear all cancelled.");
+					return Ok(());
+				}
+			}
+
+			let deleted_count = memory_manager.clear_all().await?;
+			println!(
+				"✅ Cleared all memory data. {} records deleted.",
+				deleted_count
+			);
+		}
+
 		MemoryCommand::Relate {
 			source_id,
 			target_id,
@@ -698,7 +768,10 @@ pub async fn execute(config: &Config, args: &MemoryArgs) -> Result<()> {
 						} else {
 							&rel.source_id
 						};
-						println!("- {} {} (strength: {:.2})", rel.relationship_type, other_id, rel.strength);
+						println!(
+							"- {} {} (strength: {:.2})",
+							rel.relationship_type, other_id, rel.strength
+						);
 					}
 				}
 				_ => {
@@ -789,7 +862,10 @@ fn format_search_results(results: &[octocode::memory::MemorySearchResult], forma
 				println!("Type: {}", result.memory.memory_type);
 				println!("Relevance: {:.2}", result.relevance_score);
 				println!("Importance: {:.2}", result.memory.metadata.importance);
-				println!("Created: {}", result.memory.created_at.format("%Y-%m-%d %H:%M:%S"));
+				println!(
+					"Created: {}",
+					result.memory.created_at.format("%Y-%m-%d %H:%M:%S")
+				);
 				if !result.memory.metadata.tags.is_empty() {
 					println!("Tags: {}", result.memory.metadata.tags.join(", "));
 				}
