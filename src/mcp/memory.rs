@@ -192,6 +192,40 @@ impl MemoryProvider {
 		]
 	}
 
+	/// Sanitize text content to remove Unicode emojis and other problematic characters
+	/// that could cause string slicing panics in consuming systems
+	fn sanitize_content(text: &str) -> String {
+		text.chars()
+			.filter(|c| {
+				// Keep only ASCII printable characters, basic Unicode letters/numbers, and safe punctuation
+				c.is_ascii() || (c.is_alphanumeric() && !Self::is_emoji(*c))
+			})
+			.collect()
+	}
+
+	/// Check if a character is an emoji or other problematic Unicode symbol
+	fn is_emoji(c: char) -> bool {
+		matches!(c as u32,
+			// Emoji ranges
+			0x1F600..=0x1F64F | // Emoticons
+			0x1F300..=0x1F5FF | // Misc Symbols and Pictographs
+			0x1F680..=0x1F6FF | // Transport and Map
+			0x1F1E6..=0x1F1FF | // Regional indicators
+			0x2600..=0x26FF   | // Misc symbols (covers all the specific ranges below)
+			0x2700..=0x27BF   | // Dingbats
+			0xFE0F | 0x200D    | // Variation selectors and zero-width joiner
+			0x2194..=0x2199   | // Arrows
+			0x2B05..=0x2B07   | // Arrows
+			0x2934..=0x2935   | // Arrows
+			0x3030 | 0x303D   | // Wavy dash, part alternation mark
+			0x3297 | 0x3299   | // Japanese symbols
+			0x2139 | 0x2328   | // Information, keyboard
+			0x23CF | 0x23E9..=0x23F3 | // Play button, etc.
+			0x25AA..=0x25AB | 0x25B6 | 0x25C0 | // Geometric shapes
+			0x25FB..=0x25FE   // White/black squares
+		)
+	}
+
 	/// Execute the memorize tool
 	pub async fn execute_memorize(&self, arguments: &Value) -> Result<String> {
 		let title = arguments
@@ -203,6 +237,10 @@ impl MemoryProvider {
 			.get("content")
 			.and_then(|v| v.as_str())
 			.ok_or_else(|| anyhow::anyhow!("Missing required parameter 'content'"))?;
+
+		// Sanitize input content to prevent Unicode issues
+		let title = Self::sanitize_content(title);
+		let content = Self::sanitize_content(content);
 
 		// Validate lengths
 		if title.len() < 5 || title.len() > 200 {
@@ -230,7 +268,7 @@ impl MemoryProvider {
 
 		let tags = arguments.get("tags").and_then(|v| v.as_array()).map(|arr| {
 			arr.iter()
-				.filter_map(|v| v.as_str().map(|s| s.to_string()))
+				.filter_map(|v| v.as_str().map(|s| Self::sanitize_content(s)))
 				.collect::<Vec<String>>()
 		});
 
@@ -278,7 +316,8 @@ impl MemoryProvider {
 			"message": "Memory stored successfully"
 		});
 
-		Ok(response.to_string())
+		// Ensure proper JSON encoding to avoid string slicing issues
+		Ok(serde_json::to_string(&response)?)
 	}
 
 	/// Execute the remember tool
@@ -371,57 +410,52 @@ impl MemoryProvider {
 		};
 
 		if results.is_empty() {
-			return Ok("# No Memories Found\n\nNo stored memories match your query. Try:\n- Using different search terms\n- Removing filters\n- Checking if any memories have been stored yet".to_string());
+			let response = json!({
+				"success": 1,
+				"memories_found": 0,
+				"message": "No stored memories match your query. Try using different search terms, removing filters, or checking if any memories have been stored yet."
+			});
+			return Ok(serde_json::to_string(&response)?);
 		}
 
-		let mut output = format!("# Found {} Memories\n\n", results.len());
-
+		// Create a structured response that is JSON-safe
+		let mut memories_data = Vec::new();
+		
 		for (i, result) in results.iter().enumerate() {
-			output.push_str(&format!(
-				"## Memory {} (Relevance: {:.2})\n\n\
-					**ID:** {}\n\
-					**Title:** {}\n\
-					**Type:** {}\n\
-					**Importance:** {:.2}\n\
-					**Created:** {}\n\
-					**Git Commit:** {}\n\
-					**Tags:** {}\n\
-					**Related Files:** {}\n\n\
-					### Content\n{}\n\n\
-					**Selection Reason:** {}\n\n",
-				i + 1,
-				result.relevance_score,
-				result.memory.id,
-				result.memory.title,
-				result.memory.memory_type,
-				result.memory.metadata.importance,
-				result.memory.created_at.format("%Y-%m-%d %H:%M:%S UTC"),
-				result
-					.memory
-					.metadata
-					.git_commit
-					.as_deref()
-					.unwrap_or("None"),
-				if result.memory.metadata.tags.is_empty() {
+			let memory_data = json!({
+				"index": i + 1,
+				"relevance_score": result.relevance_score,
+				"memory_id": result.memory.id,
+				"title": Self::sanitize_content(&result.memory.title),
+				"memory_type": result.memory.memory_type.to_string(),
+				"importance": result.memory.metadata.importance,
+				"created_at": result.memory.created_at.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
+				"git_commit": result.memory.metadata.git_commit.as_deref().unwrap_or("None"),
+				"tags": if result.memory.metadata.tags.is_empty() {
 					"None".to_string()
 				} else {
 					result.memory.metadata.tags.join(", ")
 				},
-				if result.memory.metadata.related_files.is_empty() {
+				"related_files": if result.memory.metadata.related_files.is_empty() {
 					"None".to_string()
 				} else {
 					result.memory.metadata.related_files.join(", ")
 				},
-				result.memory.content,
-				result.selection_reason,
-			));
-
-			if i < results.len() - 1 {
-				output.push_str("---\n\n");
-			}
+				"content": Self::sanitize_content(&result.memory.content),
+				"selection_reason": Self::sanitize_content(&result.selection_reason)
+			});
+			memories_data.push(memory_data);
 		}
 
-		Ok(output)
+		// Create a structured JSON response
+		let response = json!({
+			"success": 1,
+			"memories_found": results.len(),
+			"memories": memories_data
+		});
+
+		// Return properly encoded JSON to avoid string slicing issues
+		Ok(serde_json::to_string(&response)?)
 	}
 
 	/// Execute the forget tool
@@ -432,11 +466,11 @@ impl MemoryProvider {
 			.and_then(|v| v.as_bool())
 			.unwrap_or(false)
 		{
-			return Ok(json!({
+			let response = json!({
 				"success": 0,
 				"error": "Missing required confirmation: set 'confirm' to true to proceed with deletion"
-			})
-			.to_string());
+			});
+			return Ok(serde_json::to_string(&response)?);
 		}
 
 		// Handle specific memory ID deletion
@@ -450,22 +484,33 @@ impl MemoryProvider {
 				manager.forget(memory_id).await
 			};
 			match res {
-				Ok(_) => Ok(json!({
-					"success": 1,
-					"memory_id": memory_id,
-					"message": "Memory deleted successfully"
-				})
-				.to_string()),
-				Err(e) => Ok(json!({
+				Ok(_) => {
+					let response = json!({
+						"success": 1,
+						"memory_id": memory_id,
+						"message": "Memory deleted successfully"
+					});
+					Ok(serde_json::to_string(&response)?)
+				},
+				Err(e) => {
+					let response = json!({
 						"success": 0,
 						"memory_id": memory_id,
 						"error": format!("Failed to delete memory: {}", e)
-				})
-				.to_string()),
+					});
+					Ok(serde_json::to_string(&response)?)
+				}
 			}
 		}
 		// Handle query-based deletion
 		else if let Some(query) = arguments.get("query").and_then(|v| v.as_str()) {
+			if query.len() < 3 || query.len() > 500 {
+				let response = json!({
+					"success": 0,
+					"error": "Query must be between 3 and 500 characters"
+				});
+				return Ok(serde_json::to_string(&response)?);
+			}
 			// Parse memory types filter
 			let memory_types = if let Some(types_array) =
 				arguments.get("memory_types").and_then(|v| v.as_array())
@@ -515,24 +560,28 @@ impl MemoryProvider {
 				manager.forget_matching(memory_query).await
 			};
 			match res {
-				Ok(deleted_count) => Ok(json!({
-					"success": 1,
-					"deleted_count": deleted_count,
-					"message": format!("{} memories deleted successfully", deleted_count)
-				})
-				.to_string()),
-				Err(e) => Ok(json!({
-					"success": 0,
-					"error": format!("Failed to delete memories: {}", e)
-				})
-				.to_string()),
+				Ok(deleted_count) => {
+					let response = json!({
+						"success": 1,
+						"deleted_count": deleted_count,
+						"message": format!("{} memories deleted successfully", deleted_count)
+					});
+					Ok(serde_json::to_string(&response)?)
+				},
+				Err(e) => {
+					let response = json!({
+						"success": 0,
+						"error": format!("Failed to delete memories: {}", e)
+					});
+					Ok(serde_json::to_string(&response)?)
+				}
 			}
 		} else {
-			Ok(json!({
+			let response = json!({
 				"success": 0,
 				"error": "Either 'memory_id' or 'query' must be provided"
-			})
-			.to_string())
+			});
+			Ok(serde_json::to_string(&response)?)
 		}
 	}
 }
