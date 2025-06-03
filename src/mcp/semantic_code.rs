@@ -176,10 +176,11 @@ impl SemanticCodeProvider {
 		std::env::set_current_dir(&self.working_directory)?;
 
 		// Get files matching patterns
-		let mut matching_files = Vec::new();
+		let mut matching_files = std::collections::HashSet::new();
 
+		// Compile all glob patterns first
+		let mut compiled_patterns = Vec::new();
 		for pattern in &file_patterns {
-			// Use glob pattern matching
 			let glob_pattern = match globset::Glob::new(pattern) {
 				Ok(g) => g.compile_matcher(),
 				Err(e) => {
@@ -187,28 +188,37 @@ impl SemanticCodeProvider {
 					return Err(anyhow::anyhow!("Invalid glob pattern '{}': {}", pattern, e));
 				}
 			};
+			compiled_patterns.push(glob_pattern);
+		}
 
-			// Use NoindexWalker to respect both .gitignore and .noindex files while finding files
-			let walker = NoindexWalker::create_walker(&self.working_directory).build();
+		// Walk the directory tree once and test all patterns
+		let walker = NoindexWalker::create_walker(&self.working_directory).build();
 
-			for result in walker {
-				let entry = match result {
-					Ok(entry) => entry,
-					Err(_) => continue,
-				};
+		for result in walker {
+			let entry = match result {
+				Ok(entry) => entry,
+				Err(_) => continue,
+			};
 
-				// Skip directories, only process files
-				if !entry.file_type().is_some_and(|ft| ft.is_file()) {
-					continue;
-				}
+			// Skip directories, only process files
+			if !entry.file_type().is_some_and(|ft| ft.is_file()) {
+				continue;
+			}
 
-				// See if this file matches our pattern
-				let relative_path = PathUtils::to_relative_string(entry.path(), &self.working_directory);
+			// Get relative path once
+			let relative_path = PathUtils::to_relative_string(entry.path(), &self.working_directory);
+			
+			// Test against all patterns
+			for glob_pattern in &compiled_patterns {
 				if glob_pattern.is_match(&relative_path) {
-					matching_files.push(entry.path().to_path_buf());
+					matching_files.insert(entry.path().to_path_buf());
+					break; // No need to test other patterns for this file
 				}
 			}
 		}
+
+		// Convert HashSet back to Vec
+		let matching_files: Vec<_> = matching_files.into_iter().collect();
 
 		if matching_files.is_empty() {
 			std::env::set_current_dir(&_original_dir)?;
