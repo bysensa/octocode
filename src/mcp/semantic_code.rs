@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 
 use crate::config::Config;
 use crate::indexer::search::search_codebase;
+use crate::indexer::{extract_file_signatures, signatures_to_markdown, NoindexWalker, PathUtils};
 use crate::mcp::types::McpTool;
 
 /// Semantic code search tool provider
@@ -68,6 +69,41 @@ impl SemanticCodeProvider {
 		}
 	}
 
+	/// Get the tool definition for view_signatures
+	pub fn get_view_signatures_tool_definition() -> McpTool {
+		McpTool {
+			name: "view_signatures".to_string(),
+			description: "Extract and view function signatures, class definitions, and other meaningful code structures from files. Shows method signatures, class definitions, interfaces, and other declarations without full implementation details. Perfect for getting an overview of code structure and available APIs.".to_string(),
+			input_schema: json!({
+				"type": "object",
+				"properties": {
+					"files": {
+						"type": "array",
+						"description": "Array of file paths or glob patterns to analyze for signatures. Examples: ['src/main.rs'], ['**/*.py'], ['src/**/*.ts', 'lib/**/*.js']",
+						"items": {
+							"type": "string",
+							"description": "File path or glob pattern. Can be exact paths like 'src/main.rs' or patterns like '**/*.py' to match multiple files"
+						},
+						"minItems": 1,
+						"maxItems": 100
+					},
+					"format": {
+						"type": "string",
+						"description": "Output format for the signatures",
+						"enum": ["markdown", "json"],
+						"default": "markdown",
+						"enumDescriptions": {
+							"markdown": "Human-readable markdown format with syntax highlighting and organized structure",
+							"json": "Structured JSON format suitable for programmatic processing"
+						}
+					}
+				},
+				"required": ["files"],
+				"additionalProperties": false
+			}),
+		}
+	}
+
 	/// Execute the search_code tool
 	pub async fn execute_search(&self, arguments: &Value) -> Result<String> {
 		let query = arguments
@@ -109,5 +145,121 @@ impl SemanticCodeProvider {
 		std::env::set_current_dir(&_original_dir)?;
 
 		results
+	}
+
+	/// Execute the view_signatures tool
+	pub async fn execute_view_signatures(&self, arguments: &Value) -> Result<String> {
+		let files_array = arguments
+			.get("files")
+			.and_then(|v| v.as_array())
+			.ok_or_else(|| anyhow::anyhow!("Missing required parameter 'files': must be an array of file paths or glob patterns"))?;
+
+		// Validate files array
+		if files_array.is_empty() {
+			return Err(anyhow::anyhow!("Invalid files parameter: array must contain at least one file path or pattern"));
+		}
+		if files_array.len() > 100 {
+			return Err(anyhow::anyhow!("Invalid files parameter: array must contain no more than 100 patterns"));
+		}
+
+		// Extract file patterns
+		let mut file_patterns = Vec::new();
+		for file_value in files_array {
+			let pattern = file_value
+				.as_str()
+				.ok_or_else(|| anyhow::anyhow!("Invalid file pattern: all items in files array must be strings"))?;
+
+			if pattern.trim().is_empty() {
+				return Err(anyhow::anyhow!("Invalid file pattern: patterns cannot be empty"));
+			}
+
+			file_patterns.push(pattern.to_string());
+		}
+
+		let format = arguments
+			.get("format")
+			.and_then(|v| v.as_str())
+			.unwrap_or("markdown");
+
+		// Validate format
+		if !["markdown", "json"].contains(&format) {
+			return Err(anyhow::anyhow!("Invalid format '{}': must be either 'markdown' or 'json'", format));
+		}
+
+		if self.debug {
+			eprintln!("Executing view_signatures: files={:?}, format='{}' in directory '{}'",
+				file_patterns, format, self.working_directory.display());
+		}
+
+		// Change to the working directory for processing
+		let _original_dir = std::env::current_dir()?;
+		std::env::set_current_dir(&self.working_directory)?;
+
+		// Get files matching patterns
+		let mut matching_files = Vec::new();
+
+		for pattern in &file_patterns {
+			// Use glob pattern matching
+			let glob_pattern = match globset::Glob::new(pattern) {
+				Ok(g) => g.compile_matcher(),
+				Err(e) => {
+					std::env::set_current_dir(&_original_dir)?;
+					return Err(anyhow::anyhow!("Invalid glob pattern '{}': {}", pattern, e));
+				}
+			};
+
+			// Use NoindexWalker to respect both .gitignore and .noindex files while finding files
+			let walker = NoindexWalker::create_walker(&self.working_directory).build();
+
+			for result in walker {
+				let entry = match result {
+					Ok(entry) => entry,
+					Err(_) => continue,
+				};
+
+				// Skip directories, only process files
+				if !entry.file_type().is_some_and(|ft| ft.is_file()) {
+					continue;
+				}
+
+				// See if this file matches our pattern
+				let relative_path = PathUtils::to_relative_string(entry.path(), &self.working_directory);
+				if glob_pattern.is_match(&relative_path) {
+					matching_files.push(entry.path().to_path_buf());
+				}
+			}
+		}
+
+		if matching_files.is_empty() {
+			std::env::set_current_dir(&_original_dir)?;
+			return Ok("No matching files found for the specified patterns.".to_string());
+		}
+
+		// Extract signatures from matching files
+		let signatures = match extract_file_signatures(&matching_files) {
+			Ok(sigs) => sigs,
+			Err(e) => {
+				std::env::set_current_dir(&_original_dir)?;
+				return Err(anyhow::anyhow!("Failed to extract signatures: {}", e));
+			}
+		};
+
+		// Restore original directory
+		std::env::set_current_dir(&_original_dir)?;
+
+		// Display results in the requested format
+		match format {
+			"json" => {
+				match serde_json::to_string_pretty(&signatures) {
+					Ok(json_output) => Ok(json_output),
+					Err(e) => Err(anyhow::anyhow!("Failed to serialize signatures to JSON: {}", e)),
+				}
+			},
+			"markdown" | _ => {
+				// Use markdown format (default)
+				let markdown = signatures_to_markdown(&signatures);
+				Ok(markdown)
+			}
+		}
 	}
 }

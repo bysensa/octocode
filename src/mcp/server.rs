@@ -184,7 +184,10 @@ impl McpServer {
 	}
 
 	async fn handle_tools_list(&self, request: &JsonRpcRequest) -> JsonRpcResponse {
-		let mut tools = vec![SemanticCodeProvider::get_tool_definition()];
+		let mut tools = vec![
+			SemanticCodeProvider::get_tool_definition(),
+			SemanticCodeProvider::get_view_signatures_tool_definition(),
+		];
 
 		// Add memory tools if available
 		if self.memory.is_some() {
@@ -248,6 +251,7 @@ impl McpServer {
 
 		let result = match tool_name {
 			"search_code" => self.semantic_code.execute_search(arguments).await,
+			"view_signatures" => self.semantic_code.execute_view_signatures(arguments).await,
 			"search_graphrag" => match &self.graphrag {
 				Some(provider) => provider.execute_search(arguments).await,
 				None => Err(anyhow::anyhow!("GraphRAG is not enabled in the current configuration. Please enable GraphRAG in octocode.toml to use relationship-aware search.")),
@@ -264,7 +268,7 @@ impl McpServer {
 				Some(provider) => provider.execute_forget(arguments).await,
 				None => Err(anyhow::anyhow!("Memory system is not available")),
 			},
-			_ => Err(anyhow::anyhow!("Unknown tool '{}'. Available tools: search_code{}{}",
+			_ => Err(anyhow::anyhow!("Unknown tool '{}'. Available tools: search_code, view_signatures{}{}",
 				tool_name,
 				if self.graphrag.is_some() { ", search_graphrag" } else { "" },
 				if self.memory.is_some() { ", memorize, remember, forget" } else { "" }
