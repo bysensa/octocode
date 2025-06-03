@@ -166,7 +166,7 @@ async fn generate_commit_message(repo_path: &std::path::Path, config: &Config, e
 	// Build the context section
 	let mut context_section = String::new();
 	if let Some(context) = extra_context {
-		context_section = format!("\n\nAdditional context from user:\n{}", context);
+		context_section = format!("\n\nUser commit message:\n{}", context);
 	}
 
 	// Prepare the enhanced prompt for the LLM
@@ -175,7 +175,7 @@ async fn generate_commit_message(repo_path: &std::path::Path, config: &Config, e
 		Rules:\n\
 		1. Use conventional commit format: type(scope): description\n\
 		2. Types: feat, fix, docs, style, refactor, test, chore, perf, ci, build\n\
-		3. Keep the subject line under 50 characters\n\
+		3. Keep the main subject line under 50 characters\n\
 		4. Focus on WHAT changed and WHY, not HOW\n\
 		5. Use imperative mood (\"add\" not \"added\")\n\
 		6. If changes affect multiple files ({} files) or are substantial ({} additions, {} deletions), add a body with bullet points\n\
@@ -185,7 +185,8 @@ async fn generate_commit_message(repo_path: &std::path::Path, config: &Config, e
 			- Keep details concise (max 1 line each)\n\
 			- Focus on key changes, not every file\n\
 		8. Don't include file names in subject unless critical\n\
-		9. Be specific about the nature of changes\n\n\
+		9. Be specific about the nature of changes and precise without adding water, prefer short and concise sentences\n\n\
+		10. If user commit message is provided, use it as the base to understand core changes\n\n\
 		File statistics:\n\
 		{}\n\n\
 		Git diff:\n\
