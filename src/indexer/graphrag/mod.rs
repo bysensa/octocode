@@ -25,8 +25,8 @@ pub mod utils;
 pub use builder::GraphBuilder;
 pub use types::{CodeGraph, CodeNode, CodeRelationship, FunctionInfo};
 pub use utils::{
-	cosine_similarity, detect_project_root, graphrag_nodes_to_markdown,
-	render_graphrag_nodes_json, to_relative_path,
+	cosine_similarity, detect_project_root, graphrag_nodes_to_markdown, render_graphrag_nodes_json,
+	to_relative_path,
 };
 
 // GraphRAG implementation for searching (backward compatibility)

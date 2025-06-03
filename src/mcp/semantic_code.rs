@@ -103,10 +103,14 @@ impl SemanticCodeProvider {
 
 		// Validate query length
 		if query.len() < 3 {
-			return Err(anyhow::anyhow!("Invalid query: must be at least 3 characters long"));
+			return Err(anyhow::anyhow!(
+				"Invalid query: must be at least 3 characters long"
+			));
 		}
 		if query.len() > 500 {
-			return Err(anyhow::anyhow!("Invalid query: must be no more than 500 characters long"));
+			return Err(anyhow::anyhow!(
+				"Invalid query: must be no more than 500 characters long"
+			));
 		}
 
 		let mode = arguments
@@ -116,12 +120,19 @@ impl SemanticCodeProvider {
 
 		// Validate mode
 		if !["code", "text", "docs", "all"].contains(&mode) {
-			return Err(anyhow::anyhow!("Invalid mode '{}': must be one of 'code', 'text', 'docs', or 'all'", mode));
+			return Err(anyhow::anyhow!(
+				"Invalid mode '{}': must be one of 'code', 'text', 'docs', or 'all'",
+				mode
+			));
 		}
 
 		if self.debug {
-			eprintln!("Executing search: query='{}', mode='{}' in directory '{}'",
-				query, mode, self.working_directory.display());
+			eprintln!(
+				"Executing search: query='{}', mode='{}' in directory '{}'",
+				query,
+				mode,
+				self.working_directory.display()
+			);
 		}
 
 		// Change to the working directory for the search
@@ -146,29 +157,38 @@ impl SemanticCodeProvider {
 
 		// Validate files array
 		if files_array.is_empty() {
-			return Err(anyhow::anyhow!("Invalid files parameter: array must contain at least one file path or pattern"));
+			return Err(anyhow::anyhow!(
+				"Invalid files parameter: array must contain at least one file path or pattern"
+			));
 		}
 		if files_array.len() > 100 {
-			return Err(anyhow::anyhow!("Invalid files parameter: array must contain no more than 100 patterns"));
+			return Err(anyhow::anyhow!(
+				"Invalid files parameter: array must contain no more than 100 patterns"
+			));
 		}
 
 		// Extract file patterns
 		let mut file_patterns = Vec::new();
 		for file_value in files_array {
-			let pattern = file_value
-				.as_str()
-				.ok_or_else(|| anyhow::anyhow!("Invalid file pattern: all items in files array must be strings"))?;
+			let pattern = file_value.as_str().ok_or_else(|| {
+				anyhow::anyhow!("Invalid file pattern: all items in files array must be strings")
+			})?;
 
 			if pattern.trim().is_empty() {
-				return Err(anyhow::anyhow!("Invalid file pattern: patterns cannot be empty"));
+				return Err(anyhow::anyhow!(
+					"Invalid file pattern: patterns cannot be empty"
+				));
 			}
 
 			file_patterns.push(pattern.to_string());
 		}
 
 		if self.debug {
-			eprintln!("Executing view_signatures: files={:?} in directory '{}'",
-				file_patterns, self.working_directory.display());
+			eprintln!(
+				"Executing view_signatures: files={:?} in directory '{}'",
+				file_patterns,
+				self.working_directory.display()
+			);
 		}
 
 		// Change to the working directory for processing
@@ -206,8 +226,9 @@ impl SemanticCodeProvider {
 			}
 
 			// Get relative path once
-			let relative_path = PathUtils::to_relative_string(entry.path(), &self.working_directory);
-			
+			let relative_path =
+				PathUtils::to_relative_string(entry.path(), &self.working_directory);
+
 			// Test against all patterns
 			for glob_pattern in &compiled_patterns {
 				if glob_pattern.is_match(&relative_path) {

@@ -18,28 +18,28 @@
 use tree_sitter::Node;
 
 // Import all language modules
-mod javascript;
-mod rust;
-mod python;
-mod go;
-mod cpp;
-mod php;
 mod bash;
-mod ruby;
-mod typescript;
+mod cpp;
+mod go;
+mod javascript;
 mod json;
+mod php;
+mod python;
+mod ruby;
+mod rust;
+mod typescript;
 
 // Re-export language modules
-pub use javascript::JavaScript;
-pub use rust::Rust;
-pub use python::Python;
-pub use go::Go;
-pub use cpp::Cpp;
-pub use php::Php;
 pub use bash::Bash;
-pub use ruby::Ruby;
-pub use typescript::TypeScript;
+pub use cpp::Cpp;
+pub use go::Go;
+pub use javascript::JavaScript;
 pub use json::Json;
+pub use php::Php;
+pub use python::Python;
+pub use ruby::Ruby;
+pub use rust::Rust;
+pub use typescript::TypeScript;
 
 /// Common trait for all language parsers
 pub trait Language {

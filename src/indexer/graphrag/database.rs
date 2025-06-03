@@ -38,7 +38,11 @@ impl<'a> DatabaseOperations<'a> {
 		let mut graph = CodeGraph::default();
 
 		// Check if the tables exist
-		if !self.store.tables_exist(&["graphrag_nodes", "graphrag_relationships"]).await? {
+		if !self
+			.store
+			.tables_exist(&["graphrag_nodes", "graphrag_relationships"])
+			.await?
+		{
 			return Ok(graph); // Return empty graph if tables don't exist
 		}
 
@@ -46,32 +50,86 @@ impl<'a> DatabaseOperations<'a> {
 		let vector_dim = self.store.get_code_vector_dim();
 
 		// Get all nodes
-		let node_batch = self.store.search_graph_nodes(&vec![0.0; vector_dim], 10000).await?;
+		let node_batch = self
+			.store
+			.search_graph_nodes(&vec![0.0; vector_dim], 10000)
+			.await?;
 		if node_batch.num_rows() == 0 {
 			return Ok(graph); // No nodes found
 		}
 
-		println!("Loading {} GraphRAG nodes from database...", node_batch.num_rows());
+		println!(
+			"Loading {} GraphRAG nodes from database...",
+			node_batch.num_rows()
+		);
 
 		// Process nodes
-		let id_array = node_batch.column_by_name("id").unwrap().as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-		let name_array = node_batch.column_by_name("name").unwrap().as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-		let kind_array = node_batch.column_by_name("kind").unwrap().as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-		let path_array = node_batch.column_by_name("path").unwrap().as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-		let description_array = node_batch.column_by_name("description").unwrap().as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-		let symbols_array = node_batch.column_by_name("symbols").unwrap().as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-		let imports_array = node_batch.column_by_name("imports").unwrap().as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-		let exports_array = node_batch.column_by_name("exports").unwrap().as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-		let hash_array = node_batch.column_by_name("hash").unwrap().as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
+		let id_array = node_batch
+			.column_by_name("id")
+			.unwrap()
+			.as_any()
+			.downcast_ref::<arrow::array::StringArray>()
+			.unwrap();
+		let name_array = node_batch
+			.column_by_name("name")
+			.unwrap()
+			.as_any()
+			.downcast_ref::<arrow::array::StringArray>()
+			.unwrap();
+		let kind_array = node_batch
+			.column_by_name("kind")
+			.unwrap()
+			.as_any()
+			.downcast_ref::<arrow::array::StringArray>()
+			.unwrap();
+		let path_array = node_batch
+			.column_by_name("path")
+			.unwrap()
+			.as_any()
+			.downcast_ref::<arrow::array::StringArray>()
+			.unwrap();
+		let description_array = node_batch
+			.column_by_name("description")
+			.unwrap()
+			.as_any()
+			.downcast_ref::<arrow::array::StringArray>()
+			.unwrap();
+		let symbols_array = node_batch
+			.column_by_name("symbols")
+			.unwrap()
+			.as_any()
+			.downcast_ref::<arrow::array::StringArray>()
+			.unwrap();
+		let imports_array = node_batch
+			.column_by_name("imports")
+			.unwrap()
+			.as_any()
+			.downcast_ref::<arrow::array::StringArray>()
+			.unwrap();
+		let exports_array = node_batch
+			.column_by_name("exports")
+			.unwrap()
+			.as_any()
+			.downcast_ref::<arrow::array::StringArray>()
+			.unwrap();
+		let hash_array = node_batch
+			.column_by_name("hash")
+			.unwrap()
+			.as_any()
+			.downcast_ref::<arrow::array::StringArray>()
+			.unwrap();
 
 		// Get the embedding fixed size list array
-		let embedding_array = node_batch.column_by_name("embedding").unwrap()
+		let embedding_array = node_batch
+			.column_by_name("embedding")
+			.unwrap()
 			.as_any()
 			.downcast_ref::<arrow::array::FixedSizeListArray>()
 			.unwrap();
 
 		// Get the values of the embedding array
-		let embedding_values = embedding_array.values()
+		let embedding_values = embedding_array
+			.values()
 			.as_any()
 			.downcast_ref::<arrow::array::Float32Array>()
 			.unwrap();
@@ -127,7 +185,7 @@ impl<'a> DatabaseOperations<'a> {
 				imports,
 				exports,
 				functions: Vec::new(), // Default empty for nodes loaded from old schema
-				size_lines: 0, // Default for nodes loaded from old schema
+				size_lines: 0,         // Default for nodes loaded from old schema
 				language: "unknown".to_string(), // Default for nodes loaded from old schema
 				hash,
 				embedding,
@@ -140,14 +198,42 @@ impl<'a> DatabaseOperations<'a> {
 		// Load relationships
 		let rel_batch = self.store.get_graph_relationships().await?;
 		if rel_batch.num_rows() > 0 {
-			println!("Loading {} GraphRAG relationships from database...", rel_batch.num_rows());
+			println!(
+				"Loading {} GraphRAG relationships from database...",
+				rel_batch.num_rows()
+			);
 
 			// Process relationships
-			let source_array = rel_batch.column_by_name("source").unwrap().as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-			let target_array = rel_batch.column_by_name("target").unwrap().as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-			let type_array = rel_batch.column_by_name("relation_type").unwrap().as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-			let desc_array = rel_batch.column_by_name("description").unwrap().as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-			let conf_array = rel_batch.column_by_name("confidence").unwrap().as_any().downcast_ref::<arrow::array::Float32Array>().unwrap();
+			let source_array = rel_batch
+				.column_by_name("source")
+				.unwrap()
+				.as_any()
+				.downcast_ref::<arrow::array::StringArray>()
+				.unwrap();
+			let target_array = rel_batch
+				.column_by_name("target")
+				.unwrap()
+				.as_any()
+				.downcast_ref::<arrow::array::StringArray>()
+				.unwrap();
+			let type_array = rel_batch
+				.column_by_name("relation_type")
+				.unwrap()
+				.as_any()
+				.downcast_ref::<arrow::array::StringArray>()
+				.unwrap();
+			let desc_array = rel_batch
+				.column_by_name("description")
+				.unwrap()
+				.as_any()
+				.downcast_ref::<arrow::array::StringArray>()
+				.unwrap();
+			let conf_array = rel_batch
+				.column_by_name("confidence")
+				.unwrap()
+				.as_any()
+				.downcast_ref::<arrow::array::Float32Array>()
+				.unwrap();
 
 			// Process each relationship
 			for i in 0..rel_batch.num_rows() {
@@ -166,15 +252,22 @@ impl<'a> DatabaseOperations<'a> {
 		}
 
 		if !graph.nodes.is_empty() {
-			println!("Loaded GraphRAG knowledge graph with {} nodes and {} relationships",
-				graph.nodes.len(), graph.relationships.len());
+			println!(
+				"Loaded GraphRAG knowledge graph with {} nodes and {} relationships",
+				graph.nodes.len(),
+				graph.relationships.len()
+			);
 		}
 
 		Ok(graph)
 	}
 
 	// Save just the newly added nodes and relationships in batches
-	pub async fn save_graph_incremental(&self, new_nodes: &[CodeNode], new_relationships: &[CodeRelationship]) -> Result<()> {
+	pub async fn save_graph_incremental(
+		&self,
+		new_nodes: &[CodeNode],
+		new_relationships: &[CodeRelationship],
+	) -> Result<()> {
 		if new_nodes.is_empty() && new_relationships.is_empty() {
 			// Nothing to save
 			return Ok(());
@@ -183,7 +276,8 @@ impl<'a> DatabaseOperations<'a> {
 		// First, save any new nodes
 		if !new_nodes.is_empty() {
 			// Create a HashMap for the batch conversion function
-			let nodes_map: HashMap<String, CodeNode> = new_nodes.iter()
+			let nodes_map: HashMap<String, CodeNode> = new_nodes
+				.iter()
 				.map(|node| (node.id.clone(), node.clone()))
 				.collect();
 
@@ -207,7 +301,11 @@ impl<'a> DatabaseOperations<'a> {
 	}
 
 	// Search for nodes in database
-	pub async fn search_nodes_in_database(&self, query_embedding: &[f32], query: &str) -> Result<Vec<CodeNode>> {
+	pub async fn search_nodes_in_database(
+		&self,
+		query_embedding: &[f32],
+		query: &str,
+	) -> Result<Vec<CodeNode>> {
 		// Check if the tables exist
 		if !self.store.tables_exist(&["graphrag_nodes"]).await? {
 			return Ok(Vec::new()); // No nodes in database
@@ -224,22 +322,60 @@ impl<'a> DatabaseOperations<'a> {
 		let query_lower = query.to_lowercase();
 
 		// Extract columns from the batch
-		let id_array = node_batch.column_by_name("id").unwrap().as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-		let name_array = node_batch.column_by_name("name").unwrap().as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-		let kind_array = node_batch.column_by_name("kind").unwrap().as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-		let path_array = node_batch.column_by_name("path").unwrap().as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-		let description_array = node_batch.column_by_name("description").unwrap().as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-		let symbols_array = node_batch.column_by_name("symbols").unwrap().as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-		let hash_array = node_batch.column_by_name("hash").unwrap().as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
+		let id_array = node_batch
+			.column_by_name("id")
+			.unwrap()
+			.as_any()
+			.downcast_ref::<arrow::array::StringArray>()
+			.unwrap();
+		let name_array = node_batch
+			.column_by_name("name")
+			.unwrap()
+			.as_any()
+			.downcast_ref::<arrow::array::StringArray>()
+			.unwrap();
+		let kind_array = node_batch
+			.column_by_name("kind")
+			.unwrap()
+			.as_any()
+			.downcast_ref::<arrow::array::StringArray>()
+			.unwrap();
+		let path_array = node_batch
+			.column_by_name("path")
+			.unwrap()
+			.as_any()
+			.downcast_ref::<arrow::array::StringArray>()
+			.unwrap();
+		let description_array = node_batch
+			.column_by_name("description")
+			.unwrap()
+			.as_any()
+			.downcast_ref::<arrow::array::StringArray>()
+			.unwrap();
+		let symbols_array = node_batch
+			.column_by_name("symbols")
+			.unwrap()
+			.as_any()
+			.downcast_ref::<arrow::array::StringArray>()
+			.unwrap();
+		let hash_array = node_batch
+			.column_by_name("hash")
+			.unwrap()
+			.as_any()
+			.downcast_ref::<arrow::array::StringArray>()
+			.unwrap();
 
 		// Get the embedding fixed size list array
-		let embedding_array = node_batch.column_by_name("embedding").unwrap()
+		let embedding_array = node_batch
+			.column_by_name("embedding")
+			.unwrap()
 			.as_any()
 			.downcast_ref::<arrow::array::FixedSizeListArray>()
 			.unwrap();
 
 		// Get the values of the embedding array
-		let embedding_values = embedding_array.values()
+		let embedding_values = embedding_array
+			.values()
 			.as_any()
 			.downcast_ref::<arrow::array::Float32Array>()
 			.unwrap();
@@ -277,11 +413,18 @@ impl<'a> DatabaseOperations<'a> {
 			let name_contains = name.to_lowercase().contains(&query_lower);
 			let kind_contains = kind.to_lowercase().contains(&query_lower);
 			let desc_contains = description.to_lowercase().contains(&query_lower);
-			let symbols_contain = symbols.iter().any(|s| s.to_lowercase().contains(&query_lower));
+			let symbols_contain = symbols
+				.iter()
+				.any(|s| s.to_lowercase().contains(&query_lower));
 
 			// Use a lower threshold for semantic similarity (0.5 instead of 0.6)
 			// OR include if the query is a substring of any important field
-			if similarity > 0.5 || name_contains || kind_contains || desc_contains || symbols_contain {
+			if similarity > 0.5
+				|| name_contains
+				|| kind_contains
+				|| desc_contains
+				|| symbols_contain
+			{
 				// Create the node
 				let node = CodeNode {
 					id,
@@ -290,10 +433,10 @@ impl<'a> DatabaseOperations<'a> {
 					path,
 					description,
 					symbols,
-					imports: Vec::new(), // Default empty for nodes loaded from old schema
-					exports: Vec::new(), // Default empty for nodes loaded from old schema
+					imports: Vec::new(),   // Default empty for nodes loaded from old schema
+					exports: Vec::new(),   // Default empty for nodes loaded from old schema
 					functions: Vec::new(), // Default empty for nodes loaded from old schema
-					size_lines: 0, // Default for nodes loaded from old schema
+					size_lines: 0,         // Default for nodes loaded from old schema
 					language: "unknown".to_string(), // Default for nodes loaded from old schema
 					hash,
 					embedding,
@@ -306,13 +449,17 @@ impl<'a> DatabaseOperations<'a> {
 
 		// Sort nodes by relevance (exact matches first, then by similarity)
 		nodes.sort_by(|a, b| {
-			let a_contains = a.name.to_lowercase().contains(&query_lower) ||
-			a.kind.to_lowercase().contains(&query_lower) ||
-			a.symbols.iter().any(|s| s.to_lowercase().contains(&query_lower));
+			let a_contains = a.name.to_lowercase().contains(&query_lower)
+				|| a.kind.to_lowercase().contains(&query_lower)
+				|| a.symbols
+					.iter()
+					.any(|s| s.to_lowercase().contains(&query_lower));
 
-			let b_contains = b.name.to_lowercase().contains(&query_lower) ||
-			b.kind.to_lowercase().contains(&query_lower) ||
-			b.symbols.iter().any(|s| s.to_lowercase().contains(&query_lower));
+			let b_contains = b.name.to_lowercase().contains(&query_lower)
+				|| b.kind.to_lowercase().contains(&query_lower)
+				|| b.symbols
+					.iter()
+					.any(|s| s.to_lowercase().contains(&query_lower));
 
 			if a_contains && !b_contains {
 				std::cmp::Ordering::Less
@@ -322,7 +469,9 @@ impl<'a> DatabaseOperations<'a> {
 				// Both contain or both don't contain, sort by similarity
 				let a_sim = cosine_similarity(query_embedding, &a.embedding);
 				let b_sim = cosine_similarity(query_embedding, &b.embedding);
-				return b_sim.partial_cmp(&a_sim).unwrap_or(std::cmp::Ordering::Equal);
+				return b_sim
+					.partial_cmp(&a_sim)
+					.unwrap_or(std::cmp::Ordering::Equal);
 			}
 		});
 
@@ -330,7 +479,10 @@ impl<'a> DatabaseOperations<'a> {
 	}
 
 	// Convert nodes to a RecordBatch for database storage with updated schema
-	async fn nodes_to_batch(&self, nodes: &HashMap<String, CodeNode>) -> Result<arrow::record_batch::RecordBatch> {
+	async fn nodes_to_batch(
+		&self,
+		nodes: &HashMap<String, CodeNode>,
+	) -> Result<arrow::record_batch::RecordBatch> {
 		// Get the vector dimension from the store
 		let vector_dim = self.store.get_code_vector_dim();
 
@@ -341,9 +493,9 @@ impl<'a> DatabaseOperations<'a> {
 			Field::new("kind", DataType::Utf8, false),
 			Field::new("path", DataType::Utf8, false),
 			Field::new("description", DataType::Utf8, false),
-			Field::new("symbols", DataType::Utf8, true),  // JSON serialized
-			Field::new("imports", DataType::Utf8, true),  // JSON serialized
-			Field::new("exports", DataType::Utf8, true),  // JSON serialized
+			Field::new("symbols", DataType::Utf8, true), // JSON serialized
+			Field::new("imports", DataType::Utf8, true), // JSON serialized
+			Field::new("exports", DataType::Utf8, true), // JSON serialized
 			Field::new("functions", DataType::Utf8, true), // JSON serialized
 			Field::new("size_lines", DataType::UInt32, false),
 			Field::new("language", DataType::Utf8, false),
@@ -369,10 +521,22 @@ impl<'a> DatabaseOperations<'a> {
 		let kinds: Vec<&str> = nodes_vec.iter().map(|n| n.kind.as_str()).collect();
 		let paths: Vec<&str> = nodes_vec.iter().map(|n| n.path.as_str()).collect();
 		let descriptions: Vec<&str> = nodes_vec.iter().map(|n| n.description.as_str()).collect();
-		let symbols: Vec<String> = nodes_vec.iter().map(|n| serde_json::to_string(&n.symbols).unwrap_or_default()).collect();
-		let imports: Vec<String> = nodes_vec.iter().map(|n| serde_json::to_string(&n.imports).unwrap_or_default()).collect();
-		let exports: Vec<String> = nodes_vec.iter().map(|n| serde_json::to_string(&n.exports).unwrap_or_default()).collect();
-		let functions: Vec<String> = nodes_vec.iter().map(|n| serde_json::to_string(&n.functions).unwrap_or_default()).collect();
+		let symbols: Vec<String> = nodes_vec
+			.iter()
+			.map(|n| serde_json::to_string(&n.symbols).unwrap_or_default())
+			.collect();
+		let imports: Vec<String> = nodes_vec
+			.iter()
+			.map(|n| serde_json::to_string(&n.imports).unwrap_or_default())
+			.collect();
+		let exports: Vec<String> = nodes_vec
+			.iter()
+			.map(|n| serde_json::to_string(&n.exports).unwrap_or_default())
+			.collect();
+		let functions: Vec<String> = nodes_vec
+			.iter()
+			.map(|n| serde_json::to_string(&n.functions).unwrap_or_default())
+			.collect();
 		let size_lines: Vec<u32> = nodes_vec.iter().map(|n| n.size_lines).collect();
 		let languages: Vec<&str> = nodes_vec.iter().map(|n| n.language.as_str()).collect();
 		let hashes: Vec<&str> = nodes_vec.iter().map(|n| n.hash.as_str()).collect();
@@ -384,7 +548,8 @@ impl<'a> DatabaseOperations<'a> {
 			if node.embedding.len() != vector_dim {
 				return Err(anyhow::anyhow!(
 					"Node embedding has dimension {} but expected {}",
-					node.embedding.len(), vector_dim
+					node.embedding.len(),
+					vector_dim
 				));
 			}
 			flattened_embeddings.extend_from_slice(&node.embedding);
@@ -423,7 +588,10 @@ impl<'a> DatabaseOperations<'a> {
 	}
 
 	// Convert relationships to a RecordBatch for database storage
-	async fn relationships_to_batch(&self, relationships: &[CodeRelationship]) -> Result<arrow::record_batch::RecordBatch> {
+	async fn relationships_to_batch(
+		&self,
+		relationships: &[CodeRelationship],
+	) -> Result<arrow::record_batch::RecordBatch> {
 		// Create updated schema with weight field
 		let schema = Arc::new(Schema::new(vec![
 			Field::new("id", DataType::Utf8, false),
@@ -436,11 +604,20 @@ impl<'a> DatabaseOperations<'a> {
 		]));
 
 		// Generate unique IDs
-		let ids: Vec<String> = relationships.iter().map(|_| uuid::Uuid::new_v4().to_string()).collect();
+		let ids: Vec<String> = relationships
+			.iter()
+			.map(|_| uuid::Uuid::new_v4().to_string())
+			.collect();
 		let sources: Vec<&str> = relationships.iter().map(|r| r.source.as_str()).collect();
 		let targets: Vec<&str> = relationships.iter().map(|r| r.target.as_str()).collect();
-		let types: Vec<&str> = relationships.iter().map(|r| r.relation_type.as_str()).collect();
-		let descriptions: Vec<&str> = relationships.iter().map(|r| r.description.as_str()).collect();
+		let types: Vec<&str> = relationships
+			.iter()
+			.map(|r| r.relation_type.as_str())
+			.collect();
+		let descriptions: Vec<&str> = relationships
+			.iter()
+			.map(|r| r.description.as_str())
+			.collect();
 		let confidences: Vec<f32> = relationships.iter().map(|r| r.confidence).collect();
 		let weights: Vec<f32> = relationships.iter().map(|r| r.weight).collect();
 

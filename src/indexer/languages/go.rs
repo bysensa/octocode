@@ -14,8 +14,8 @@
 
 //! Go language implementation for the indexer
 
-use tree_sitter::Node;
 use crate::indexer::languages::Language;
+use tree_sitter::Node;
 
 pub struct Go {}
 
@@ -33,9 +33,9 @@ impl Language for Go {
 			"function_declaration",
 			"method_declaration",
 			"type_declaration", // Keep for simple type aliases
-			// Removed: "struct_type" - can be large
-			// Removed: "interface_type" - can be large
-			// Individual struct fields and interface methods are less useful than the functions that use them
+			                    // Removed: "struct_type" - can be large
+			                    // Removed: "interface_type" - can be large
+			                    // Individual struct fields and interface methods are less useful than the functions that use them
 		]
 	}
 
@@ -61,7 +61,7 @@ impl Language for Go {
 						break;
 					}
 				}
-			},
+			}
 			"type_declaration" => {
 				// Extract type name
 				for child in node.children(&mut node.walk()) {
@@ -76,11 +76,11 @@ impl Language for Go {
 						}
 					}
 				}
-			},
+			}
 			"struct_type" | "interface_type" => {
 				// Extract field names within structs or interfaces
 				self.extract_struct_interface_fields(node, contents, &mut symbols);
-			},
+			}
 			_ => self.extract_identifiers(node, contents, &mut symbols),
 		}
 
@@ -108,7 +108,9 @@ impl Language for Go {
 		if cursor.goto_first_child() {
 			loop {
 				self.extract_identifiers(cursor.node(), contents, symbols);
-				if !cursor.goto_next_sibling() { break; }
+				if !cursor.goto_next_sibling() {
+					break;
+				}
 			}
 		}
 	}
@@ -126,7 +128,11 @@ impl Language for Go {
 			// Type definitions
 			&["type_declaration", "struct_type", "interface_type"],
 			// Variable and constant declarations
-			&["var_declaration", "const_declaration", "short_var_declaration"],
+			&[
+				"var_declaration",
+				"const_declaration",
+				"short_var_declaration",
+			],
 			// Import statements
 			&["import_declaration"],
 		];
@@ -150,7 +156,9 @@ impl Language for Go {
 			"type_declaration" => "type declarations",
 			"struct_type" => "struct definitions",
 			"interface_type" => "interface definitions",
-			"var_declaration" | "const_declaration" | "short_var_declaration" => "variable declarations",
+			"var_declaration" | "const_declaration" | "short_var_declaration" => {
+				"variable declarations"
+			}
 			"import_declaration" => "import statements",
 			_ => "declarations",
 		}
@@ -184,14 +192,15 @@ impl Go {
 								break; // Only process the left side of :=
 							}
 						}
-					},
+					}
 					"var_declaration" => {
 						// Handle var x = 10 or var x int = 10
 						for spec in child.children(&mut child.walk()) {
 							if spec.kind() == "var_spec" {
 								for spec_child in spec.children(&mut spec.walk()) {
 									if spec_child.kind() == "identifier" {
-										if let Ok(name) = spec_child.utf8_text(contents.as_bytes()) {
+										if let Ok(name) = spec_child.utf8_text(contents.as_bytes())
+										{
 											if !symbols.contains(&name.to_string()) {
 												symbols.push(name.to_string());
 											}
@@ -200,14 +209,15 @@ impl Go {
 								}
 							}
 						}
-					},
+					}
 					"const_declaration" => {
 						// Handle const declarations
 						for spec in child.children(&mut child.walk()) {
 							if spec.kind() == "const_spec" {
 								for spec_child in spec.children(&mut spec.walk()) {
 									if spec_child.kind() == "identifier" {
-										if let Ok(name) = spec_child.utf8_text(contents.as_bytes()) {
+										if let Ok(name) = spec_child.utf8_text(contents.as_bytes())
+										{
 											if !symbols.contains(&name.to_string()) {
 												symbols.push(name.to_string());
 											}
@@ -216,11 +226,11 @@ impl Go {
 								}
 							}
 						}
-					},
+					}
 					"block" => {
 						// Recursively process nested blocks
 						self.extract_go_variables(child, contents, symbols);
-					},
+					}
 					"if_statement" | "for_statement" | "switch_statement" => {
 						// Process blocks inside control structures
 						for stmt_child in child.children(&mut child.walk()) {
@@ -228,17 +238,24 @@ impl Go {
 								self.extract_go_variables(stmt_child, contents, symbols);
 							}
 						}
-					},
+					}
 					_ => {}
 				}
 
-				if !cursor.goto_next_sibling() { break; }
+				if !cursor.goto_next_sibling() {
+					break;
+				}
 			}
 		}
 	}
 
 	/// Extract field names from struct or interface types
-	fn extract_struct_interface_fields(&self, node: Node, contents: &str, symbols: &mut Vec<String>) {
+	fn extract_struct_interface_fields(
+		&self,
+		node: Node,
+		contents: &str,
+		symbols: &mut Vec<String>,
+	) {
 		let mut cursor = node.walk();
 		if cursor.goto_first_child() {
 			loop {
@@ -267,7 +284,9 @@ impl Go {
 					}
 				}
 
-				if !cursor.goto_next_sibling() { break; }
+				if !cursor.goto_next_sibling() {
+					break;
+				}
 			}
 		}
 	}

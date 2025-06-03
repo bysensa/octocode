@@ -18,8 +18,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::config::Config;
-use crate::memory::{MemoryManager, MemoryType, MemoryQuery};
 use crate::mcp::types::McpTool;
+use crate::memory::{MemoryManager, MemoryQuery, MemoryType};
 
 /// Memory tools provider
 pub struct MemoryProvider {
@@ -29,7 +29,11 @@ pub struct MemoryProvider {
 }
 
 impl MemoryProvider {
-	pub async fn new(config: &Config, working_directory: std::path::PathBuf, debug: bool) -> Option<Self> {
+	pub async fn new(
+		config: &Config,
+		working_directory: std::path::PathBuf,
+		debug: bool,
+	) -> Option<Self> {
 		match MemoryManager::new(config).await {
 			Ok(manager) => Some(Self {
 				memory_manager: Arc::new(Mutex::new(manager)),
@@ -202,10 +206,14 @@ impl MemoryProvider {
 
 		// Validate lengths
 		if title.len() < 5 || title.len() > 200 {
-			return Err(anyhow::anyhow!("Title must be between 5 and 200 characters"));
+			return Err(anyhow::anyhow!(
+				"Title must be between 5 and 200 characters"
+			));
 		}
 		if content.len() < 10 || content.len() > 10000 {
-			return Err(anyhow::anyhow!("Content must be between 10 and 10000 characters"));
+			return Err(anyhow::anyhow!(
+				"Content must be between 10 and 10000 characters"
+			));
 		}
 
 		let memory_type_str = arguments
@@ -220,14 +228,11 @@ impl MemoryProvider {
 			.and_then(|v| v.as_f64())
 			.map(|v| v as f32);
 
-		let tags = arguments
-			.get("tags")
-			.and_then(|v| v.as_array())
-			.map(|arr| {
-				arr.iter()
-					.filter_map(|v| v.as_str().map(|s| s.to_string()))
-					.collect::<Vec<String>>()
-			});
+		let tags = arguments.get("tags").and_then(|v| v.as_array()).map(|arr| {
+			arr.iter()
+				.filter_map(|v| v.as_str().map(|s| s.to_string()))
+				.collect::<Vec<String>>()
+		});
 
 		let related_files = arguments
 			.get("related_files")
@@ -239,8 +244,10 @@ impl MemoryProvider {
 			});
 
 		if self.debug {
-			eprintln!("Memorizing: title='{}', type='{:?}', importance={:?}",
-				title, memory_type, importance);
+			eprintln!(
+				"Memorizing: title='{}', type='{:?}', importance={:?}",
+				title, memory_type, importance
+			);
 		}
 
 		// Change to working directory for Git context
@@ -249,14 +256,16 @@ impl MemoryProvider {
 
 		let memory = {
 			let mut manager = self.memory_manager.lock().await;
-			manager.memorize(
-				memory_type,
-				title.to_string(),
-				content.to_string(),
-				importance,
-				tags,
-				related_files,
-			).await?
+			manager
+				.memorize(
+					memory_type,
+					title.to_string(),
+					content.to_string(),
+					importance,
+					tags,
+					related_files,
+				)
+				.await?
 		};
 
 		// Restore original directory
@@ -280,20 +289,27 @@ impl MemoryProvider {
 			.ok_or_else(|| anyhow::anyhow!("Missing required parameter 'query'"))?;
 
 		if query.len() < 3 || query.len() > 500 {
-			return Err(anyhow::anyhow!("Query must be between 3 and 500 characters"));
+			return Err(anyhow::anyhow!(
+				"Query must be between 3 and 500 characters"
+			));
 		}
 
 		// Parse memory types filter
-		let memory_types = if let Some(types_array) = arguments.get("memory_types").and_then(|v| v.as_array()) {
-			let types: Vec<MemoryType> = types_array
-				.iter()
-				.filter_map(|v| v.as_str())
-				.map(|s| MemoryType::from(s.to_string()))
-				.collect();
-			if types.is_empty() { None } else { Some(types) }
-		} else {
-			None
-		};
+		let memory_types =
+			if let Some(types_array) = arguments.get("memory_types").and_then(|v| v.as_array()) {
+				let types: Vec<MemoryType> = types_array
+					.iter()
+					.filter_map(|v| v.as_str())
+					.map(|s| MemoryType::from(s.to_string()))
+					.collect();
+				if types.is_empty() {
+					None
+				} else {
+					Some(types)
+				}
+			} else {
+				None
+			};
 
 		// Parse tags filter
 		let tags = if let Some(tags_array) = arguments.get("tags").and_then(|v| v.as_array()) {
@@ -301,21 +317,30 @@ impl MemoryProvider {
 				.iter()
 				.filter_map(|v| v.as_str().map(|s| s.to_string()))
 				.collect();
-			if tag_list.is_empty() { None } else { Some(tag_list) }
+			if tag_list.is_empty() {
+				None
+			} else {
+				Some(tag_list)
+			}
 		} else {
 			None
 		};
 
 		// Parse related files filter
-		let related_files = if let Some(files_array) = arguments.get("related_files").and_then(|v| v.as_array()) {
-			let file_list: Vec<String> = files_array
-				.iter()
-				.filter_map(|v| v.as_str().map(|s| s.to_string()))
-				.collect();
-			if file_list.is_empty() { None } else { Some(file_list) }
-		} else {
-			None
-		};
+		let related_files =
+			if let Some(files_array) = arguments.get("related_files").and_then(|v| v.as_array()) {
+				let file_list: Vec<String> = files_array
+					.iter()
+					.filter_map(|v| v.as_str().map(|s| s.to_string()))
+					.collect();
+				if file_list.is_empty() {
+					None
+				} else {
+					Some(file_list)
+				}
+			} else {
+				None
+			};
 
 		// Set limit
 		let limit = arguments
@@ -333,7 +358,11 @@ impl MemoryProvider {
 		};
 
 		if self.debug {
-			eprintln!("Remembering: query='{}', limit={}", query, memory_query.limit.unwrap_or(10));
+			eprintln!(
+				"Remembering: query='{}', limit={}",
+				query,
+				memory_query.limit.unwrap_or(10)
+			);
 		}
 
 		let results = {
@@ -367,9 +396,22 @@ impl MemoryProvider {
 				result.memory.memory_type,
 				result.memory.metadata.importance,
 				result.memory.created_at.format("%Y-%m-%d %H:%M:%S UTC"),
-				result.memory.metadata.git_commit.as_deref().unwrap_or("None"),
-				if result.memory.metadata.tags.is_empty() { "None".to_string() } else { result.memory.metadata.tags.join(", ") },
-				if result.memory.metadata.related_files.is_empty() { "None".to_string() } else { result.memory.metadata.related_files.join(", ") },
+				result
+					.memory
+					.metadata
+					.git_commit
+					.as_deref()
+					.unwrap_or("None"),
+				if result.memory.metadata.tags.is_empty() {
+					"None".to_string()
+				} else {
+					result.memory.metadata.tags.join(", ")
+				},
+				if result.memory.metadata.related_files.is_empty() {
+					"None".to_string()
+				} else {
+					result.memory.metadata.related_files.join(", ")
+				},
 				result.memory.content,
 				result.selection_reason,
 			));
@@ -385,11 +427,16 @@ impl MemoryProvider {
 	/// Execute the forget tool
 	pub async fn execute_forget(&self, arguments: &Value) -> Result<String> {
 		// Check confirm parameter
-		if !arguments.get("confirm").and_then(|v| v.as_bool()).unwrap_or(false) {
+		if !arguments
+			.get("confirm")
+			.and_then(|v| v.as_bool())
+			.unwrap_or(false)
+		{
 			return Ok(json!({
 				"success": 0,
 				"error": "Missing required confirmation: set 'confirm' to true to proceed with deletion"
-			}).to_string());
+			})
+			.to_string());
 		}
 
 		// Handle specific memory ID deletion
@@ -407,24 +454,32 @@ impl MemoryProvider {
 					"success": 1,
 					"memory_id": memory_id,
 					"message": "Memory deleted successfully"
-				}).to_string()),
+				})
+				.to_string()),
 				Err(e) => Ok(json!({
-					"success": 0,
-					"memory_id": memory_id,
-					"error": format!("Failed to delete memory: {}", e)
-			}).to_string())
+						"success": 0,
+						"memory_id": memory_id,
+						"error": format!("Failed to delete memory: {}", e)
+				})
+				.to_string()),
 			}
 		}
 		// Handle query-based deletion
 		else if let Some(query) = arguments.get("query").and_then(|v| v.as_str()) {
 			// Parse memory types filter
-			let memory_types = if let Some(types_array) = arguments.get("memory_types").and_then(|v| v.as_array()) {
+			let memory_types = if let Some(types_array) =
+				arguments.get("memory_types").and_then(|v| v.as_array())
+			{
 				let types: Vec<MemoryType> = types_array
 					.iter()
 					.filter_map(|v| v.as_str())
 					.map(|s| MemoryType::from(s.to_string()))
 					.collect();
-				if types.is_empty() { None } else { Some(types) }
+				if types.is_empty() {
+					None
+				} else {
+					Some(types)
+				}
 			} else {
 				None
 			};
@@ -435,7 +490,11 @@ impl MemoryProvider {
 					.iter()
 					.filter_map(|v| v.as_str().map(|s| s.to_string()))
 					.collect();
-				if tag_list.is_empty() { None } else { Some(tag_list) }
+				if tag_list.is_empty() {
+					None
+				} else {
+					Some(tag_list)
+				}
 			} else {
 				None
 			};
@@ -460,17 +519,20 @@ impl MemoryProvider {
 					"success": 1,
 					"deleted_count": deleted_count,
 					"message": format!("{} memories deleted successfully", deleted_count)
-				}).to_string()),
+				})
+				.to_string()),
 				Err(e) => Ok(json!({
 					"success": 0,
 					"error": format!("Failed to delete memories: {}", e)
-				}).to_string())
+				})
+				.to_string()),
 			}
 		} else {
 			Ok(json!({
 				"success": 0,
 				"error": "Either 'memory_id' or 'query' must be provided"
-			}).to_string())
+			})
+			.to_string())
 		}
 	}
 }

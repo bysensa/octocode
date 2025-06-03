@@ -14,8 +14,8 @@
 
 // Module for search functionality
 
-use crate::store::{Store, CodeBlock};
 use crate::config::Config;
+use crate::store::{CodeBlock, Store};
 use anyhow::Result;
 use std::collections::HashSet;
 
@@ -35,7 +35,10 @@ pub fn render_code_blocks_with_config(blocks: &[CodeBlock], config: &Config) {
 
 	// Display results in their sorted order (most relevant first)
 	for (idx, block) in blocks.iter().enumerate() {
-		println!("╔══════════════════ File: {} ══════════════════", block.path);
+		println!(
+			"╔══════════════════ File: {} ══════════════════",
+			block.path
+		);
 		println!("║");
 		println!("║ Result {} of {}", idx + 1, blocks.len());
 		println!("║ Language: {}", block.language);
@@ -66,7 +69,8 @@ pub fn render_code_blocks_with_config(blocks: &[CodeBlock], config: &Config) {
 
 		// Use smart truncation based on configuration
 		let max_chars = config.search.search_block_max_characters;
-		let (content, was_truncated) = crate::indexer::truncate_content_smartly(&block.content, max_chars);
+		let (content, was_truncated) =
+			crate::indexer::truncate_content_smartly(&block.content, max_chars);
 
 		// Display content with proper indentation
 		for line in content.lines() {
@@ -91,7 +95,10 @@ pub fn render_results_json(results: &[CodeBlock]) -> Result<(), anyhow::Error> {
 }
 
 // Expand symbols in code blocks to include related code while maintaining relevance order
-pub async fn expand_symbols(store: &Store, code_blocks: Vec<CodeBlock>) -> Result<Vec<CodeBlock>, anyhow::Error> {
+pub async fn expand_symbols(
+	store: &Store,
+	code_blocks: Vec<CodeBlock>,
+) -> Result<Vec<CodeBlock>, anyhow::Error> {
 	// We'll keep original blocks at the top with their original order
 	let mut expanded_blocks = Vec::new();
 	let mut original_hashes = HashSet::new();
@@ -124,11 +131,15 @@ pub async fn expand_symbols(store: &Store, code_blocks: Vec<CodeBlock>) -> Resul
 	let mut additional_blocks = Vec::new();
 
 	// For each symbol, find code blocks that contain it
-	for symbol in &symbol_refs {  // Use a reference to avoid moving symbol_refs
+	for symbol in &symbol_refs {
+		// Use a reference to avoid moving symbol_refs
 		if let Some(block) = store.get_code_block_by_symbol(symbol).await? {
 			// Check if we already have this block (avoid duplicates)
-			if !original_hashes.contains(&block.hash) &&
-			!additional_blocks.iter().any(|b: &CodeBlock| b.hash == block.hash) {
+			if !original_hashes.contains(&block.hash)
+				&& !additional_blocks
+					.iter()
+					.any(|b: &CodeBlock| b.hash == block.hash)
+			{
 				// Add dependencies we haven't seen before
 				additional_blocks.push(block);
 			}
@@ -139,12 +150,8 @@ pub async fn expand_symbols(store: &Store, code_blocks: Vec<CodeBlock>) -> Resul
 	// This is a heuristic to put more complex/relevant blocks first
 	additional_blocks.sort_by(|a, b| {
 		// First try to sort by number of matching symbols (more matches = more relevant)
-		let a_matches = a.symbols.iter()
-			.filter(|s| symbol_refs.contains(s))
-			.count();
-		let b_matches = b.symbols.iter()
-			.filter(|s| symbol_refs.contains(s))
-			.count();
+		let a_matches = a.symbols.iter().filter(|s| symbol_refs.contains(s)).count();
+		let b_matches = b.symbols.iter().filter(|s| symbol_refs.contains(s)).count();
 
 		// Primary sort by symbol match count (descending)
 		let match_cmp = b_matches.cmp(&a_matches);
@@ -183,49 +190,65 @@ pub async fn search_codebase(query: &str, mode: &str, config: &Config) -> Result
 	// Perform the search based on mode
 	match mode {
 		"code" => {
-			let results = store.get_code_blocks_with_config(
-				embeddings,
-				Some(config.search.max_results),
-				Some(config.search.similarity_threshold)
-			).await?;
+			let results = store
+				.get_code_blocks_with_config(
+					embeddings,
+					Some(config.search.max_results),
+					Some(config.search.similarity_threshold),
+				)
+				.await?;
 			Ok(format_code_search_results_as_markdown(&results))
-		},
+		}
 		"text" => {
-			let results = store.get_text_blocks_with_config(
-				embeddings,
-				Some(config.search.max_results),
-				Some(config.search.similarity_threshold)
-			).await?;
+			let results = store
+				.get_text_blocks_with_config(
+					embeddings,
+					Some(config.search.max_results),
+					Some(config.search.similarity_threshold),
+				)
+				.await?;
 			Ok(format_text_search_results_as_markdown(&results))
-		},
+		}
 		"docs" => {
-			let results = store.get_document_blocks_with_config(
-				embeddings,
-				Some(config.search.max_results),
-				Some(config.search.similarity_threshold)
-			).await?;
+			let results = store
+				.get_document_blocks_with_config(
+					embeddings,
+					Some(config.search.max_results),
+					Some(config.search.similarity_threshold),
+				)
+				.await?;
 			Ok(format_doc_search_results_as_markdown(&results))
-		},
+		}
 		_ => {
 			// "all" mode - search across all types
-			let code_results = store.get_code_blocks_with_config(
-				embeddings.clone(),
-				Some(config.search.max_results),
-				Some(config.search.similarity_threshold)
-			).await?;
-			let text_results = store.get_text_blocks_with_config(
-				embeddings.clone(),
-				Some(config.search.max_results),
-				Some(config.search.similarity_threshold)
-			).await?;
-			let doc_results = store.get_document_blocks_with_config(
-				embeddings,
-				Some(config.search.max_results),
-				Some(config.search.similarity_threshold)
-			).await?;
+			let code_results = store
+				.get_code_blocks_with_config(
+					embeddings.clone(),
+					Some(config.search.max_results),
+					Some(config.search.similarity_threshold),
+				)
+				.await?;
+			let text_results = store
+				.get_text_blocks_with_config(
+					embeddings.clone(),
+					Some(config.search.max_results),
+					Some(config.search.similarity_threshold),
+				)
+				.await?;
+			let doc_results = store
+				.get_document_blocks_with_config(
+					embeddings,
+					Some(config.search.max_results),
+					Some(config.search.similarity_threshold),
+				)
+				.await?;
 
 			// Format combined results
-			Ok(format_combined_search_results_as_markdown(&code_results, &text_results, &doc_results))
+			Ok(format_combined_search_results_as_markdown(
+				&code_results,
+				&text_results,
+				&doc_results,
+			))
 		}
 	}
 }
@@ -237,10 +260,14 @@ fn format_code_search_results_as_markdown(blocks: &[CodeBlock]) -> String {
 	}
 
 	let mut output = String::new();
-	output.push_str(&format!("# Code Search Results\n\nFound {} code blocks:\n\n", blocks.len()));
+	output.push_str(&format!(
+		"# Code Search Results\n\nFound {} code blocks:\n\n",
+		blocks.len()
+	));
 
 	// Group blocks by file path for better organization
-	let mut blocks_by_file: std::collections::HashMap<String, Vec<&CodeBlock>> = std::collections::HashMap::new();
+	let mut blocks_by_file: std::collections::HashMap<String, Vec<&CodeBlock>> =
+		std::collections::HashMap::new();
 
 	for block in blocks {
 		blocks_by_file
@@ -254,9 +281,16 @@ fn format_code_search_results_as_markdown(blocks: &[CodeBlock]) -> String {
 		output.push_str(&format!("## File: {}\n\n", file_path));
 
 		for (idx, block) in file_blocks.iter().enumerate() {
-			output.push_str(&format!("### Block {} of {} in file\n\n", idx + 1, file_blocks.len()));
+			output.push_str(&format!(
+				"### Block {} of {} in file\n\n",
+				idx + 1,
+				file_blocks.len()
+			));
 			output.push_str(&format!("- **Language**: {}\n", block.language));
-			output.push_str(&format!("- **Lines**: {}-{}\n", block.start_line, block.end_line));
+			output.push_str(&format!(
+				"- **Lines**: {}-{}\n",
+				block.start_line, block.end_line
+			));
 
 			// Show similarity score if available
 			if let Some(distance) = block.distance {
@@ -270,7 +304,8 @@ fn format_code_search_results_as_markdown(blocks: &[CodeBlock]) -> String {
 				display_symbols.sort();
 				display_symbols.dedup();
 
-				let relevant_symbols: Vec<String> = display_symbols.iter()
+				let relevant_symbols: Vec<String> = display_symbols
+					.iter()
 					.filter(|symbol| !symbol.contains("_"))
 					.cloned()
 					.collect();
@@ -300,10 +335,14 @@ fn format_text_search_results_as_markdown(blocks: &[crate::store::TextBlock]) ->
 	}
 
 	let mut output = String::new();
-	output.push_str(&format!("# Text Search Results\n\nFound {} text blocks:\n\n", blocks.len()));
+	output.push_str(&format!(
+		"# Text Search Results\n\nFound {} text blocks:\n\n",
+		blocks.len()
+	));
 
 	// Group blocks by file path for better organization
-	let mut blocks_by_file: std::collections::HashMap<String, Vec<&crate::store::TextBlock>> = std::collections::HashMap::new();
+	let mut blocks_by_file: std::collections::HashMap<String, Vec<&crate::store::TextBlock>> =
+		std::collections::HashMap::new();
 
 	for block in blocks {
 		blocks_by_file
@@ -317,9 +356,16 @@ fn format_text_search_results_as_markdown(blocks: &[crate::store::TextBlock]) ->
 		output.push_str(&format!("## File: {}\n\n", file_path));
 
 		for (idx, block) in file_blocks.iter().enumerate() {
-			output.push_str(&format!("### Block {} of {} in file\n\n", idx + 1, file_blocks.len()));
+			output.push_str(&format!(
+				"### Block {} of {} in file\n\n",
+				idx + 1,
+				file_blocks.len()
+			));
 			output.push_str(&format!("- **Language**: {}\n", block.language));
-			output.push_str(&format!("- **Lines**: {}-{}\n", block.start_line, block.end_line));
+			output.push_str(&format!(
+				"- **Lines**: {}-{}\n",
+				block.start_line, block.end_line
+			));
 
 			// Show similarity score if available
 			if let Some(distance) = block.distance {
@@ -345,10 +391,14 @@ fn format_doc_search_results_as_markdown(blocks: &[crate::store::DocumentBlock])
 	}
 
 	let mut output = String::new();
-	output.push_str(&format!("# Documentation Search Results\n\nFound {} documentation sections:\n\n", blocks.len()));
+	output.push_str(&format!(
+		"# Documentation Search Results\n\nFound {} documentation sections:\n\n",
+		blocks.len()
+	));
 
 	// Group blocks by file path for better organization
-	let mut blocks_by_file: std::collections::HashMap<String, Vec<&crate::store::DocumentBlock>> = std::collections::HashMap::new();
+	let mut blocks_by_file: std::collections::HashMap<String, Vec<&crate::store::DocumentBlock>> =
+		std::collections::HashMap::new();
 
 	for block in blocks {
 		blocks_by_file
@@ -362,10 +412,17 @@ fn format_doc_search_results_as_markdown(blocks: &[crate::store::DocumentBlock])
 		output.push_str(&format!("## File: {}\n\n", file_path));
 
 		for (idx, block) in file_blocks.iter().enumerate() {
-			output.push_str(&format!("### Section {} of {} in file\n\n", idx + 1, file_blocks.len()));
+			output.push_str(&format!(
+				"### Section {} of {} in file\n\n",
+				idx + 1,
+				file_blocks.len()
+			));
 			output.push_str(&format!("- **Title**: {}\n", block.title));
 			output.push_str(&format!("- **Level**: {}\n", block.level));
-			output.push_str(&format!("- **Lines**: {}-{}\n", block.start_line, block.end_line));
+			output.push_str(&format!(
+				"- **Lines**: {}-{}\n",
+				block.start_line, block.end_line
+			));
 
 			// Show similarity score if available
 			if let Some(distance) = block.distance {
@@ -385,7 +442,7 @@ fn format_doc_search_results_as_markdown(blocks: &[crate::store::DocumentBlock])
 fn format_combined_search_results_as_markdown(
 	code_blocks: &[CodeBlock],
 	text_blocks: &[crate::store::TextBlock],
-	doc_blocks: &[crate::store::DocumentBlock]
+	doc_blocks: &[crate::store::DocumentBlock],
 ) -> String {
 	let mut output = String::new();
 	output.push_str("# Combined Search Results\n\n");

@@ -15,9 +15,9 @@
 use clap::Args;
 
 use octocode::config::Config;
-use octocode::store::Store;
-use octocode::storage;
 use octocode::indexer;
+use octocode::storage;
+use octocode::store::Store;
 
 #[derive(Args, Debug)]
 pub struct ViewArgs {
@@ -33,7 +33,11 @@ pub struct ViewArgs {
 	pub md: bool,
 }
 
-pub async fn execute(_store: &Store, args: &ViewArgs, _config: &Config) -> Result<(), anyhow::Error> {
+pub async fn execute(
+	_store: &Store,
+	args: &ViewArgs,
+	_config: &Config,
+) -> Result<(), anyhow::Error> {
 	// Get current directory
 	let current_dir = std::env::current_dir()?;
 

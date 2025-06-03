@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use clap::Args;
-use std::process::Command;
-use std::io::{self, Write};
 use anyhow::Result;
+use clap::Args;
+use std::io::{self, Write};
+use std::process::Command;
 
 use octocode::config::Config;
 
@@ -51,8 +51,10 @@ pub async fn execute(config: &Config, args: &CommitArgs) -> Result<()> {
 			.output()?;
 
 		if !output.status.success() {
-			return Err(anyhow::anyhow!("Failed to add files: {}",
-				String::from_utf8_lossy(&output.stderr)));
+			return Err(anyhow::anyhow!(
+				"Failed to add files: {}",
+				String::from_utf8_lossy(&output.stderr)
+			));
 		}
 	}
 
@@ -63,13 +65,17 @@ pub async fn execute(config: &Config, args: &CommitArgs) -> Result<()> {
 		.output()?;
 
 	if !output.status.success() {
-		return Err(anyhow::anyhow!("Failed to check staged changes: {}",
-			String::from_utf8_lossy(&output.stderr)));
+		return Err(anyhow::anyhow!(
+			"Failed to check staged changes: {}",
+			String::from_utf8_lossy(&output.stderr)
+		));
 	}
 
 	let staged_files = String::from_utf8(output.stdout)?;
 	if staged_files.trim().is_empty() {
-		return Err(anyhow::anyhow!("❌ No staged changes to commit. Use 'git add' or --all flag."));
+		return Err(anyhow::anyhow!(
+			"❌ No staged changes to commit. Use 'git add' or --all flag."
+		));
 	}
 
 	println!("📋 Staged files:");
@@ -79,7 +85,8 @@ pub async fn execute(config: &Config, args: &CommitArgs) -> Result<()> {
 
 	// Generate commit message using AI (always, but with optional context)
 	println!("\n🤖 Generating commit message...");
-	let commit_message = generate_commit_message(&current_dir, config, args.message.as_deref()).await?;
+	let commit_message =
+		generate_commit_message(&current_dir, config, args.message.as_deref()).await?;
 
 	println!("\n📝 Generated commit message:");
 	println!("═══════════════════════════════════");
@@ -108,8 +115,10 @@ pub async fn execute(config: &Config, args: &CommitArgs) -> Result<()> {
 		.output()?;
 
 	if !output.status.success() {
-		return Err(anyhow::anyhow!("Failed to commit: {}",
-			String::from_utf8_lossy(&output.stderr)));
+		return Err(anyhow::anyhow!(
+			"Failed to commit: {}",
+			String::from_utf8_lossy(&output.stderr)
+		));
 	}
 
 	println!("✅ Successfully committed changes!");
@@ -128,7 +137,11 @@ pub async fn execute(config: &Config, args: &CommitArgs) -> Result<()> {
 	Ok(())
 }
 
-async fn generate_commit_message(repo_path: &std::path::Path, config: &Config, extra_context: Option<&str>) -> Result<String> {
+async fn generate_commit_message(
+	repo_path: &std::path::Path,
+	config: &Config,
+	extra_context: Option<&str>,
+) -> Result<String> {
 	// Get the diff of staged changes
 	let output = Command::new("git")
 		.args(&["diff", "--cached"])
@@ -136,8 +149,10 @@ async fn generate_commit_message(repo_path: &std::path::Path, config: &Config, e
 		.output()?;
 
 	if !output.status.success() {
-		return Err(anyhow::anyhow!("Failed to get diff: {}",
-			String::from_utf8_lossy(&output.stderr)));
+		return Err(anyhow::anyhow!(
+			"Failed to get diff: {}",
+			String::from_utf8_lossy(&output.stderr)
+		));
 	}
 
 	let diff = String::from_utf8(output.stdout)?;
@@ -148,8 +163,14 @@ async fn generate_commit_message(repo_path: &std::path::Path, config: &Config, e
 
 	// Count files and changes
 	let file_count = diff.matches("diff --git").count();
-	let additions = diff.matches("\n+").count().saturating_sub(diff.matches("\n+++").count());
-	let deletions = diff.matches("\n-").count().saturating_sub(diff.matches("\n---").count());
+	let additions = diff
+		.matches("\n+")
+		.count()
+		.saturating_sub(diff.matches("\n+++").count());
+	let deletions = diff
+		.matches("\n-")
+		.count()
+		.saturating_sub(diff.matches("\n---").count());
 
 	// Build the context section
 	let mut context_section = String::new();
@@ -228,7 +249,7 @@ async fn generate_commit_message(repo_path: &std::path::Path, config: &Config, e
 					Ok("chore: update files".to_string())
 				}
 			}
-		},
+		}
 		Err(e) => {
 			eprintln!("Warning: LLM call failed ({}), using fallback", e);
 			Ok("chore: update files".to_string())
@@ -265,7 +286,10 @@ async fn call_llm_for_commit_message(prompt: &str, config: &Config) -> Result<St
 	});
 
 	let response = client
-		.post(&format!("{}/chat/completions", config.openrouter.base_url.trim_end_matches('/')))
+		.post(&format!(
+			"{}/chat/completions",
+			config.openrouter.base_url.trim_end_matches('/')
+		))
 		.header("Authorization", format!("Bearer {}", api_key))
 		.header("Content-Type", "application/json")
 		.json(&payload)

@@ -14,8 +14,8 @@
 
 //! C++ language implementation for the indexer
 
-use tree_sitter::Node;
 use crate::indexer::languages::Language;
+use tree_sitter::Node;
 
 pub struct Cpp {}
 
@@ -65,7 +65,7 @@ impl Language for Cpp {
 						break;
 					}
 				}
-			},
+			}
 			"class_specifier" | "struct_specifier" | "enum_specifier" => {
 				// Find class/struct/enum name
 				for child in node.children(&mut node.walk()) {
@@ -79,7 +79,7 @@ impl Language for Cpp {
 
 				// Extract member names
 				self.extract_cpp_members(node, contents, &mut symbols);
-			},
+			}
 			"namespace_definition" => {
 				// Find namespace name
 				for child in node.children(&mut node.walk()) {
@@ -90,7 +90,7 @@ impl Language for Cpp {
 						break;
 					}
 				}
-			},
+			}
 			_ => self.extract_identifiers(node, contents, &mut symbols),
 		}
 
@@ -118,7 +118,9 @@ impl Language for Cpp {
 		if cursor.goto_first_child() {
 			loop {
 				self.extract_identifiers(cursor.node(), contents, symbols);
-				if !cursor.goto_next_sibling() { break; }
+				if !cursor.goto_next_sibling() {
+					break;
+				}
 			}
 		}
 	}
@@ -140,7 +142,12 @@ impl Language for Cpp {
 			// Templates
 			&["template_declaration"],
 			// Preprocessor directives
-			&["preproc_include", "preproc_define", "preproc_ifdef", "preproc_ifndef"],
+			&[
+				"preproc_include",
+				"preproc_define",
+				"preproc_ifdef",
+				"preproc_ifndef",
+			],
 		];
 
 		// Check if both types belong to the same semantic group
@@ -164,7 +171,9 @@ impl Language for Cpp {
 			"enum_specifier" => "enum declarations",
 			"namespace_definition" => "namespace declarations",
 			"template_declaration" => "template declarations",
-			"preproc_include" | "preproc_define" | "preproc_ifdef" | "preproc_ifndef" => "preprocessor directives",
+			"preproc_include" | "preproc_define" | "preproc_ifdef" | "preproc_ifndef" => {
+				"preprocessor directives"
+			}
 			_ => "declarations",
 		}
 	}
@@ -183,10 +192,13 @@ impl Cpp {
 					"declaration" => {
 						// Handle variable declarations
 						for decl_child in child.children(&mut child.walk()) {
-							if decl_child.kind() == "init_declarator" || decl_child.kind() == "declarator" {
+							if decl_child.kind() == "init_declarator"
+								|| decl_child.kind() == "declarator"
+							{
 								for init_child in decl_child.children(&mut decl_child.walk()) {
 									if init_child.kind() == "identifier" {
-										if let Ok(name) = init_child.utf8_text(contents.as_bytes()) {
+										if let Ok(name) = init_child.utf8_text(contents.as_bytes())
+										{
 											if !symbols.contains(&name.to_string()) {
 												symbols.push(name.to_string());
 											}
@@ -196,11 +208,11 @@ impl Cpp {
 								}
 							}
 						}
-					},
+					}
 					"compound_statement" => {
 						// Recursively process nested blocks
 						self.extract_cpp_variables(child, contents, symbols);
-					},
+					}
 					"if_statement" | "for_statement" | "while_statement" | "do_statement" => {
 						// Process compound statements in control structures
 						for stmt_child in child.children(&mut child.walk()) {
@@ -208,11 +220,13 @@ impl Cpp {
 								self.extract_cpp_variables(stmt_child, contents, symbols);
 							}
 						}
-					},
+					}
 					_ => {}
 				}
 
-				if !cursor.goto_next_sibling() { break; }
+				if !cursor.goto_next_sibling() {
+					break;
+				}
 			}
 		}
 	}
@@ -228,7 +242,9 @@ impl Cpp {
 					"field_declaration" => {
 						// Extract field names
 						for field_child in child.children(&mut child.walk()) {
-							if field_child.kind() == "field_identifier" || field_child.kind() == "identifier" {
+							if field_child.kind() == "field_identifier"
+								|| field_child.kind() == "identifier"
+							{
 								if let Ok(name) = field_child.utf8_text(contents.as_bytes()) {
 									if !symbols.contains(&name.to_string()) {
 										symbols.push(name.to_string());
@@ -236,14 +252,15 @@ impl Cpp {
 								}
 							}
 						}
-					},
+					}
 					"function_definition" => {
 						// Handle method definitions
 						for fn_child in child.children(&mut child.walk()) {
 							if fn_child.kind() == "function_declarator" {
 								for decl_child in fn_child.children(&mut fn_child.walk()) {
 									if decl_child.kind() == "identifier" {
-										if let Ok(name) = decl_child.utf8_text(contents.as_bytes()) {
+										if let Ok(name) = decl_child.utf8_text(contents.as_bytes())
+										{
 											if !symbols.contains(&name.to_string()) {
 												symbols.push(name.to_string());
 											}
@@ -254,16 +271,20 @@ impl Cpp {
 								break;
 							}
 						}
-					},
+					}
 					"enum_specifier" => {
 						// Extract enum constant names
 						for enum_child in child.children(&mut child.walk()) {
 							if enum_child.kind() == "enumerator_list" {
 								for enum_list_child in enum_child.children(&mut enum_child.walk()) {
 									if enum_list_child.kind() == "enumerator" {
-										for enumerator_child in enum_list_child.children(&mut enum_list_child.walk()) {
+										for enumerator_child in
+											enum_list_child.children(&mut enum_list_child.walk())
+										{
 											if enumerator_child.kind() == "identifier" {
-												if let Ok(name) = enumerator_child.utf8_text(contents.as_bytes()) {
+												if let Ok(name) =
+													enumerator_child.utf8_text(contents.as_bytes())
+												{
 													if !symbols.contains(&name.to_string()) {
 														symbols.push(name.to_string());
 													}
@@ -275,11 +296,13 @@ impl Cpp {
 								}
 							}
 						}
-					},
+					}
 					_ => {}
 				}
 
-				if !cursor.goto_next_sibling() { break; }
+				if !cursor.goto_next_sibling() {
+					break;
+				}
 			}
 		}
 	}

@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use chrono::{DateTime, Utc};
 
 /// Types of memories that can be stored - unified for comprehensive coverage
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -164,7 +164,12 @@ impl Memory {
 	}
 
 	/// Update the memory content and metadata
-	pub fn update(&mut self, title: Option<String>, content: Option<String>, metadata: Option<MemoryMetadata>) {
+	pub fn update(
+		&mut self,
+		title: Option<String>,
+		content: Option<String>,
+		metadata: Option<MemoryMetadata>,
+	) {
 		if let Some(title) = title {
 			self.title = title;
 		}
@@ -214,7 +219,12 @@ impl Memory {
 
 	/// Remove a related file
 	pub fn remove_related_file(&mut self, file_path: &str) {
-		if let Some(pos) = self.metadata.related_files.iter().position(|f| f == file_path) {
+		if let Some(pos) = self
+			.metadata
+			.related_files
+			.iter()
+			.position(|f| f == file_path)
+		{
 			self.metadata.related_files.remove(pos);
 			self.updated_at = Utc::now();
 		}

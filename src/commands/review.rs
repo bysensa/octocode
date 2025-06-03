@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use clap::Args;
-use std::process::Command;
 use anyhow::Result;
+use clap::Args;
 use std::collections::HashMap;
+use std::process::Command;
 
 use octocode::config::Config;
 
@@ -55,8 +55,10 @@ pub async fn execute(config: &Config, args: &ReviewArgs) -> Result<()> {
 			.output()?;
 
 		if !output.status.success() {
-			return Err(anyhow::anyhow!("Failed to add files: {}",
-				String::from_utf8_lossy(&output.stderr)));
+			return Err(anyhow::anyhow!(
+				"Failed to add files: {}",
+				String::from_utf8_lossy(&output.stderr)
+			));
 		}
 	}
 
@@ -67,13 +69,17 @@ pub async fn execute(config: &Config, args: &ReviewArgs) -> Result<()> {
 		.output()?;
 
 	if !output.status.success() {
-		return Err(anyhow::anyhow!("Failed to check staged changes: {}",
-			String::from_utf8_lossy(&output.stderr)));
+		return Err(anyhow::anyhow!(
+			"Failed to check staged changes: {}",
+			String::from_utf8_lossy(&output.stderr)
+		));
 	}
 
 	let staged_files = String::from_utf8(output.stdout)?;
 	if staged_files.trim().is_empty() {
-		return Err(anyhow::anyhow!("❌ No staged changes to review. Use 'git add' or --all flag."));
+		return Err(anyhow::anyhow!(
+			"❌ No staged changes to review. Use 'git add' or --all flag."
+		));
 	}
 
 	println!("🔍 Reviewing staged files:");
@@ -117,7 +123,11 @@ struct ReviewIssue {
 	description: String,
 }
 
-async fn perform_code_review(repo_path: &std::path::Path, config: &Config, args: &ReviewArgs) -> Result<ReviewResult> {
+async fn perform_code_review(
+	repo_path: &std::path::Path,
+	config: &Config,
+	args: &ReviewArgs,
+) -> Result<ReviewResult> {
 	// Get the diff of staged changes
 	let output = Command::new("git")
 		.args(&["diff", "--cached"])
@@ -125,8 +135,10 @@ async fn perform_code_review(repo_path: &std::path::Path, config: &Config, args:
 		.output()?;
 
 	if !output.status.success() {
-		return Err(anyhow::anyhow!("Failed to get diff: {}",
-			String::from_utf8_lossy(&output.stderr)));
+		return Err(anyhow::anyhow!(
+			"Failed to get diff: {}",
+			String::from_utf8_lossy(&output.stderr)
+		));
 	}
 
 	let diff = String::from_utf8(output.stdout)?;
@@ -164,8 +176,14 @@ async fn perform_code_review(repo_path: &std::path::Path, config: &Config, args:
 
 	// Analyze file types and count
 	let file_count = changed_files.len();
-	let additions = diff.matches("\n+").count().saturating_sub(diff.matches("\n+++").count());
-	let deletions = diff.matches("\n-").count().saturating_sub(diff.matches("\n---").count());
+	let additions = diff
+		.matches("\n+")
+		.count()
+		.saturating_sub(diff.matches("\n+++").count());
+	let deletions = diff
+		.matches("\n-")
+		.count()
+		.saturating_sub(diff.matches("\n---").count());
 
 	// Build focus area context
 	let focus_context = if let Some(focus) = &args.focus {
@@ -231,12 +249,15 @@ async fn perform_code_review(repo_path: &std::path::Path, config: &Config, args:
 			match serde_json::from_str::<ReviewResult>(&response) {
 				Ok(review_result) => Ok(review_result),
 				Err(e) => {
-					eprintln!("Warning: Failed to parse LLM response as JSON ({}), creating fallback", e);
+					eprintln!(
+						"Warning: Failed to parse LLM response as JSON ({}), creating fallback",
+						e
+					);
 					eprintln!("Raw response: {}", response);
 					create_fallback_review(file_count, &changed_files, &response)
 				}
 			}
-		},
+		}
 		Err(e) => {
 			eprintln!("Warning: LLM call failed ({}), creating basic review", e);
 			create_fallback_review(file_count, &changed_files, "LLM analysis failed")
@@ -255,27 +276,32 @@ fn analyze_file_types(files: &[String]) -> String {
 		}
 	}
 
-	type_counts.iter()
+	type_counts
+		.iter()
 		.map(|(ext, count)| format!("{}: {}", ext, count))
 		.collect::<Vec<_>>()
 		.join(", ")
 }
 
-fn create_fallback_review(file_count: usize, _files: &[String], _llm_response: &str) -> Result<ReviewResult> {
+fn create_fallback_review(
+	file_count: usize,
+	_files: &[String],
+	_llm_response: &str,
+) -> Result<ReviewResult> {
 	Ok(ReviewResult {
 		summary: ReviewSummary {
 			total_files: file_count,
 			total_issues: 1,
 			overall_score: 75,
 		},
-		issues: vec![
-			ReviewIssue {
-				severity: "MEDIUM".to_string(),
-				category: "System".to_string(),
-				title: "Review Analysis Incomplete".to_string(),
-				description: "The automated review could not complete fully. Manual review recommended.".to_string(),
-			}
-		],
+		issues: vec![ReviewIssue {
+			severity: "MEDIUM".to_string(),
+			category: "System".to_string(),
+			title: "Review Analysis Incomplete".to_string(),
+			description:
+				"The automated review could not complete fully. Manual review recommended."
+					.to_string(),
+		}],
 		recommendations: vec![
 			"Consider running the review again".to_string(),
 			"Perform manual code review for complex changes".to_string(),
@@ -291,7 +317,9 @@ fn display_review_results(review: &ReviewResult, severity_filter: &str) {
 	println!("📈 Overall Score: {}/100", review.summary.overall_score);
 
 	// Filter issues by severity
-	let filtered_issues: Vec<&ReviewIssue> = review.issues.iter()
+	let filtered_issues: Vec<&ReviewIssue> = review
+		.issues
+		.iter()
 		.filter(|issue| should_show_issue(&issue.severity, severity_filter))
 		.collect();
 
@@ -336,7 +364,9 @@ fn display_review_results(review: &ReviewResult, severity_filter: &str) {
 
 fn should_show_issue(issue_severity: &str, filter: &str) -> bool {
 	let severity_levels = ["CRITICAL", "HIGH", "MEDIUM", "LOW"];
-	let filter_index = severity_levels.iter().position(|&x| x.to_lowercase() == filter.to_lowercase());
+	let filter_index = severity_levels
+		.iter()
+		.position(|&x| x.to_lowercase() == filter.to_lowercase());
 	let issue_index = severity_levels.iter().position(|&x| x == issue_severity);
 
 	match (filter_index, issue_index) {
@@ -416,7 +446,10 @@ async fn call_llm_for_review(prompt: &str, config: &Config) -> Result<String> {
 	});
 
 	let response = client
-		.post(&format!("{}/chat/completions", config.openrouter.base_url.trim_end_matches('/')))
+		.post(&format!(
+			"{}/chat/completions",
+			config.openrouter.base_url.trim_end_matches('/')
+		))
 		.header("Authorization", format!("Bearer {}", api_key))
 		.header("Content-Type", "application/json")
 		.json(&payload)

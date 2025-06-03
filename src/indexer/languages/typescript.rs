@@ -14,8 +14,8 @@
 
 //! TypeScript language implementation for the indexer
 
+use crate::indexer::languages::{JavaScript, Language};
 use tree_sitter::Node;
-use crate::indexer::languages::{Language, JavaScript};
 
 pub struct TypeScript {}
 
@@ -43,8 +43,11 @@ impl Language for TypeScript {
 		let mut symbols = Vec::new();
 
 		match node.kind() {
-			"function_declaration" | "method_definition" | "class_declaration" |
-			"interface_declaration" | "type_alias_declaration" => {
+			"function_declaration"
+			| "method_definition"
+			| "class_declaration"
+			| "interface_declaration"
+			| "type_alias_declaration" => {
 				// Extract name of the function, method, class, interface or type
 				for child in node.children(&mut node.walk()) {
 					if child.kind() == "identifier" || child.kind().contains("name") {
@@ -84,7 +87,7 @@ impl Language for TypeScript {
 			_ => {
 				let js = JavaScript {};
 				js.extract_identifiers(node, contents, &mut symbols);
-			},
+			}
 		}
 
 		// Deduplicate symbols before returning
@@ -109,7 +112,11 @@ impl Language for TypeScript {
 		// TypeScript-specific semantic groups
 		let semantic_groups = [
 			// Functions and methods
-			&["function_declaration", "method_definition", "arrow_function"] as &[&str],
+			&[
+				"function_declaration",
+				"method_definition",
+				"arrow_function",
+			] as &[&str],
 			// Classes and interfaces
 			&["class_declaration", "interface_declaration"],
 			// Type definitions
@@ -135,7 +142,9 @@ impl Language for TypeScript {
 
 	fn get_node_type_description(&self, node_type: &str) -> &'static str {
 		match node_type {
-			"function_declaration" | "method_definition" | "arrow_function" => "function declarations",
+			"function_declaration" | "method_definition" | "arrow_function" => {
+				"function declarations"
+			}
 			"class_declaration" => "class declarations",
 			"interface_declaration" => "interface declarations",
 			"type_alias_declaration" => "type declarations",

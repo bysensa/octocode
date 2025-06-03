@@ -15,7 +15,7 @@
 // GraphRAG relationship discovery logic
 
 use crate::indexer::graphrag::types::{CodeNode, CodeRelationship, FunctionInfo};
-use crate::indexer::graphrag::utils::{symbols_match, is_parent_child_relationship};
+use crate::indexer::graphrag::utils::{is_parent_child_relationship, symbols_match};
 use crate::store::CodeBlock;
 use anyhow::Result;
 use std::path::Path;
@@ -24,7 +24,10 @@ pub struct RelationshipDiscovery;
 
 impl RelationshipDiscovery {
 	// Discover relationships efficiently without AI for most cases
-	pub async fn discover_relationships_efficiently(new_files: &[CodeNode], all_nodes: &[CodeNode]) -> Result<Vec<CodeRelationship>> {
+	pub async fn discover_relationships_efficiently(
+		new_files: &[CodeNode],
+		all_nodes: &[CodeNode],
+	) -> Result<Vec<CodeRelationship>> {
 		let mut relationships = Vec::new();
 
 		for source_file in new_files {
@@ -36,8 +39,15 @@ impl RelationshipDiscovery {
 					}
 
 					// Check if target exports what source imports
-					if target_file.exports.iter().any(|exp| symbols_match(import, exp)) ||
-					target_file.symbols.iter().any(|sym| symbols_match(import, sym)) {
+					if target_file
+						.exports
+						.iter()
+						.any(|exp| symbols_match(import, exp))
+						|| target_file
+							.symbols
+							.iter()
+							.any(|sym| symbols_match(import, sym))
+					{
 						relationships.push(CodeRelationship {
 							source: source_file.id.clone(),
 							target: target_file.id.clone(),
@@ -51,7 +61,8 @@ impl RelationshipDiscovery {
 			}
 
 			// 2. Directory-based relationships (medium confidence)
-			let source_dir = Path::new(&source_file.path).parent()
+			let source_dir = Path::new(&source_file.path)
+				.parent()
 				.map(|p| p.to_string_lossy().to_string())
 				.unwrap_or_else(|| ".".to_string());
 
@@ -60,7 +71,8 @@ impl RelationshipDiscovery {
 					continue;
 				}
 
-				let other_dir = Path::new(&other_file.path).parent()
+				let other_dir = Path::new(&other_file.path)
+					.parent()
 					.map(|p| p.to_string_lossy().to_string())
 					.unwrap_or_else(|| ".".to_string());
 
@@ -103,13 +115,20 @@ impl RelationshipDiscovery {
 			}
 
 			// 4. Language-specific pattern relationships
-			Self::discover_language_specific_relationships(source_file, all_nodes, &mut relationships);
+			Self::discover_language_specific_relationships(
+				source_file,
+				all_nodes,
+				&mut relationships,
+			);
 		}
 
 		// Deduplicate relationships
 		relationships.sort_by(|a, b| {
-			(a.source.clone(), a.target.clone(), a.relation_type.clone())
-				.cmp(&(b.source.clone(), b.target.clone(), b.relation_type.clone()))
+			(a.source.clone(), a.target.clone(), a.relation_type.clone()).cmp(&(
+				b.source.clone(),
+				b.target.clone(),
+				b.relation_type.clone(),
+			))
 		});
 		relationships.dedup_by(|a, b| {
 			a.source == b.source && a.target == b.target && a.relation_type == b.relation_type
@@ -119,17 +138,21 @@ impl RelationshipDiscovery {
 	}
 
 	// Discover language-specific relationships
-	fn discover_language_specific_relationships(source_file: &CodeNode, all_nodes: &[CodeNode], relationships: &mut Vec<CodeRelationship>) {
+	fn discover_language_specific_relationships(
+		source_file: &CodeNode,
+		all_nodes: &[CodeNode],
+		relationships: &mut Vec<CodeRelationship>,
+	) {
 		match source_file.language.as_str() {
 			"rust" => {
 				Self::discover_rust_relationships(source_file, all_nodes, relationships);
-			},
+			}
 			"javascript" | "typescript" => {
 				Self::discover_js_ts_relationships(source_file, all_nodes, relationships);
-			},
+			}
 			"python" => {
 				Self::discover_python_relationships(source_file, all_nodes, relationships);
-			},
+			}
 			_ => {
 				// Generic patterns for other languages
 			}
@@ -137,14 +160,22 @@ impl RelationshipDiscovery {
 	}
 
 	// Rust-specific relationship patterns
-	fn discover_rust_relationships(source_file: &CodeNode, all_nodes: &[CodeNode], relationships: &mut Vec<CodeRelationship>) {
+	fn discover_rust_relationships(
+		source_file: &CodeNode,
+		all_nodes: &[CodeNode],
+		relationships: &mut Vec<CodeRelationship>,
+	) {
 		for other_file in all_nodes {
 			if other_file.id == source_file.id || other_file.language != "rust" {
 				continue;
 			}
 
 			// Check for mod.rs patterns
-			if source_file.name == "mod" && other_file.path.starts_with(&source_file.path.replace("/mod.rs", "/")) {
+			if source_file.name == "mod"
+				&& other_file
+					.path
+					.starts_with(&source_file.path.replace("/mod.rs", "/"))
+			{
 				relationships.push(CodeRelationship {
 					source: source_file.id.clone(),
 					target: other_file.id.clone(),
@@ -157,7 +188,8 @@ impl RelationshipDiscovery {
 
 			// Check for lib.rs patterns
 			if source_file.name == "lib" || source_file.name == "main" {
-				let source_dir = Path::new(&source_file.path).parent()
+				let source_dir = Path::new(&source_file.path)
+					.parent()
 					.map(|p| p.to_string_lossy().to_string())
 					.unwrap_or_default();
 				if other_file.path.starts_with(&source_dir) {
@@ -175,15 +207,22 @@ impl RelationshipDiscovery {
 	}
 
 	// JavaScript/TypeScript-specific relationship patterns
-	fn discover_js_ts_relationships(source_file: &CodeNode, all_nodes: &[CodeNode], relationships: &mut Vec<CodeRelationship>) {
+	fn discover_js_ts_relationships(
+		source_file: &CodeNode,
+		all_nodes: &[CodeNode],
+		relationships: &mut Vec<CodeRelationship>,
+	) {
 		for other_file in all_nodes {
-			if other_file.id == source_file.id || !["javascript", "typescript"].contains(&other_file.language.as_str()) {
+			if other_file.id == source_file.id
+				|| !["javascript", "typescript"].contains(&other_file.language.as_str())
+			{
 				continue;
 			}
 
 			// Check for index.js patterns
 			if source_file.name == "index" {
-				let source_dir = Path::new(&source_file.path).parent()
+				let source_dir = Path::new(&source_file.path)
+					.parent()
 					.map(|p| p.to_string_lossy().to_string())
 					.unwrap_or_default();
 				if other_file.path.starts_with(&source_dir) && other_file.name != "index" {
@@ -201,7 +240,11 @@ impl RelationshipDiscovery {
 	}
 
 	// Python-specific relationship patterns
-	fn discover_python_relationships(source_file: &CodeNode, all_nodes: &[CodeNode], relationships: &mut Vec<CodeRelationship>) {
+	fn discover_python_relationships(
+		source_file: &CodeNode,
+		all_nodes: &[CodeNode],
+		relationships: &mut Vec<CodeRelationship>,
+	) {
 		for other_file in all_nodes {
 			if other_file.id == source_file.id || other_file.language != "python" {
 				continue;
@@ -209,7 +252,8 @@ impl RelationshipDiscovery {
 
 			// Check for __init__.py patterns
 			if source_file.name == "__init__" {
-				let source_dir = Path::new(&source_file.path).parent()
+				let source_dir = Path::new(&source_file.path)
+					.parent()
 					.map(|p| p.to_string_lossy().to_string())
 					.unwrap_or_default();
 				if other_file.path.starts_with(&source_dir) && other_file.name != "__init__" {
@@ -248,20 +292,26 @@ impl RelationshipDiscovery {
 		// Simple pattern matching for common function symbol formats
 		// This can be expanded based on your language implementations
 
-		symbol.strip_prefix("function_").map(|function_name| FunctionInfo {
-			name: function_name.to_string(),
-			signature: format!("{}(...)", function_name), // Simplified
-			start_line: block.start_line as u32,
-			end_line: block.end_line as u32,
-			calls: Vec::new(), // Will be populated during relationship discovery
-			called_by: Vec::new(),
-			parameters: Vec::new(), // Could be extracted from content if needed
-			return_type: None,
-		})
+		symbol
+			.strip_prefix("function_")
+			.map(|function_name| FunctionInfo {
+				name: function_name.to_string(),
+				signature: format!("{}(...)", function_name), // Simplified
+				start_line: block.start_line as u32,
+				end_line: block.end_line as u32,
+				calls: Vec::new(), // Will be populated during relationship discovery
+				called_by: Vec::new(),
+				parameters: Vec::new(), // Could be extracted from content if needed
+				return_type: None,
+			})
 	}
 
 	// Extract imports/exports efficiently based on language patterns and symbols
-	pub fn extract_imports_exports_efficient(symbols: &[String], language: &str, _relative_path: &str) -> (Vec<String>, Vec<String>) {
+	pub fn extract_imports_exports_efficient(
+		symbols: &[String],
+		language: &str,
+		_relative_path: &str,
+	) -> (Vec<String>, Vec<String>) {
 		let mut imports = Vec::new();
 		let mut exports = Vec::new();
 
@@ -274,7 +324,10 @@ impl RelationshipDiscovery {
 			}
 
 			if symbol.contains("export_") || symbol.contains("public_") {
-				if let Some(export_name) = symbol.strip_prefix("export_").or_else(|| symbol.strip_prefix("public_")) {
+				if let Some(export_name) = symbol
+					.strip_prefix("export_")
+					.or_else(|| symbol.strip_prefix("public_"))
+				{
 					exports.push(export_name.to_string());
 				}
 			}
@@ -292,7 +345,7 @@ impl RelationshipDiscovery {
 						exports.push(symbol.strip_prefix("pub_").unwrap_or(symbol).to_string());
 					}
 				}
-			},
+			}
 			"javascript" | "typescript" => {
 				// For JS/TS, look for module patterns
 				for symbol in symbols {
@@ -303,7 +356,7 @@ impl RelationshipDiscovery {
 						exports.push(symbol.to_string());
 					}
 				}
-			},
+			}
 			"python" => {
 				// For Python, look for import patterns
 				for symbol in symbols {
@@ -315,7 +368,7 @@ impl RelationshipDiscovery {
 						exports.push(symbol.to_string());
 					}
 				}
-			},
+			}
 			_ => {
 				// Generic approach
 			}
@@ -334,9 +387,15 @@ impl RelationshipDiscovery {
 	pub fn determine_file_kind(relative_path: &str) -> String {
 		if relative_path.contains("/src/") || relative_path.contains("/lib/") {
 			"source_file".to_string()
-		} else if relative_path.contains("/test") || relative_path.contains("_test.") || relative_path.contains(".test.") {
+		} else if relative_path.contains("/test")
+			|| relative_path.contains("_test.")
+			|| relative_path.contains(".test.")
+		{
 			"test_file".to_string()
-		} else if relative_path.ends_with(".md") || relative_path.ends_with(".txt") || relative_path.ends_with(".rst") {
+		} else if relative_path.ends_with(".md")
+			|| relative_path.ends_with(".txt")
+			|| relative_path.ends_with(".rst")
+		{
 			"documentation".to_string()
 		} else if relative_path.contains("/config") || relative_path.contains(".config") {
 			"config_file".to_string()
@@ -348,19 +407,36 @@ impl RelationshipDiscovery {
 	}
 
 	// Generate simple description without AI for speed (fallback and default)
-	pub fn generate_simple_description(file_name: &str, language: &str, symbols: &[String], lines: u32) -> String {
-		let function_count = symbols.iter().filter(|s| s.contains("function_") || s.contains("method_")).count();
-		let class_count = symbols.iter().filter(|s| s.contains("class_") || s.contains("struct_")).count();
+	pub fn generate_simple_description(
+		file_name: &str,
+		language: &str,
+		symbols: &[String],
+		lines: u32,
+	) -> String {
+		let function_count = symbols
+			.iter()
+			.filter(|s| s.contains("function_") || s.contains("method_"))
+			.count();
+		let class_count = symbols
+			.iter()
+			.filter(|s| s.contains("class_") || s.contains("struct_"))
+			.count();
 
 		if function_count > 0 && class_count > 0 {
-			format!("{} {} file with {} functions and {} classes ({} lines)",
-				file_name, language, function_count, class_count, lines)
+			format!(
+				"{} {} file with {} functions and {} classes ({} lines)",
+				file_name, language, function_count, class_count, lines
+			)
 		} else if function_count > 0 {
-			format!("{} {} file with {} functions ({} lines)",
-				file_name, language, function_count, lines)
+			format!(
+				"{} {} file with {} functions ({} lines)",
+				file_name, language, function_count, lines
+			)
 		} else if class_count > 0 {
-			format!("{} {} file with {} classes ({} lines)",
-				file_name, language, class_count, lines)
+			format!(
+				"{} {} file with {} classes ({} lines)",
+				file_name, language, class_count, lines
+			)
 		} else {
 			format!("{} {} file ({} lines)", file_name, language, lines)
 		}

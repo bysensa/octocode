@@ -13,7 +13,7 @@
 // limitations under the License.
 
 //! Embedding providers module
-//! 
+//!
 //! This module contains implementations for different embedding providers.
 //! Each provider can be optionally compiled based on cargo features.
 
@@ -39,7 +39,10 @@ pub trait EmbeddingProvider: Send + Sync {
 }
 
 /// Create an embedding provider from provider type and model
-pub fn create_embedding_provider_from_parts(provider: &EmbeddingProviderType, model: &str) -> Result<Box<dyn EmbeddingProvider>> {
+pub fn create_embedding_provider_from_parts(
+	provider: &EmbeddingProviderType,
+	model: &str,
+) -> Result<Box<dyn EmbeddingProvider>> {
 	match provider {
 		EmbeddingProviderType::FastEmbed => {
 			#[cfg(feature = "fastembed")]
@@ -51,15 +54,9 @@ pub fn create_embedding_provider_from_parts(provider: &EmbeddingProviderType, mo
 				Err(anyhow::anyhow!("FastEmbed support is not compiled in. Please rebuild with --features fastembed"))
 			}
 		}
-		EmbeddingProviderType::Jina => {
-			Ok(Box::new(JinaProviderImpl::new(model)))
-		}
-		EmbeddingProviderType::Voyage => {
-			Ok(Box::new(VoyageProviderImpl::new(model)))
-		}
-		EmbeddingProviderType::Google => {
-			Ok(Box::new(GoogleProviderImpl::new(model)))
-		}
+		EmbeddingProviderType::Jina => Ok(Box::new(JinaProviderImpl::new(model))),
+		EmbeddingProviderType::Voyage => Ok(Box::new(VoyageProviderImpl::new(model))),
+		EmbeddingProviderType::Google => Ok(Box::new(GoogleProviderImpl::new(model))),
 		EmbeddingProviderType::SentenceTransformer => {
 			#[cfg(feature = "sentence-transformer")]
 			{
@@ -175,15 +172,19 @@ pub struct JinaProvider;
 impl JinaProvider {
 	pub async fn generate_embeddings(contents: &str, model: &str) -> Result<Vec<f32>> {
 		let result = Self::generate_embeddings_batch(vec![contents.to_string()], model).await?;
-		result.first()
+		result
+			.first()
 			.cloned()
 			.ok_or_else(|| anyhow::anyhow!("No embeddings found"))
 	}
 
-	pub async fn generate_embeddings_batch(texts: Vec<String>, model: &str) -> Result<Vec<Vec<f32>>> {
+	pub async fn generate_embeddings_batch(
+		texts: Vec<String>,
+		model: &str,
+	) -> Result<Vec<Vec<f32>>> {
 		let client = Client::new();
-		let jina_api_key = std::env::var("JINA_API_KEY")
-			.context("JINA_API_KEY environment variable not set")?;
+		let jina_api_key =
+			std::env::var("JINA_API_KEY").context("JINA_API_KEY environment variable not set")?;
 
 		let response = client
 			.post("https://api.jina.ai/v1/embeddings")
@@ -193,7 +194,7 @@ impl JinaProvider {
 				"model": model,
 			}))
 			.send()
-		.await?;
+			.await?;
 
 		let response_json: Value = response.json().await?;
 
@@ -221,12 +222,16 @@ pub struct VoyageProvider;
 impl VoyageProvider {
 	pub async fn generate_embeddings(contents: &str, model: &str) -> Result<Vec<f32>> {
 		let result = Self::generate_embeddings_batch(vec![contents.to_string()], model).await?;
-		result.first()
+		result
+			.first()
 			.cloned()
 			.ok_or_else(|| anyhow::anyhow!("No embeddings found"))
 	}
 
-	pub async fn generate_embeddings_batch(texts: Vec<String>, model: &str) -> Result<Vec<Vec<f32>>> {
+	pub async fn generate_embeddings_batch(
+		texts: Vec<String>,
+		model: &str,
+	) -> Result<Vec<Vec<f32>>> {
 		let client = Client::new();
 		let voyage_api_key = std::env::var("VOYAGE_API_KEY")
 			.context("VOYAGE_API_KEY environment variable not set")?;
@@ -240,7 +245,7 @@ impl VoyageProvider {
 				"model": model,
 			}))
 			.send()
-		.await?;
+			.await?;
 
 		if !response.status().is_success() {
 			let error_text = response.text().await?;
@@ -273,12 +278,16 @@ pub struct GoogleProvider;
 impl GoogleProvider {
 	pub async fn generate_embeddings(contents: &str, model: &str) -> Result<Vec<f32>> {
 		let result = Self::generate_embeddings_batch(vec![contents.to_string()], model).await?;
-		result.first()
+		result
+			.first()
 			.cloned()
 			.ok_or_else(|| anyhow::anyhow!("No embeddings found"))
 	}
 
-	pub async fn generate_embeddings_batch(texts: Vec<String>, model: &str) -> Result<Vec<Vec<f32>>> {
+	pub async fn generate_embeddings_batch(
+		texts: Vec<String>,
+		model: &str,
+	) -> Result<Vec<Vec<f32>>> {
 		let client = Client::new();
 		let google_api_key = std::env::var("GOOGLE_API_KEY")
 			.context("GOOGLE_API_KEY environment variable not set")?;

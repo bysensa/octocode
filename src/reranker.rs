@@ -65,14 +65,19 @@ impl Reranker {
 		blocks.sort_by(|a, b| {
 			let score_a = a.distance.unwrap_or(1.0);
 			let score_b = b.distance.unwrap_or(1.0);
-			score_a.partial_cmp(&score_b).unwrap_or(std::cmp::Ordering::Equal)
+			score_a
+				.partial_cmp(&score_b)
+				.unwrap_or(std::cmp::Ordering::Equal)
 		});
 
 		blocks
 	}
 
 	/// Rerank document blocks
-	pub fn rerank_document_blocks(mut blocks: Vec<DocumentBlock>, query: &str) -> Vec<DocumentBlock> {
+	pub fn rerank_document_blocks(
+		mut blocks: Vec<DocumentBlock>,
+		query: &str,
+	) -> Vec<DocumentBlock> {
 		if blocks.is_empty() {
 			return blocks;
 		}
@@ -100,7 +105,9 @@ impl Reranker {
 		blocks.sort_by(|a, b| {
 			let score_a = a.distance.unwrap_or(1.0);
 			let score_b = b.distance.unwrap_or(1.0);
-			score_a.partial_cmp(&score_b).unwrap_or(std::cmp::Ordering::Equal)
+			score_a
+				.partial_cmp(&score_b)
+				.unwrap_or(std::cmp::Ordering::Equal)
 		});
 
 		blocks
@@ -132,7 +139,9 @@ impl Reranker {
 		blocks.sort_by(|a, b| {
 			let score_a = a.distance.unwrap_or(1.0);
 			let score_b = b.distance.unwrap_or(1.0);
-			score_a.partial_cmp(&score_b).unwrap_or(std::cmp::Ordering::Equal)
+			score_a
+				.partial_cmp(&score_b)
+				.unwrap_or(std::cmp::Ordering::Equal)
 		});
 
 		blocks
@@ -146,9 +155,9 @@ impl Reranker {
 		if content_lower.contains(query) {
 			let word_count = query.split_whitespace().count();
 			return match word_count {
-				1 => 0.7,      // Single word exact match
-				2..=3 => 0.5,  // 2-3 word phrase match
-				_ => 0.6,      // Longer phrase match
+				1 => 0.7,     // Single word exact match
+				2..=3 => 0.5, // 2-3 word phrase match
+				_ => 0.6,     // Longer phrase match
 			};
 		}
 
@@ -158,7 +167,10 @@ impl Reranker {
 
 		let mut matches = 0;
 		for query_word in &query_words {
-			if content_words.iter().any(|&word| word.contains(query_word) || query_word.contains(word)) {
+			if content_words
+				.iter()
+				.any(|&word| word.contains(query_word) || query_word.contains(word))
+			{
 				matches += 1;
 			}
 		}
@@ -196,7 +208,10 @@ impl Reranker {
 
 		let mut matches = 0;
 		for query_word in &query_words {
-			if title_words.iter().any(|&word| word.contains(query_word) || query_word.contains(word)) {
+			if title_words
+				.iter()
+				.any(|&word| word.contains(query_word) || query_word.contains(word))
+			{
 				matches += 1;
 			}
 		}
@@ -213,7 +228,9 @@ impl Reranker {
 	fn symbol_match_factor(symbols: &[String], query: &str) -> f32 {
 		for symbol in symbols {
 			let symbol_lower = symbol.to_lowercase();
-			if symbol_lower.contains(&query.to_lowercase()) || query.to_lowercase().contains(&symbol_lower) {
+			if symbol_lower.contains(&query.to_lowercase())
+				|| query.to_lowercase().contains(&symbol_lower)
+			{
 				return 0.6; // Strong boost for symbol matches
 			}
 		}
@@ -256,11 +273,11 @@ impl Reranker {
 	/// Header level factor - prefer higher level headers in docs
 	fn header_level_factor(level: usize) -> f32 {
 		match level {
-			1 => 0.9,    // H1 - main topics
-			2 => 0.85,   // H2 - sections
-			3 => 0.9,    // H3 - subsections
-			4 => 0.95,   // H4 - details
-			_ => 1.0,    // H5+ or other
+			1 => 0.9,  // H1 - main topics
+			2 => 0.85, // H2 - sections
+			3 => 0.9,  // H3 - subsections
+			4 => 0.95, // H4 - details
+			_ => 1.0,  // H5+ or other
 		}
 	}
 

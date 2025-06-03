@@ -14,8 +14,8 @@
 
 //! PHP language implementation for the indexer
 
-use tree_sitter::Node;
 use crate::indexer::languages::Language;
+use tree_sitter::Node;
 
 pub struct Php {}
 
@@ -52,7 +52,7 @@ impl Language for Php {
 						break;
 					}
 				}
-			},
+			}
 			_ => self.extract_identifiers(node, contents, &mut symbols),
 		}
 
@@ -70,7 +70,11 @@ impl Language for Php {
 			if let Ok(text) = node.utf8_text(contents.as_bytes()) {
 				let t = text.trim();
 				// For PHP variables, remove the $ prefix
-				let t = if let Some(stripped) = t.strip_prefix('$') { stripped } else { t };
+				let t = if let Some(stripped) = t.strip_prefix('$') {
+					stripped
+				} else {
+					t
+				};
 
 				if !t.is_empty() && !symbols.contains(&t.to_string()) {
 					symbols.push(t.to_string());
@@ -83,7 +87,9 @@ impl Language for Php {
 		if cursor.goto_first_child() {
 			loop {
 				self.extract_identifiers(cursor.node(), contents, symbols);
-				if !cursor.goto_next_sibling() { break; }
+				if !cursor.goto_next_sibling() {
+					break;
+				}
 			}
 		}
 	}
@@ -99,7 +105,11 @@ impl Language for Php {
 			// Functions and methods
 			&["function_definition", "method_declaration"] as &[&str],
 			// Class-related declarations
-			&["class_declaration", "trait_declaration", "interface_declaration"],
+			&[
+				"class_declaration",
+				"trait_declaration",
+				"interface_declaration",
+			],
 			// Properties and constants
 			&["property_declaration", "const_declaration"],
 			// Namespace and use statements

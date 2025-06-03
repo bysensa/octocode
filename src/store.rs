@@ -26,19 +26,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use uuid::Uuid;
 
 // Arrow imports
-use arrow::array::{Array, FixedSizeListArray, Float32Array, StringArray, UInt32Array, Int64Array};
+use arrow::array::{Array, FixedSizeListArray, Float32Array, Int64Array, StringArray, UInt32Array};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 
 // LanceDB imports
-use lancedb::{connect, Connection, index::Index, query::{ExecutableQuery, QueryBase, Select}, DistanceType};
 use futures::TryStreamExt;
+use lancedb::{
+	connect,
+	index::Index,
+	query::{ExecutableQuery, QueryBase, Select},
+	Connection, DistanceType,
+};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CodeBlock {
@@ -83,8 +88,8 @@ pub struct DocumentBlock {
 
 pub struct Store {
 	db: Connection,
-	code_vector_dim: usize,  // Size of code embedding vectors
-	text_vector_dim: usize,  // Size of text embedding vectors
+	code_vector_dim: usize, // Size of code embedding vectors
+	text_vector_dim: usize, // Size of text embedding vectors
 }
 
 // Helper struct for converting between Arrow RecordBatch and our domain models
@@ -98,10 +103,16 @@ impl BatchConverter {
 	}
 
 	// Convert a CodeBlock to a RecordBatch
-	fn code_block_to_batch(&self, blocks: &[CodeBlock], embeddings: &[Vec<f32>]) -> Result<RecordBatch> {
+	fn code_block_to_batch(
+		&self,
+		blocks: &[CodeBlock],
+		embeddings: &[Vec<f32>],
+	) -> Result<RecordBatch> {
 		// Ensure we have the same number of blocks and embeddings
 		if blocks.len() != embeddings.len() {
-			return Err(anyhow::anyhow!("Number of blocks and embeddings must match"));
+			return Err(anyhow::anyhow!(
+				"Number of blocks and embeddings must match"
+			));
 		}
 
 		if blocks.is_empty() {
@@ -111,8 +122,12 @@ impl BatchConverter {
 		// Check if all embedding vectors have the expected dimension
 		for (i, embedding) in embeddings.iter().enumerate() {
 			if embedding.len() != self.vector_dim {
-				return Err(anyhow::anyhow!("Embedding at index {} has dimension {} but expected {}",
-					i, embedding.len(), self.vector_dim));
+				return Err(anyhow::anyhow!(
+					"Embedding at index {} has dimension {} but expected {}",
+					i,
+					embedding.len(),
+					self.vector_dim
+				));
 			}
 		}
 
@@ -122,7 +137,7 @@ impl BatchConverter {
 			Field::new("path", DataType::Utf8, false),
 			Field::new("language", DataType::Utf8, false),
 			Field::new("content", DataType::Utf8, false),
-			Field::new("symbols", DataType::Utf8, true),  // Storing serialized JSON of symbols
+			Field::new("symbols", DataType::Utf8, true), // Storing serialized JSON of symbols
 			Field::new("start_line", DataType::UInt32, false),
 			Field::new("end_line", DataType::UInt32, false),
 			Field::new("hash", DataType::Utf8, false),
@@ -141,7 +156,10 @@ impl BatchConverter {
 		let paths: Vec<&str> = blocks.iter().map(|b| b.path.as_str()).collect();
 		let languages: Vec<&str> = blocks.iter().map(|b| b.language.as_str()).collect();
 		let contents: Vec<&str> = blocks.iter().map(|b| b.content.as_str()).collect();
-		let symbols: Vec<String> = blocks.iter().map(|b| serde_json::to_string(&b.symbols).unwrap_or_default()).collect();
+		let symbols: Vec<String> = blocks
+			.iter()
+			.map(|b| serde_json::to_string(&b.symbols).unwrap_or_default())
+			.collect();
 		let start_lines: Vec<u32> = blocks.iter().map(|b| b.start_line as u32).collect();
 		let end_lines: Vec<u32> = blocks.iter().map(|b| b.end_line as u32).collect();
 		let hashes: Vec<&str> = blocks.iter().map(|b| b.hash.as_str()).collect();
@@ -165,13 +183,33 @@ impl BatchConverter {
 		let expected_len = blocks.len();
 		assert_eq!(ids.len(), expected_len, "ids array length mismatch");
 		assert_eq!(paths.len(), expected_len, "paths array length mismatch");
-		assert_eq!(languages.len(), expected_len, "languages array length mismatch");
-		assert_eq!(contents.len(), expected_len, "contents array length mismatch");
+		assert_eq!(
+			languages.len(),
+			expected_len,
+			"languages array length mismatch"
+		);
+		assert_eq!(
+			contents.len(),
+			expected_len,
+			"contents array length mismatch"
+		);
 		assert_eq!(symbols.len(), expected_len, "symbols array length mismatch");
-		assert_eq!(start_lines.len(), expected_len, "start_lines array length mismatch");
-		assert_eq!(end_lines.len(), expected_len, "end_lines array length mismatch");
+		assert_eq!(
+			start_lines.len(),
+			expected_len,
+			"start_lines array length mismatch"
+		);
+		assert_eq!(
+			end_lines.len(),
+			expected_len,
+			"end_lines array length mismatch"
+		);
 		assert_eq!(hashes.len(), expected_len, "hashes array length mismatch");
-		assert_eq!(embedding_array.len(), expected_len, "embedding_array length mismatch");
+		assert_eq!(
+			embedding_array.len(),
+			expected_len,
+			"embedding_array length mismatch"
+		);
 
 		// Create record batch
 		let batch = RecordBatch::try_new(
@@ -193,10 +231,16 @@ impl BatchConverter {
 	}
 
 	// Convert a TextBlock to a RecordBatch
-	fn text_block_to_batch(&self, blocks: &[TextBlock], embeddings: &[Vec<f32>]) -> Result<RecordBatch> {
+	fn text_block_to_batch(
+		&self,
+		blocks: &[TextBlock],
+		embeddings: &[Vec<f32>],
+	) -> Result<RecordBatch> {
 		// Ensure we have the same number of blocks and embeddings
 		if blocks.len() != embeddings.len() {
-			return Err(anyhow::anyhow!("Number of blocks and embeddings must match"));
+			return Err(anyhow::anyhow!(
+				"Number of blocks and embeddings must match"
+			));
 		}
 
 		if blocks.is_empty() {
@@ -206,8 +250,12 @@ impl BatchConverter {
 		// Check if all embedding vectors have the expected dimension
 		for (i, embedding) in embeddings.iter().enumerate() {
 			if embedding.len() != self.vector_dim {
-				return Err(anyhow::anyhow!("Embedding at index {} has dimension {} but expected {}",
-					i, embedding.len(), self.vector_dim));
+				return Err(anyhow::anyhow!(
+					"Embedding at index {} has dimension {} but expected {}",
+					i,
+					embedding.len(),
+					self.vector_dim
+				));
 			}
 		}
 
@@ -258,12 +306,32 @@ impl BatchConverter {
 		let expected_len = blocks.len();
 		assert_eq!(ids.len(), expected_len, "ids array length mismatch");
 		assert_eq!(paths.len(), expected_len, "paths array length mismatch");
-		assert_eq!(languages.len(), expected_len, "languages array length mismatch");
-		assert_eq!(contents.len(), expected_len, "contents array length mismatch");
-		assert_eq!(start_lines.len(), expected_len, "start_lines array length mismatch");
-		assert_eq!(end_lines.len(), expected_len, "end_lines array length mismatch");
+		assert_eq!(
+			languages.len(),
+			expected_len,
+			"languages array length mismatch"
+		);
+		assert_eq!(
+			contents.len(),
+			expected_len,
+			"contents array length mismatch"
+		);
+		assert_eq!(
+			start_lines.len(),
+			expected_len,
+			"start_lines array length mismatch"
+		);
+		assert_eq!(
+			end_lines.len(),
+			expected_len,
+			"end_lines array length mismatch"
+		);
 		assert_eq!(hashes.len(), expected_len, "hashes array length mismatch");
-		assert_eq!(embedding_array.len(), expected_len, "embedding_array length mismatch");
+		assert_eq!(
+			embedding_array.len(),
+			expected_len,
+			"embedding_array length mismatch"
+		);
 
 		// Create record batch
 		let batch = RecordBatch::try_new(
@@ -284,10 +352,16 @@ impl BatchConverter {
 	}
 
 	// Convert a DocumentBlock to a RecordBatch
-	fn document_block_to_batch(&self, blocks: &[DocumentBlock], embeddings: &[Vec<f32>]) -> Result<RecordBatch> {
+	fn document_block_to_batch(
+		&self,
+		blocks: &[DocumentBlock],
+		embeddings: &[Vec<f32>],
+	) -> Result<RecordBatch> {
 		// Ensure we have the same number of blocks and embeddings
 		if blocks.len() != embeddings.len() {
-			return Err(anyhow::anyhow!("Number of blocks and embeddings must match"));
+			return Err(anyhow::anyhow!(
+				"Number of blocks and embeddings must match"
+			));
 		}
 
 		if blocks.is_empty() {
@@ -297,8 +371,12 @@ impl BatchConverter {
 		// Check if all embedding vectors have the expected dimension
 		for (i, embedding) in embeddings.iter().enumerate() {
 			if embedding.len() != self.vector_dim {
-				return Err(anyhow::anyhow!("Embedding at index {} has dimension {} but expected {}",
-					i, embedding.len(), self.vector_dim));
+				return Err(anyhow::anyhow!(
+					"Embedding at index {} has dimension {} but expected {}",
+					i,
+					embedding.len(),
+					self.vector_dim
+				));
 			}
 		}
 
@@ -352,12 +430,28 @@ impl BatchConverter {
 		assert_eq!(ids.len(), expected_len, "ids array length mismatch");
 		assert_eq!(paths.len(), expected_len, "paths array length mismatch");
 		assert_eq!(titles.len(), expected_len, "titles array length mismatch");
-		assert_eq!(contents.len(), expected_len, "contents array length mismatch");
+		assert_eq!(
+			contents.len(),
+			expected_len,
+			"contents array length mismatch"
+		);
 		assert_eq!(levels.len(), expected_len, "levels array length mismatch");
-		assert_eq!(start_lines.len(), expected_len, "start_lines array length mismatch");
-		assert_eq!(end_lines.len(), expected_len, "end_lines array length mismatch");
+		assert_eq!(
+			start_lines.len(),
+			expected_len,
+			"start_lines array length mismatch"
+		);
+		assert_eq!(
+			end_lines.len(),
+			expected_len,
+			"end_lines array length mismatch"
+		);
 		assert_eq!(hashes.len(), expected_len, "hashes array length mismatch");
-		assert_eq!(embedding_array.len(), expected_len, "embedding_array length mismatch");
+		assert_eq!(
+			embedding_array.len(),
+			expected_len,
+			"embedding_array length mismatch"
+		);
 
 		// Create record batch
 		let batch = RecordBatch::try_new(
@@ -379,47 +473,58 @@ impl BatchConverter {
 	}
 
 	// Convert a RecordBatch to a Vec of CodeBlocks
-	fn batch_to_code_blocks(&self, batch: &RecordBatch, distances: Option<Vec<f32>>) -> Result<Vec<CodeBlock>> {
+	fn batch_to_code_blocks(
+		&self,
+		batch: &RecordBatch,
+		distances: Option<Vec<f32>>,
+	) -> Result<Vec<CodeBlock>> {
 		let num_rows = batch.num_rows();
 		let mut code_blocks = Vec::with_capacity(num_rows);
 
-		let path_array = batch.column_by_name("path")
+		let path_array = batch
+			.column_by_name("path")
 			.ok_or_else(|| anyhow::anyhow!("'path' column not found"))?
 			.as_any()
 			.downcast_ref::<StringArray>()
 			.ok_or_else(|| anyhow::anyhow!("'path' column is not a StringArray"))?;
 
-		let language_array = batch.column_by_name("language")
+		let language_array = batch
+			.column_by_name("language")
 			.ok_or_else(|| anyhow::anyhow!("'language' column not found"))?
 			.as_any()
 			.downcast_ref::<StringArray>()
 			.ok_or_else(|| anyhow::anyhow!("'language' column is not a StringArray"))?;
 
-		let content_array = batch.column_by_name("content")
+		let content_array = batch
+			.column_by_name("content")
 			.ok_or_else(|| anyhow::anyhow!("'content' column not found"))?
 			.as_any()
 			.downcast_ref::<StringArray>()
 			.ok_or_else(|| anyhow::anyhow!("'content' column is not a StringArray"))?;
 
-		let symbols_array = batch.column_by_name("symbols")
+		let symbols_array = batch
+			.column_by_name("symbols")
 			.ok_or_else(|| anyhow::anyhow!("'symbols' column not found"))?
 			.as_any()
 			.downcast_ref::<StringArray>()
 			.ok_or_else(|| anyhow::anyhow!("'symbols' column is not a StringArray"))?;
 
-		let start_line_array = batch.column_by_name("start_line")
+		let start_line_array = batch
+			.column_by_name("start_line")
 			.ok_or_else(|| anyhow::anyhow!("'start_line' column not found"))?
 			.as_any()
 			.downcast_ref::<UInt32Array>()
 			.ok_or_else(|| anyhow::anyhow!("'start_line' column is not a UInt32Array"))?;
 
-		let end_line_array = batch.column_by_name("end_line")
+		let end_line_array = batch
+			.column_by_name("end_line")
 			.ok_or_else(|| anyhow::anyhow!("'end_line' column not found"))?
 			.as_any()
 			.downcast_ref::<UInt32Array>()
 			.ok_or_else(|| anyhow::anyhow!("'end_line' column is not a UInt32Array"))?;
 
-		let hash_array = batch.column_by_name("hash")
+		let hash_array = batch
+			.column_by_name("hash")
 			.ok_or_else(|| anyhow::anyhow!("'hash' column not found"))?
 			.as_any()
 			.downcast_ref::<StringArray>()
@@ -450,41 +555,51 @@ impl BatchConverter {
 	}
 
 	// Convert a RecordBatch to a Vec of TextBlocks
-	fn batch_to_text_blocks(&self, batch: &RecordBatch, distances: Option<Vec<f32>>) -> Result<Vec<TextBlock>> {
+	fn batch_to_text_blocks(
+		&self,
+		batch: &RecordBatch,
+		distances: Option<Vec<f32>>,
+	) -> Result<Vec<TextBlock>> {
 		let num_rows = batch.num_rows();
 		let mut text_blocks = Vec::with_capacity(num_rows);
 
-		let path_array = batch.column_by_name("path")
+		let path_array = batch
+			.column_by_name("path")
 			.ok_or_else(|| anyhow::anyhow!("'path' column not found"))?
 			.as_any()
 			.downcast_ref::<StringArray>()
 			.ok_or_else(|| anyhow::anyhow!("'path' column is not a StringArray"))?;
 
-		let language_array = batch.column_by_name("language")
+		let language_array = batch
+			.column_by_name("language")
 			.ok_or_else(|| anyhow::anyhow!("'language' column not found"))?
 			.as_any()
 			.downcast_ref::<StringArray>()
 			.ok_or_else(|| anyhow::anyhow!("'language' column is not a StringArray"))?;
 
-		let content_array = batch.column_by_name("content")
+		let content_array = batch
+			.column_by_name("content")
 			.ok_or_else(|| anyhow::anyhow!("'content' column not found"))?
 			.as_any()
 			.downcast_ref::<StringArray>()
 			.ok_or_else(|| anyhow::anyhow!("'content' column is not a StringArray"))?;
 
-		let start_line_array = batch.column_by_name("start_line")
+		let start_line_array = batch
+			.column_by_name("start_line")
 			.ok_or_else(|| anyhow::anyhow!("'start_line' column not found"))?
 			.as_any()
 			.downcast_ref::<UInt32Array>()
 			.ok_or_else(|| anyhow::anyhow!("'start_line' column is not a UInt32Array"))?;
 
-		let end_line_array = batch.column_by_name("end_line")
+		let end_line_array = batch
+			.column_by_name("end_line")
 			.ok_or_else(|| anyhow::anyhow!("'end_line' column not found"))?
 			.as_any()
 			.downcast_ref::<UInt32Array>()
 			.ok_or_else(|| anyhow::anyhow!("'end_line' column is not a UInt32Array"))?;
 
-		let hash_array = batch.column_by_name("hash")
+		let hash_array = batch
+			.column_by_name("hash")
 			.ok_or_else(|| anyhow::anyhow!("'hash' column not found"))?
 			.as_any()
 			.downcast_ref::<StringArray>()
@@ -508,47 +623,58 @@ impl BatchConverter {
 	}
 
 	// Convert a RecordBatch to a Vec of DocumentBlocks
-	fn batch_to_document_blocks(&self, batch: &RecordBatch, distances: Option<Vec<f32>>) -> Result<Vec<DocumentBlock>> {
+	fn batch_to_document_blocks(
+		&self,
+		batch: &RecordBatch,
+		distances: Option<Vec<f32>>,
+	) -> Result<Vec<DocumentBlock>> {
 		let num_rows = batch.num_rows();
 		let mut document_blocks = Vec::with_capacity(num_rows);
 
-		let path_array = batch.column_by_name("path")
+		let path_array = batch
+			.column_by_name("path")
 			.ok_or_else(|| anyhow::anyhow!("'path' column not found"))?
 			.as_any()
 			.downcast_ref::<StringArray>()
 			.ok_or_else(|| anyhow::anyhow!("'path' column is not a StringArray"))?;
 
-		let title_array = batch.column_by_name("title")
+		let title_array = batch
+			.column_by_name("title")
 			.ok_or_else(|| anyhow::anyhow!("'title' column not found"))?
 			.as_any()
 			.downcast_ref::<StringArray>()
 			.ok_or_else(|| anyhow::anyhow!("'title' column is not a StringArray"))?;
 
-		let content_array = batch.column_by_name("content")
+		let content_array = batch
+			.column_by_name("content")
 			.ok_or_else(|| anyhow::anyhow!("'content' column not found"))?
 			.as_any()
 			.downcast_ref::<StringArray>()
 			.ok_or_else(|| anyhow::anyhow!("'content' column is not a StringArray"))?;
 
-		let level_array = batch.column_by_name("level")
+		let level_array = batch
+			.column_by_name("level")
 			.ok_or_else(|| anyhow::anyhow!("'level' column not found"))?
 			.as_any()
 			.downcast_ref::<UInt32Array>()
 			.ok_or_else(|| anyhow::anyhow!("'level' column is not a UInt32Array"))?;
 
-		let start_line_array = batch.column_by_name("start_line")
+		let start_line_array = batch
+			.column_by_name("start_line")
 			.ok_or_else(|| anyhow::anyhow!("'start_line' column not found"))?
 			.as_any()
 			.downcast_ref::<UInt32Array>()
 			.ok_or_else(|| anyhow::anyhow!("'start_line' column is not a UInt32Array"))?;
 
-		let end_line_array = batch.column_by_name("end_line")
+		let end_line_array = batch
+			.column_by_name("end_line")
 			.ok_or_else(|| anyhow::anyhow!("'end_line' column not found"))?
 			.as_any()
 			.downcast_ref::<UInt32Array>()
 			.ok_or_else(|| anyhow::anyhow!("'end_line' column is not a UInt32Array"))?;
 
-		let hash_array = batch.column_by_name("hash")
+		let hash_array = batch
+			.column_by_name("hash")
 			.ok_or_else(|| anyhow::anyhow!("'hash' column not found"))?
 			.as_any()
 			.downcast_ref::<StringArray>()
@@ -599,18 +725,25 @@ impl Store {
 		}
 
 		// Convert the path to a string for the file-based database
-		let storage_path = index_path.to_str()
+		let storage_path = index_path
+			.to_str()
 			.ok_or_else(|| anyhow::anyhow!("Invalid database path"))?;
 
 		// Load the config to get the embedding provider and model info
 		let config = crate::config::Config::load()?;
 
 		// Get vector dimensions from both code and text model configurations
-		let (code_provider, code_model) = crate::embedding::parse_provider_model(&config.embedding.code_model);
-		let code_vector_dim = config.embedding.get_vector_dimension(&code_provider, &code_model);
+		let (code_provider, code_model) =
+			crate::embedding::parse_provider_model(&config.embedding.code_model);
+		let code_vector_dim = config
+			.embedding
+			.get_vector_dimension(&code_provider, &code_model);
 
-		let (text_provider, text_model) = crate::embedding::parse_provider_model(&config.embedding.text_model);
-		let text_vector_dim = config.embedding.get_vector_dimension(&text_provider, &text_model);
+		let (text_provider, text_model) =
+			crate::embedding::parse_provider_model(&config.embedding.text_model);
+		let text_vector_dim = config
+			.embedding
+			.get_vector_dimension(&text_provider, &text_model);
 
 		// Connect to LanceDB
 		let db = connect(storage_path).execute().await?;
@@ -619,7 +752,12 @@ impl Store {
 		let table_names = db.table_names().execute().await?;
 
 		// Check for schema mismatches and recreate tables if necessary
-		for table_name in ["code_blocks", "text_blocks", "document_blocks", "graphrag_nodes"] {
+		for table_name in [
+			"code_blocks",
+			"text_blocks",
+			"document_blocks",
+			"graphrag_nodes",
+		] {
 			if table_names.contains(&table_name.to_string()) {
 				if let Ok(table) = db.open_table(table_name).execute().await {
 					if let Ok(schema) = table.schema().await {
@@ -637,7 +775,10 @@ impl Store {
 										table_name, expected_dim, size);
 									drop(table); // Release table handle before dropping
 									if let Err(e) = db.drop_table(table_name).await {
-										eprintln!("Warning: Failed to drop table {}: {}", table_name, e);
+										eprintln!(
+											"Warning: Failed to drop table {}: {}",
+											table_name, e
+										);
 									}
 								}
 							}
@@ -680,7 +821,11 @@ impl Store {
 				),
 			]));
 
-			let _table = self.db.create_empty_table("code_blocks", schema).execute().await?;
+			let _table = self
+				.db
+				.create_empty_table("code_blocks", schema)
+				.execute()
+				.await?;
 
 			// Note: We'll create the index later when we have data
 		}
@@ -706,7 +851,11 @@ impl Store {
 				),
 			]));
 
-			let _table = self.db.create_empty_table("text_blocks", schema).execute().await?;
+			let _table = self
+				.db
+				.create_empty_table("text_blocks", schema)
+				.execute()
+				.await?;
 
 			// Note: We'll create the index later when we have data
 		}
@@ -733,7 +882,11 @@ impl Store {
 				),
 			]));
 
-			let _table = self.db.create_empty_table("document_blocks", schema).execute().await?;
+			let _table = self
+				.db
+				.create_empty_table("document_blocks", schema)
+				.execute()
+				.await?;
 
 			// Note: We'll create the index later when we have data
 		}
@@ -747,7 +900,7 @@ impl Store {
 				Field::new("kind", DataType::Utf8, false),
 				Field::new("path", DataType::Utf8, false),
 				Field::new("description", DataType::Utf8, false),
-				Field::new("symbols", DataType::Utf8, true),  // JSON serialized
+				Field::new("symbols", DataType::Utf8, true), // JSON serialized
 				Field::new("hash", DataType::Utf8, false),
 				Field::new(
 					"embedding",
@@ -759,7 +912,11 @@ impl Store {
 				),
 			]));
 
-			let _table = self.db.create_empty_table("graphrag_nodes", schema).execute().await?;
+			let _table = self
+				.db
+				.create_empty_table("graphrag_nodes", schema)
+				.execute()
+				.await?;
 		}
 
 		// Create graphrag_relationships table if it doesn't exist
@@ -774,7 +931,11 @@ impl Store {
 				Field::new("confidence", DataType::Float32, false),
 			]));
 
-			let _table = self.db.create_empty_table("graphrag_relationships", schema).execute().await?;
+			let _table = self
+				.db
+				.create_empty_table("graphrag_relationships", schema)
+				.execute()
+				.await?;
 		}
 
 		Ok(())
@@ -800,7 +961,11 @@ impl Store {
 		Ok(false)
 	}
 
-	pub async fn store_code_blocks(&self, blocks: &[CodeBlock], embeddings: Vec<Vec<f32>>) -> Result<()> {
+	pub async fn store_code_blocks(
+		&self,
+		blocks: &[CodeBlock],
+		embeddings: Vec<Vec<f32>>,
+	) -> Result<()> {
 		if blocks.is_empty() {
 			return Ok(());
 		}
@@ -808,8 +973,12 @@ impl Store {
 		// Check for dimension mismatches and handle them
 		for (i, embedding) in embeddings.iter().enumerate() {
 			if embedding.len() != self.code_vector_dim {
-				return Err(anyhow::anyhow!("Code embedding at index {} has dimension {} but expected {}",
-					i, embedding.len(), self.code_vector_dim));
+				return Err(anyhow::anyhow!(
+					"Code embedding at index {} has dimension {} but expected {}",
+					i,
+					embedding.len(),
+					self.code_vector_dim
+				));
 			}
 		}
 
@@ -831,16 +1000,27 @@ impl Store {
 		table.add(batch_reader).execute().await?;
 
 		// Check if index exists and create it if needed
-		let has_index = table.list_indices().await?.iter().any(|idx| idx.columns == vec!["embedding"]);
+		let has_index = table
+			.list_indices()
+			.await?
+			.iter()
+			.any(|idx| idx.columns == vec!["embedding"]);
 		let row_count = table.count_rows(None).await?;
 		if !has_index && row_count > 256 {
-			table.create_index(&["embedding"], Index::Auto).execute().await?
+			table
+				.create_index(&["embedding"], Index::Auto)
+				.execute()
+				.await?
 		}
 
 		Ok(())
 	}
 
-	pub async fn store_text_blocks(&self, blocks: &[TextBlock], embeddings: Vec<Vec<f32>>) -> Result<()> {
+	pub async fn store_text_blocks(
+		&self,
+		blocks: &[TextBlock],
+		embeddings: Vec<Vec<f32>>,
+	) -> Result<()> {
 		if blocks.is_empty() {
 			return Ok(());
 		}
@@ -848,8 +1028,12 @@ impl Store {
 		// Check for dimension mismatches and handle them
 		for (i, embedding) in embeddings.iter().enumerate() {
 			if embedding.len() != self.text_vector_dim {
-				return Err(anyhow::anyhow!("Text embedding at index {} has dimension {} but expected {}",
-					i, embedding.len(), self.text_vector_dim));
+				return Err(anyhow::anyhow!(
+					"Text embedding at index {} has dimension {} but expected {}",
+					i,
+					embedding.len(),
+					self.text_vector_dim
+				));
 			}
 		}
 
@@ -871,16 +1055,27 @@ impl Store {
 		table.add(batch_reader).execute().await?;
 
 		// Check if index exists and create it if needed
-		let has_index = table.list_indices().await?.iter().any(|idx| idx.columns == vec!["embedding"]);
+		let has_index = table
+			.list_indices()
+			.await?
+			.iter()
+			.any(|idx| idx.columns == vec!["embedding"]);
 		let row_count = table.count_rows(None).await?;
 		if !has_index && row_count > 256 {
-			table.create_index(&["embedding"], Index::Auto).execute().await?
+			table
+				.create_index(&["embedding"], Index::Auto)
+				.execute()
+				.await?
 		}
 
 		Ok(())
 	}
 
-	pub async fn store_document_blocks(&self, blocks: &[DocumentBlock], embeddings: Vec<Vec<f32>>) -> Result<()> {
+	pub async fn store_document_blocks(
+		&self,
+		blocks: &[DocumentBlock],
+		embeddings: Vec<Vec<f32>>,
+	) -> Result<()> {
 		if blocks.is_empty() {
 			return Ok(());
 		}
@@ -888,8 +1083,12 @@ impl Store {
 		// Check for dimension mismatches and handle them
 		for (i, embedding) in embeddings.iter().enumerate() {
 			if embedding.len() != self.text_vector_dim {
-				return Err(anyhow::anyhow!("Document embedding at index {} has dimension {} but expected {}",
-					i, embedding.len(), self.text_vector_dim));
+				return Err(anyhow::anyhow!(
+					"Document embedding at index {} has dimension {} but expected {}",
+					i,
+					embedding.len(),
+					self.text_vector_dim
+				));
 			}
 		}
 
@@ -911,24 +1110,40 @@ impl Store {
 		table.add(batch_reader).execute().await?;
 
 		// Check if index exists and create it if needed
-		let has_index = table.list_indices().await?.iter().any(|idx| idx.columns == vec!["embedding"]);
+		let has_index = table
+			.list_indices()
+			.await?
+			.iter()
+			.any(|idx| idx.columns == vec!["embedding"]);
 		let row_count = table.count_rows(None).await?;
 		if !has_index && row_count > 256 {
-			table.create_index(&["embedding"], Index::Auto).execute().await?
+			table
+				.create_index(&["embedding"], Index::Auto)
+				.execute()
+				.await?
 		}
 
 		Ok(())
 	}
 
 	pub async fn get_code_blocks(&self, embedding: Vec<f32>) -> Result<Vec<CodeBlock>> {
-		self.get_code_blocks_with_config(embedding, None, None).await
+		self.get_code_blocks_with_config(embedding, None, None)
+			.await
 	}
 
-	pub async fn get_code_blocks_with_config(&self, embedding: Vec<f32>, max_results: Option<usize>, similarity_threshold: Option<f32>) -> Result<Vec<CodeBlock>> {
+	pub async fn get_code_blocks_with_config(
+		&self,
+		embedding: Vec<f32>,
+		max_results: Option<usize>,
+		similarity_threshold: Option<f32>,
+	) -> Result<Vec<CodeBlock>> {
 		// Check embedding dimension
 		if embedding.len() != self.code_vector_dim {
-			return Err(anyhow::anyhow!("Search embedding has dimension {} but expected {}",
-				embedding.len(), self.code_vector_dim));
+			return Err(anyhow::anyhow!(
+				"Search embedding has dimension {} but expected {}",
+				embedding.len(),
+				self.code_vector_dim
+			));
 		}
 
 		// Open the table
@@ -942,9 +1157,16 @@ impl Store {
 		}
 
 		// Check if index exists and create it if needed
-		let has_index = table.list_indices().await?.iter().any(|idx| idx.columns == vec!["embedding"]);
+		let has_index = table
+			.list_indices()
+			.await?
+			.iter()
+			.any(|idx| idx.columns == vec!["embedding"]);
 		if !has_index && row_count > 256 {
-			table.create_index(&["embedding"], Index::Auto).execute().await?
+			table
+				.create_index(&["embedding"], Index::Auto)
+				.execute()
+				.await?
 		}
 
 		// Use provided max_results or default to a reasonable number
@@ -953,8 +1175,8 @@ impl Store {
 		// Perform vector search
 		let mut results = table
 			.query()
-			.nearest_to(embedding.as_slice())?  // Pass as slice instead of reference to Vec
-			.distance_type(DistanceType::Cosine)  // Explicitly use cosine distance
+			.nearest_to(embedding.as_slice())? // Pass as slice instead of reference to Vec
+			.distance_type(DistanceType::Cosine) // Explicitly use cosine distance
 			.limit(limit)
 			.execute()
 			.await?;
@@ -969,12 +1191,16 @@ impl Store {
 			}
 
 			// Extract _distance column which contains similarity scores
-			let distance_column = batch.column_by_name("_distance")
+			let distance_column = batch
+				.column_by_name("_distance")
 				.ok_or_else(|| anyhow::anyhow!("Distance column not found"))?;
 
-			let distance_array = distance_column.as_any()
+			let distance_array = distance_column
+				.as_any()
 				.downcast_ref::<Float32Array>()
-				.ok_or_else(|| anyhow::anyhow!("Could not downcast distance column to Float32Array"))?;
+				.ok_or_else(|| {
+					anyhow::anyhow!("Could not downcast distance column to Float32Array")
+				})?;
 
 			// Convert distances to Vec<f32>
 			let distances: Vec<f32> = (0..distance_array.len())
@@ -983,7 +1209,8 @@ impl Store {
 
 			// Convert results to CodeBlock structs
 			let converter = BatchConverter::new(self.code_vector_dim);
-			let mut code_blocks = converter.batch_to_code_blocks(&batch, Some(distances.clone()))?;
+			let mut code_blocks =
+				converter.batch_to_code_blocks(&batch, Some(distances.clone()))?;
 
 			all_code_blocks.append(&mut code_blocks);
 			all_distances.extend(distances);
@@ -1007,10 +1234,12 @@ impl Store {
 		// Sort by relevance (distance) - lower distance means higher similarity, so sort ascending
 		all_code_blocks.sort_by(|a, b| {
 			match (a.distance, b.distance) {
-				(Some(dist_a), Some(dist_b)) => dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal),
-				(Some(_), None) => std::cmp::Ordering::Less,    // Items with distance come first
+				(Some(dist_a), Some(dist_b)) => dist_a
+					.partial_cmp(&dist_b)
+					.unwrap_or(std::cmp::Ordering::Equal),
+				(Some(_), None) => std::cmp::Ordering::Less, // Items with distance come first
 				(None, Some(_)) => std::cmp::Ordering::Greater, // Items without distance come last
-				(None, None) => std::cmp::Ordering::Equal,      // Equal if both have no distance
+				(None, None) => std::cmp::Ordering::Equal,   // Equal if both have no distance
 			}
 		});
 
@@ -1018,14 +1247,23 @@ impl Store {
 	}
 
 	pub async fn get_document_blocks(&self, embedding: Vec<f32>) -> Result<Vec<DocumentBlock>> {
-		self.get_document_blocks_with_config(embedding, None, None).await
+		self.get_document_blocks_with_config(embedding, None, None)
+			.await
 	}
 
-	pub async fn get_document_blocks_with_config(&self, embedding: Vec<f32>, max_results: Option<usize>, similarity_threshold: Option<f32>) -> Result<Vec<DocumentBlock>> {
+	pub async fn get_document_blocks_with_config(
+		&self,
+		embedding: Vec<f32>,
+		max_results: Option<usize>,
+		similarity_threshold: Option<f32>,
+	) -> Result<Vec<DocumentBlock>> {
 		// Check embedding dimension
 		if embedding.len() != self.text_vector_dim {
-			return Err(anyhow::anyhow!("Search embedding has dimension {} but expected {}",
-				embedding.len(), self.text_vector_dim));
+			return Err(anyhow::anyhow!(
+				"Search embedding has dimension {} but expected {}",
+				embedding.len(),
+				self.text_vector_dim
+			));
 		}
 
 		// Open the table
@@ -1039,9 +1277,16 @@ impl Store {
 		}
 
 		// Check if index exists and create it if needed
-		let has_index = table.list_indices().await?.iter().any(|idx| idx.columns == vec!["embedding"]);
+		let has_index = table
+			.list_indices()
+			.await?
+			.iter()
+			.any(|idx| idx.columns == vec!["embedding"]);
 		if !has_index && row_count > 256 {
-			table.create_index(&["embedding"], Index::Auto).execute().await?
+			table
+				.create_index(&["embedding"], Index::Auto)
+				.execute()
+				.await?
 		}
 
 		// Use provided max_results or default to a reasonable number
@@ -1050,8 +1295,8 @@ impl Store {
 		// Perform vector search
 		let mut results = table
 			.query()
-			.nearest_to(embedding.as_slice())?  // Pass as slice instead of reference to Vec
-			.distance_type(DistanceType::Cosine)  // Explicitly use cosine distance
+			.nearest_to(embedding.as_slice())? // Pass as slice instead of reference to Vec
+			.distance_type(DistanceType::Cosine) // Explicitly use cosine distance
 			.limit(limit)
 			.execute()
 			.await?;
@@ -1065,12 +1310,16 @@ impl Store {
 			}
 
 			// Extract _distance column which contains similarity scores
-			let distance_column = batch.column_by_name("_distance")
+			let distance_column = batch
+				.column_by_name("_distance")
 				.ok_or_else(|| anyhow::anyhow!("Distance column not found"))?;
 
-			let distance_array = distance_column.as_any()
+			let distance_array = distance_column
+				.as_any()
 				.downcast_ref::<Float32Array>()
-				.ok_or_else(|| anyhow::anyhow!("Could not downcast distance column to Float32Array"))?;
+				.ok_or_else(|| {
+					anyhow::anyhow!("Could not downcast distance column to Float32Array")
+				})?;
 
 			// Convert distances to Vec<f32>
 			let distances: Vec<f32> = (0..distance_array.len())
@@ -1079,7 +1328,8 @@ impl Store {
 
 			// Convert results to DocumentBlock structs
 			let converter = BatchConverter::new(self.text_vector_dim);
-			let mut document_blocks = converter.batch_to_document_blocks(&batch, Some(distances))?;
+			let mut document_blocks =
+				converter.batch_to_document_blocks(&batch, Some(distances))?;
 
 			all_document_blocks.append(&mut document_blocks);
 		}
@@ -1102,10 +1352,12 @@ impl Store {
 		// Sort by relevance (distance) - lower distance means higher similarity, so sort ascending
 		all_document_blocks.sort_by(|a, b| {
 			match (a.distance, b.distance) {
-				(Some(dist_a), Some(dist_b)) => dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal),
-				(Some(_), None) => std::cmp::Ordering::Less,    // Items with distance come first
+				(Some(dist_a), Some(dist_b)) => dist_a
+					.partial_cmp(&dist_b)
+					.unwrap_or(std::cmp::Ordering::Equal),
+				(Some(_), None) => std::cmp::Ordering::Less, // Items with distance come first
 				(None, Some(_)) => std::cmp::Ordering::Greater, // Items without distance come last
-				(None, None) => std::cmp::Ordering::Equal,      // Equal if both have no distance
+				(None, None) => std::cmp::Ordering::Equal,   // Equal if both have no distance
 			}
 		});
 
@@ -1113,14 +1365,23 @@ impl Store {
 	}
 
 	pub async fn get_text_blocks(&self, embedding: Vec<f32>) -> Result<Vec<TextBlock>> {
-		self.get_text_blocks_with_config(embedding, None, None).await
+		self.get_text_blocks_with_config(embedding, None, None)
+			.await
 	}
 
-	pub async fn get_text_blocks_with_config(&self, embedding: Vec<f32>, max_results: Option<usize>, similarity_threshold: Option<f32>) -> Result<Vec<TextBlock>> {
+	pub async fn get_text_blocks_with_config(
+		&self,
+		embedding: Vec<f32>,
+		max_results: Option<usize>,
+		similarity_threshold: Option<f32>,
+	) -> Result<Vec<TextBlock>> {
 		// Check embedding dimension
 		if embedding.len() != self.text_vector_dim {
-			return Err(anyhow::anyhow!("Search embedding has dimension {} but expected {}",
-				embedding.len(), self.text_vector_dim));
+			return Err(anyhow::anyhow!(
+				"Search embedding has dimension {} but expected {}",
+				embedding.len(),
+				self.text_vector_dim
+			));
 		}
 
 		// Open the table
@@ -1134,9 +1395,16 @@ impl Store {
 		}
 
 		// Check if index exists and create it if needed
-		let has_index = table.list_indices().await?.iter().any(|idx| idx.columns == vec!["embedding"]);
+		let has_index = table
+			.list_indices()
+			.await?
+			.iter()
+			.any(|idx| idx.columns == vec!["embedding"]);
 		if !has_index && row_count > 256 {
-			table.create_index(&["embedding"], Index::Auto).execute().await?
+			table
+				.create_index(&["embedding"], Index::Auto)
+				.execute()
+				.await?
 		}
 
 		// Use provided max_results or default to a reasonable number
@@ -1145,8 +1413,8 @@ impl Store {
 		// Perform vector search
 		let mut results = table
 			.query()
-			.nearest_to(embedding.as_slice())?  // Pass as slice instead of reference to Vec
-			.distance_type(DistanceType::Cosine)  // Explicitly use cosine distance
+			.nearest_to(embedding.as_slice())? // Pass as slice instead of reference to Vec
+			.distance_type(DistanceType::Cosine) // Explicitly use cosine distance
 			.limit(limit)
 			.execute()
 			.await?;
@@ -1160,12 +1428,16 @@ impl Store {
 			}
 
 			// Extract _distance column which contains similarity scores
-			let distance_column = batch.column_by_name("_distance")
+			let distance_column = batch
+				.column_by_name("_distance")
 				.ok_or_else(|| anyhow::anyhow!("Distance column not found"))?;
 
-			let distance_array = distance_column.as_any()
+			let distance_array = distance_column
+				.as_any()
 				.downcast_ref::<Float32Array>()
-				.ok_or_else(|| anyhow::anyhow!("Could not downcast distance column to Float32Array"))?;
+				.ok_or_else(|| {
+					anyhow::anyhow!("Could not downcast distance column to Float32Array")
+				})?;
 
 			// Convert distances to Vec<f32>
 			let distances: Vec<f32> = (0..distance_array.len())
@@ -1197,10 +1469,12 @@ impl Store {
 		// Sort by relevance (distance) - lower distance means higher similarity, so sort ascending
 		all_text_blocks.sort_by(|a, b| {
 			match (a.distance, b.distance) {
-				(Some(dist_a), Some(dist_b)) => dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal),
-				(Some(_), None) => std::cmp::Ordering::Less,    // Items with distance come first
+				(Some(dist_a), Some(dist_b)) => dist_a
+					.partial_cmp(&dist_b)
+					.unwrap_or(std::cmp::Ordering::Equal),
+				(Some(_), None) => std::cmp::Ordering::Less, // Items with distance come first
 				(None, Some(_)) => std::cmp::Ordering::Greater, // Items without distance come last
-				(None, None) => std::cmp::Ordering::Equal,      // Equal if both have no distance
+				(None, None) => std::cmp::Ordering::Equal,   // Equal if both have no distance
 			}
 		});
 
@@ -1269,12 +1543,15 @@ impl Store {
 			}
 
 			// Now delete them
-			match code_blocks_table.delete(&format!("path = '{}'", escaped_path)).await {
+			match code_blocks_table
+				.delete(&format!("path = '{}'", escaped_path))
+				.await
+			{
 				Ok(_) => {
 					if count > 0 {
 						total_removed += count;
 					}
-				},
+				}
 				Err(e) => {
 					let error_msg = format!("Error removing code blocks for {}: {}", file_path, e);
 					eprintln!("{}", error_msg);
@@ -1300,14 +1577,18 @@ impl Store {
 				exact_count += batch.num_rows();
 			}
 
-			match text_blocks_table.delete(&format!("path = '{}'", escaped_path)).await {
+			match text_blocks_table
+				.delete(&format!("path = '{}'", escaped_path))
+				.await
+			{
 				Ok(_) => {
 					if exact_count > 0 {
 						total_removed += exact_count;
 					}
-				},
+				}
 				Err(e) => {
-					let error_msg = format!("Error removing exact text blocks for {}: {}", file_path, e);
+					let error_msg =
+						format!("Error removing exact text blocks for {}: {}", file_path, e);
 					eprintln!("{}", error_msg);
 					errors.push(error_msg);
 				}
@@ -1326,14 +1607,20 @@ impl Store {
 				chunked_count += batch.num_rows();
 			}
 
-			match text_blocks_table.delete(&format!("path LIKE '{}#%'", escaped_path)).await {
+			match text_blocks_table
+				.delete(&format!("path LIKE '{}#%'", escaped_path))
+				.await
+			{
 				Ok(_) => {
 					if chunked_count > 0 {
 						total_removed += chunked_count;
 					}
-				},
+				}
 				Err(e) => {
-					let error_msg = format!("Error removing chunked text blocks for {}: {}", file_path, e);
+					let error_msg = format!(
+						"Error removing chunked text blocks for {}: {}",
+						file_path, e
+					);
 					eprintln!("{}", error_msg);
 					errors.push(error_msg);
 				}
@@ -1356,14 +1643,18 @@ impl Store {
 				count += batch.num_rows();
 			}
 
-			match document_blocks_table.delete(&format!("path = '{}'", escaped_path)).await {
+			match document_blocks_table
+				.delete(&format!("path = '{}'", escaped_path))
+				.await
+			{
 				Ok(_) => {
 					if count > 0 {
 						total_removed += count;
 					}
-				},
+				}
 				Err(e) => {
-					let error_msg = format!("Error removing document blocks for {}: {}", file_path, e);
+					let error_msg =
+						format!("Error removing document blocks for {}: {}", file_path, e);
 					eprintln!("{}", error_msg);
 					errors.push(error_msg);
 				}
@@ -1378,7 +1669,11 @@ impl Store {
 
 			// Always report errors
 			if !errors.is_empty() {
-				eprintln!("Encountered {} errors during deletion for file {}", errors.len(), file_path);
+				eprintln!(
+					"Encountered {} errors during deletion for file {}",
+					errors.len(),
+					file_path
+				);
 				for error in &errors {
 					eprintln!("  - {}", error);
 				}
@@ -1403,7 +1698,8 @@ impl Store {
 		let table = self.db.open_table(table_name).execute().await?;
 
 		// Build a SQL IN clause for the hashes
-		let hash_list = hashes.iter()
+		let hash_list = hashes
+			.iter()
 			.map(|h| format!("'{}'", h))
 			.collect::<Vec<_>>()
 			.join(", ");
@@ -1413,7 +1709,11 @@ impl Store {
 	}
 
 	// Get all blocks for a specific file path from a table
-	pub async fn get_file_blocks_metadata(&self, file_path: &str, table_name: &str) -> Result<Vec<String>> {
+	pub async fn get_file_blocks_metadata(
+		&self,
+		file_path: &str,
+		table_name: &str,
+	) -> Result<Vec<String>> {
 		// Check if table exists
 		let table_names = self.db.table_names().execute().await?;
 		if !table_names.contains(&table_name.to_string()) {
@@ -1439,7 +1739,8 @@ impl Store {
 			}
 
 			// Extract hashes
-			let hash_array = batch.column_by_name("hash")
+			let hash_array = batch
+				.column_by_name("hash")
 				.ok_or_else(|| anyhow::anyhow!("Hash column not found"))?
 				.as_any()
 				.downcast_ref::<StringArray>()
@@ -1470,7 +1771,8 @@ impl Store {
 			// Process all batches
 			while let Some(batch) = results.try_next().await? {
 				if batch.num_rows() > 0 {
-					let path_array = batch.column_by_name("path")
+					let path_array = batch
+						.column_by_name("path")
 						.ok_or_else(|| anyhow::anyhow!("Path column not found"))?
 						.as_any()
 						.downcast_ref::<StringArray>()
@@ -1495,7 +1797,8 @@ impl Store {
 			// Process all batches
 			while let Some(batch) = results.try_next().await? {
 				if batch.num_rows() > 0 {
-					let path_array = batch.column_by_name("path")
+					let path_array = batch
+						.column_by_name("path")
 						.ok_or_else(|| anyhow::anyhow!("Path column not found"))?
 						.as_any()
 						.downcast_ref::<StringArray>()
@@ -1534,7 +1837,8 @@ impl Store {
 			// Process all batches
 			while let Some(batch) = results.try_next().await? {
 				if batch.num_rows() > 0 {
-					let path_array = batch.column_by_name("path")
+					let path_array = batch
+						.column_by_name("path")
 						.ok_or_else(|| anyhow::anyhow!("Path column not found"))?
 						.as_any()
 						.downcast_ref::<StringArray>()
@@ -1577,7 +1881,10 @@ impl Store {
 				let code_blocks = converter.batch_to_code_blocks(&batch, None)?;
 
 				// Return the first (and only) code block
-				return code_blocks.into_iter().next().ok_or_else(|| anyhow::anyhow!("Failed to convert result to CodeBlock"));
+				return code_blocks
+					.into_iter()
+					.next()
+					.ok_or_else(|| anyhow::anyhow!("Failed to convert result to CodeBlock"));
 			}
 		}
 
@@ -1649,10 +1956,17 @@ impl Store {
 		table.add(batch_reader).execute().await?;
 
 		// Check if index exists and create it if needed
-		let has_index = table.list_indices().await?.iter().any(|idx| idx.columns == vec!["embedding"]);
+		let has_index = table
+			.list_indices()
+			.await?
+			.iter()
+			.any(|idx| idx.columns == vec!["embedding"]);
 		let row_count = table.count_rows(None).await?;
 		if !has_index && row_count > 256 {
-			table.create_index(&["embedding"], Index::Auto).execute().await?
+			table
+				.create_index(&["embedding"], Index::Auto)
+				.execute()
+				.await?
 		}
 
 		Ok(())
@@ -1661,7 +1975,11 @@ impl Store {
 	// Store graph relationships in the database
 	pub async fn store_graph_relationships(&self, rel_batch: RecordBatch) -> Result<()> {
 		// Open or create the table
-		let table = self.db.open_table("graphrag_relationships").execute().await?;
+		let table = self
+			.db
+			.open_table("graphrag_relationships")
+			.execute()
+			.await?;
 
 		// Create an iterator that yields this single batch
 		use std::iter::once;
@@ -1689,7 +2007,11 @@ impl Store {
 	pub async fn clear_graph_relationships(&self) -> Result<()> {
 		let table_names = self.db.table_names().execute().await?;
 		if table_names.contains(&"graphrag_relationships".to_string()) {
-			let table = self.db.open_table("graphrag_relationships").execute().await?;
+			let table = self
+				.db
+				.open_table("graphrag_relationships")
+				.execute()
+				.await?;
 			table.delete("TRUE").await?;
 		}
 		Ok(())
@@ -1699,8 +2021,11 @@ impl Store {
 	pub async fn search_graph_nodes(&self, embedding: &[f32], limit: usize) -> Result<RecordBatch> {
 		// Check embedding dimension
 		if embedding.len() != self.code_vector_dim {
-			return Err(anyhow::anyhow!("Search embedding has dimension {} but expected {}",
-				embedding.len(), self.code_vector_dim));
+			return Err(anyhow::anyhow!(
+				"Search embedding has dimension {} but expected {}",
+				embedding.len(),
+				self.code_vector_dim
+			));
 		}
 
 		// Open the table
@@ -1731,17 +2056,24 @@ impl Store {
 		}
 
 		// Check if index exists and create it if needed
-		let has_index = table.list_indices().await?.iter().any(|idx| idx.columns == vec!["embedding"]);
+		let has_index = table
+			.list_indices()
+			.await?
+			.iter()
+			.any(|idx| idx.columns == vec!["embedding"]);
 		if !has_index && row_count > 256 {
-			table.create_index(&["embedding"], Index::Auto).execute().await?;
+			table
+				.create_index(&["embedding"], Index::Auto)
+				.execute()
+				.await?;
 		}
 
 		// Perform vector search
 		let mut results = table
 			.query()
-			.nearest_to(embedding)?  // Vector search
-			.distance_type(DistanceType::Cosine)  // Explicitly use cosine distance
-			.limit(limit)           // No conversion needed
+			.nearest_to(embedding)? // Vector search
+			.distance_type(DistanceType::Cosine) // Explicitly use cosine distance
+			.limit(limit) // No conversion needed
 			.execute()
 			.await?;
 
@@ -1791,13 +2123,14 @@ impl Store {
 			return Ok(RecordBatch::new_empty(schema));
 		}
 
-		let table = self.db.open_table("graphrag_relationships").execute().await?;
-
-		// Get all relationships
-		let mut results = table
-			.query()
+		let table = self
+			.db
+			.open_table("graphrag_relationships")
 			.execute()
 			.await?;
+
+		// Get all relationships
+		let mut results = table.query().execute().await?;
 
 		// Process all batches - for this function we need to return a single RecordBatch
 		// so we'll return the first non-empty batch
@@ -1881,7 +2214,8 @@ impl Store {
 		while let Some(batch) = results.try_next().await? {
 			if batch.num_rows() > 0 {
 				if let Some(commit_array) = batch.column_by_name("commit_hash") {
-					if let Some(string_array) = commit_array.as_any().downcast_ref::<StringArray>() {
+					if let Some(string_array) = commit_array.as_any().downcast_ref::<StringArray>()
+					{
 						return Ok(Some(string_array.value(0).to_string()));
 					}
 				}
@@ -1898,7 +2232,11 @@ impl Store {
 			Field::new("indexed_at", DataType::Int64, false),
 		]));
 
-		let _table = self.db.create_empty_table("git_metadata", schema).execute().await?;
+		let _table = self
+			.db
+			.create_empty_table("git_metadata", schema)
+			.execute()
+			.await?;
 		Ok(())
 	}
 
@@ -1913,7 +2251,9 @@ impl Store {
 		let table = self.db.open_table("file_metadata").execute().await?;
 
 		// Delete existing record for this file path
-		table.delete(&format!("path = '{}'", file_path.replace("'", "''"))).await?;
+		table
+			.delete(&format!("path = '{}'", file_path.replace("'", "''")))
+			.await?;
 
 		// Create new record batch
 		let schema = Arc::new(Schema::new(vec![
@@ -1982,7 +2322,11 @@ impl Store {
 			Field::new("indexed_at", DataType::Int64, false),
 		]));
 
-		let _table = self.db.create_empty_table("file_metadata", schema).execute().await?;
+		let _table = self
+			.db
+			.create_empty_table("file_metadata", schema)
+			.execute()
+			.await?;
 		Ok(())
 	}
 
@@ -2006,7 +2350,8 @@ impl Store {
 				while let Some(batch) = results.try_next().await? {
 					if batch.num_rows() > 0 {
 						if let Some(column) = batch.column_by_name("path") {
-							if let Some(path_array) = column.as_any().downcast_ref::<StringArray>() {
+							if let Some(path_array) = column.as_any().downcast_ref::<StringArray>()
+							{
 								for i in 0..path_array.len() {
 									let path = path_array.value(i).to_string();
 									unique_paths.insert(path);

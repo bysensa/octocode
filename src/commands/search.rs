@@ -15,11 +15,11 @@
 use clap::Args;
 
 use octocode::config::Config;
-use octocode::store::Store;
-use octocode::storage;
+use octocode::embedding;
 use octocode::indexer;
 use octocode::reranker::Reranker;
-use octocode::embedding;
+use octocode::storage;
+use octocode::store::Store;
 
 #[derive(Args, Debug)]
 pub struct SearchArgs {
@@ -48,7 +48,11 @@ pub struct SearchArgs {
 	pub threshold: f32,
 }
 
-pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Result<(), anyhow::Error> {
+pub async fn execute(
+	store: &Store,
+	args: &SearchArgs,
+	config: &Config,
+) -> Result<(), anyhow::Error> {
 	let current_dir = std::env::current_dir()?;
 
 	// Use the new storage system to check for index
@@ -56,19 +60,27 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 
 	// Check if we have an index already; if not, inform the user but don't auto-index
 	if !index_path.exists() {
-		return Err(anyhow::anyhow!("No index found. Please run 'octocode index' first to create an index."));
+		return Err(anyhow::anyhow!(
+			"No index found. Please run 'octocode index' first to create an index."
+		));
 	}
 
 	// Validate similarity threshold
 	if args.threshold < 0.0 || args.threshold > 1.0 {
-		return Err(anyhow::anyhow!("Similarity threshold must be between 0.0 and 1.0, got: {}", args.threshold));
+		return Err(anyhow::anyhow!(
+			"Similarity threshold must be between 0.0 and 1.0, got: {}",
+			args.threshold
+		));
 	}
 
 	// Validate search mode
 	let search_mode = match args.mode.as_str() {
 		"all" | "code" | "docs" | "text" => args.mode.as_str(),
 		_ => {
-			return Err(anyhow::anyhow!("Invalid search mode '{}'. Use 'all', 'code', 'docs', or 'text'.", args.mode));
+			return Err(anyhow::anyhow!(
+				"Invalid search mode '{}'. Use 'all', 'code', 'docs', or 'text'.",
+				args.mode
+			));
 		}
 	};
 
@@ -78,12 +90,12 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 			// Use code model for code searches
 			let embeddings = embedding::generate_embeddings(&args.query, true, config).await?;
 			(embeddings, vec![]) // Only need code embeddings
-		},
+		}
 		"docs" | "text" => {
 			// Use text model for documents and text searches
 			let embeddings = embedding::generate_embeddings(&args.query, false, config).await?;
 			(vec![], embeddings) // Only need text embeddings
-		},
+		}
 		"all" => {
 			// For "all" mode, we need to check if code and text models are different
 			// If different, generate separate embeddings; if same, use one set
@@ -96,11 +108,13 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 				(embeddings.clone(), embeddings)
 			} else {
 				// Different models - generate separate embeddings
-				let code_embeddings = embedding::generate_embeddings(&args.query, true, config).await?;
-				let text_embeddings = embedding::generate_embeddings(&args.query, false, config).await?;
+				let code_embeddings =
+					embedding::generate_embeddings(&args.query, true, config).await?;
+				let text_embeddings =
+					embedding::generate_embeddings(&args.query, false, config).await?;
 				(code_embeddings, text_embeddings)
 			}
-		},
+		}
 		_ => unreachable!(),
 	};
 
@@ -113,11 +127,13 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 	match search_mode {
 		"code" => {
 			// Search only code blocks with higher limit for reranking
-			let mut results = store.get_code_blocks_with_config(
-				code_embeddings,
-				Some(config.search.max_results * 2), // Get more results for reranking
-				Some(1.01) // Use a very permissive threshold initially
-			).await?;
+			let mut results = store
+				.get_code_blocks_with_config(
+					code_embeddings,
+					Some(config.search.max_results * 2), // Get more results for reranking
+					Some(1.01),                          // Use a very permissive threshold initially
+				)
+				.await?;
 
 			// Apply reranking to improve relevance
 			results = Reranker::rerank_code_blocks(results, &args.query);
@@ -152,14 +168,16 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 			} else {
 				indexer::render_code_blocks_with_config(&results, config);
 			}
-		},
+		}
 		"docs" => {
 			// Search only document blocks with reranking
-			let mut results = store.get_document_blocks_with_config(
-				text_embeddings,
-				Some(config.search.max_results * 2), // Get more results for reranking
-				Some(1.01) // Use a more permissive threshold initially
-			).await?;
+			let mut results = store
+				.get_document_blocks_with_config(
+					text_embeddings,
+					Some(config.search.max_results * 2), // Get more results for reranking
+					Some(1.01),                          // Use a more permissive threshold initially
+				)
+				.await?;
 
 			// Apply reranking to improve relevance
 			results = Reranker::rerank_document_blocks(results, &args.query);
@@ -187,14 +205,16 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 				// Render documents in a readable format
 				render_document_blocks_with_config(&results, config);
 			}
-		},
+		}
 		"text" => {
 			// Search only text blocks with reranking
-			let mut results = store.get_text_blocks_with_config(
-				text_embeddings,
-				Some(config.search.max_results * 2), // Get more results for reranking
-				Some(1.01) // Use a more permissive threshold initially
-			).await?;
+			let mut results = store
+				.get_text_blocks_with_config(
+					text_embeddings,
+					Some(config.search.max_results * 2), // Get more results for reranking
+					Some(1.01),                          // Use a more permissive threshold initially
+				)
+				.await?;
 
 			// Apply reranking to improve relevance
 			results = Reranker::rerank_text_blocks(results, &args.query);
@@ -222,24 +242,30 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 				// Render text blocks in a readable format
 				render_text_blocks_with_config(&results, config);
 			}
-		},
+		}
 		"all" => {
 			// Search code, documents, and text blocks with reranking
-			let mut code_results = store.get_code_blocks_with_config(
-				code_embeddings,
-				Some(config.search.max_results * 2), // Get more results for reranking
-				Some(1.01) // Use a more permissive threshold initially
-			).await?;
-			let mut doc_results = store.get_document_blocks_with_config(
-				text_embeddings.clone(),
-				Some(config.search.max_results * 2), // Get more results for reranking
-				Some(1.01) // Use a more permissive threshold initially
-			).await?;
-			let mut text_results = store.get_text_blocks_with_config(
-				text_embeddings,
-				Some(config.search.max_results * 2), // Get more results for reranking
-				Some(1.01) // Use a more permissive threshold initially
-			).await?;
+			let mut code_results = store
+				.get_code_blocks_with_config(
+					code_embeddings,
+					Some(config.search.max_results * 2), // Get more results for reranking
+					Some(1.01),                          // Use a more permissive threshold initially
+				)
+				.await?;
+			let mut doc_results = store
+				.get_document_blocks_with_config(
+					text_embeddings.clone(),
+					Some(config.search.max_results * 2), // Get more results for reranking
+					Some(1.01),                          // Use a more permissive threshold initially
+				)
+				.await?;
+			let mut text_results = store
+				.get_text_blocks_with_config(
+					text_embeddings,
+					Some(config.search.max_results * 2), // Get more results for reranking
+					Some(1.01),                          // Use a more permissive threshold initially
+				)
+				.await?;
 
 			// Apply reranking to improve relevance
 			code_results = Reranker::rerank_code_blocks(code_results, &args.query);
@@ -285,26 +311,39 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 			// Add code results
 			for block in &final_code_results {
 				if let Some(distance) = block.distance {
-					all_results_with_scores.push((distance, "code".to_string(), block.path.clone()));
+					all_results_with_scores.push((
+						distance,
+						"code".to_string(),
+						block.path.clone(),
+					));
 				}
 			}
 
 			// Add document results
 			for block in &doc_results {
 				if let Some(distance) = block.distance {
-					all_results_with_scores.push((distance, "docs".to_string(), block.path.clone()));
+					all_results_with_scores.push((
+						distance,
+						"docs".to_string(),
+						block.path.clone(),
+					));
 				}
 			}
 
 			// Add text results
 			for block in &text_results {
 				if let Some(distance) = block.distance {
-					all_results_with_scores.push((distance, "text".to_string(), block.path.clone()));
+					all_results_with_scores.push((
+						distance,
+						"text".to_string(),
+						block.path.clone(),
+					));
 				}
 			}
 
 			// Sort by relevance (distance) - lower distance means higher similarity
-			all_results_with_scores.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+			all_results_with_scores
+				.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
 			// Output combined results
 			if args.json {
@@ -321,19 +360,28 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 
 				if !doc_results.is_empty() {
 					combined_markdown.push_str("# Documentation Results\n\n");
-					combined_markdown.push_str(&indexer::document_blocks_to_markdown_with_config(&doc_results, config));
+					combined_markdown.push_str(&indexer::document_blocks_to_markdown_with_config(
+						&doc_results,
+						config,
+					));
 					combined_markdown.push('\n');
 				}
 
 				if !final_code_results.is_empty() {
 					combined_markdown.push_str("# Code Results\n\n");
-					combined_markdown.push_str(&indexer::code_blocks_to_markdown_with_config(&final_code_results, config));
+					combined_markdown.push_str(&indexer::code_blocks_to_markdown_with_config(
+						&final_code_results,
+						config,
+					));
 					combined_markdown.push('\n');
 				}
 
 				if !text_results.is_empty() {
 					combined_markdown.push_str("# Text Results\n\n");
-					combined_markdown.push_str(&indexer::text_blocks_to_markdown_with_config(&text_results, config));
+					combined_markdown.push_str(&indexer::text_blocks_to_markdown_with_config(
+						&text_results,
+						config,
+					));
 				}
 
 				if combined_markdown.is_empty() {
@@ -360,11 +408,14 @@ pub async fn execute(store: &Store, args: &SearchArgs, config: &Config) -> Resul
 					render_text_blocks_with_config(&text_results, config);
 				}
 
-				if doc_results.is_empty() && final_code_results.is_empty() && text_results.is_empty() {
+				if doc_results.is_empty()
+					&& final_code_results.is_empty()
+					&& text_results.is_empty()
+				{
 					println!("No results found for the query.");
 				}
 			}
-		},
+		}
 		_ => unreachable!(),
 	}
 
@@ -380,7 +431,8 @@ fn render_text_blocks_with_config(blocks: &[octocode::store::TextBlock], config:
 	println!("Found {} text blocks:\n", blocks.len());
 
 	// Group blocks by file path for better organization
-	let mut blocks_by_file: std::collections::HashMap<String, Vec<&octocode::store::TextBlock>> = std::collections::HashMap::new();
+	let mut blocks_by_file: std::collections::HashMap<String, Vec<&octocode::store::TextBlock>> =
+		std::collections::HashMap::new();
 
 	for block in blocks {
 		blocks_by_file
@@ -395,7 +447,12 @@ fn render_text_blocks_with_config(blocks: &[octocode::store::TextBlock], config:
 
 		for (idx, block) in file_blocks.iter().enumerate() {
 			println!("║");
-			println!("║ Block {} of {}: {}", idx + 1, file_blocks.len(), block.language);
+			println!(
+				"║ Block {} of {}: {}",
+				idx + 1,
+				file_blocks.len(),
+				block.language
+			);
 			println!("║ Lines: {}-{}", block.start_line, block.end_line);
 
 			// Show similarity score if available
@@ -408,7 +465,8 @@ fn render_text_blocks_with_config(blocks: &[octocode::store::TextBlock], config:
 
 			// Use smart truncation based on configuration
 			let max_chars = config.search.search_block_max_characters;
-			let (content, was_truncated) = indexer::truncate_content_smartly(&block.content, max_chars);
+			let (content, was_truncated) =
+				indexer::truncate_content_smartly(&block.content, max_chars);
 
 			// Display content with proper indentation
 			for line in content.lines() {
@@ -434,7 +492,10 @@ fn render_document_blocks_with_config(blocks: &[octocode::store::DocumentBlock],
 	println!("Found {} documentation sections:\n", blocks.len());
 
 	// Group blocks by file path for better organization
-	let mut blocks_by_file: std::collections::HashMap<String, Vec<&octocode::store::DocumentBlock>> = std::collections::HashMap::new();
+	let mut blocks_by_file: std::collections::HashMap<
+		String,
+		Vec<&octocode::store::DocumentBlock>,
+	> = std::collections::HashMap::new();
 
 	for block in blocks {
 		blocks_by_file
@@ -449,8 +510,16 @@ fn render_document_blocks_with_config(blocks: &[octocode::store::DocumentBlock],
 
 		for (idx, block) in file_blocks.iter().enumerate() {
 			println!("║");
-			println!("║ Section {} of {}: {}", idx + 1, file_blocks.len(), block.title);
-			println!("║ Level: {}  Lines: {}-{}", block.level, block.start_line, block.end_line);
+			println!(
+				"║ Section {} of {}: {}",
+				idx + 1,
+				file_blocks.len(),
+				block.title
+			);
+			println!(
+				"║ Level: {}  Lines: {}-{}",
+				block.level, block.start_line, block.end_line
+			);
 
 			// Show similarity score if available
 			if let Some(distance) = block.distance {
@@ -462,7 +531,8 @@ fn render_document_blocks_with_config(blocks: &[octocode::store::DocumentBlock],
 
 			// Use smart truncation based on configuration
 			let max_chars = config.search.search_block_max_characters;
-			let (content, was_truncated) = indexer::truncate_content_smartly(&block.content, max_chars);
+			let (content, was_truncated) =
+				indexer::truncate_content_smartly(&block.content, max_chars);
 
 			// Display content with proper indentation
 			for line in content.lines() {

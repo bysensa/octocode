@@ -14,8 +14,8 @@
 
 //! Python language implementation for the indexer
 
-use tree_sitter::Node;
 use crate::indexer::languages::Language;
+use tree_sitter::Node;
 
 pub struct Python {}
 
@@ -86,7 +86,9 @@ impl Language for Python {
 		if cursor.goto_first_child() {
 			loop {
 				self.extract_identifiers(cursor.node(), contents, symbols);
-				if !cursor.goto_next_sibling() { break; }
+				if !cursor.goto_next_sibling() {
+					break;
+				}
 			}
 		}
 	}
@@ -144,27 +146,33 @@ impl Python {
 					"assignment" => {
 						// For regular assignments like 'x = 10'
 						let mut child_cursor = child.walk();
-						if child_cursor.goto_first_child() {  // First child is the target
+						if child_cursor.goto_first_child() {
+							// First child is the target
 							let target = child_cursor.node();
 							if target.kind() == "identifier" {
 								if let Ok(name) = target.utf8_text(contents.as_bytes()) {
-									if !name.starts_with("_") && !symbols.contains(&name.to_string()) {
+									if !name.starts_with("_")
+										&& !symbols.contains(&name.to_string())
+									{
 										symbols.push(name.to_string());
 									}
 								}
 							}
 						}
-					},
+					}
 					"expression_statement" => {
 						// Check for augmented assignments like 'x += 1'
 						for expr_child in child.children(&mut child.walk()) {
 							if expr_child.kind() == "augmented_assignment" {
 								let mut aug_cursor = expr_child.walk();
-								if aug_cursor.goto_first_child() {  // First child is target
+								if aug_cursor.goto_first_child() {
+									// First child is target
 									let target = aug_cursor.node();
 									if target.kind() == "identifier" {
 										if let Ok(name) = target.utf8_text(contents.as_bytes()) {
-											if !name.starts_with("_") && !symbols.contains(&name.to_string()) {
+											if !name.starts_with("_")
+												&& !symbols.contains(&name.to_string())
+											{
 												symbols.push(name.to_string());
 											}
 										}
@@ -172,19 +180,22 @@ impl Python {
 								}
 							}
 						}
-					},
-					"for_statement" | "while_statement" | "if_statement" | "try_statement" | "with_statement" => {
+					}
+					"for_statement" | "while_statement" | "if_statement" | "try_statement"
+					| "with_statement" => {
 						// Recursive search in nested blocks
 						for stmt_child in child.children(&mut child.walk()) {
 							if stmt_child.kind() == "block" {
 								self.extract_python_variables(stmt_child, contents, symbols);
 							}
 						}
-					},
+					}
 					_ => {}
 				}
 
-				if !cursor.goto_next_sibling() { break; }
+				if !cursor.goto_next_sibling() {
+					break;
+				}
 			}
 		}
 	}

@@ -22,8 +22,8 @@ use std::process::Command;
 
 use anyhow::{anyhow, Context, Result};
 use clap::Args;
+use ec4rs::property::{EndOfLine, IndentSize, IndentStyle, TabWidth};
 use ec4rs::{properties_of, Properties};
-use ec4rs::property::{EndOfLine, IndentStyle, TabWidth, IndentSize};
 
 #[derive(Args)]
 pub struct FormatArgs {
@@ -50,7 +50,10 @@ pub async fn execute(format_args: &FormatArgs) -> Result<()> {
 	let editorconfig_path = git_root.join(".editorconfig");
 
 	if !editorconfig_path.exists() {
-		return Err(anyhow!(".editorconfig file not found in git root: {}", git_root.display()));
+		return Err(anyhow!(
+			".editorconfig file not found in git root: {}",
+			git_root.display()
+		));
 	}
 
 	if format_args.verbose {
@@ -62,7 +65,9 @@ pub async fn execute(format_args: &FormatArgs) -> Result<()> {
 		get_git_files(&git_root)?
 	} else {
 		// Convert relative paths to absolute and validate they exist
-		format_args.files.iter()
+		format_args
+			.files
+			.iter()
 			.map(|f| {
 				if f.is_absolute() {
 					f.clone()
@@ -105,7 +110,11 @@ pub async fn execute(format_args: &FormatArgs) -> Result<()> {
 		return Ok(());
 	}
 
-	let action = if format_args.dry_run { "would be applied" } else { "applied" };
+	let action = if format_args.dry_run {
+		"would be applied"
+	} else {
+		"applied"
+	};
 	println!(
 		"Formatting complete: {} changes across {} files ({})",
 		total_changes,
@@ -121,8 +130,7 @@ pub async fn execute(format_args: &FormatArgs) -> Result<()> {
 }
 
 fn find_git_root() -> Result<PathBuf> {
-	let current_dir = std::env::current_dir()
-		.context("Failed to get current directory")?;
+	let current_dir = std::env::current_dir().context("Failed to get current directory")?;
 
 	let mut path = current_dir.as_path();
 
@@ -229,16 +237,81 @@ fn is_text_file(file_path: &Path) -> Result<bool> {
 fn is_likely_text_file(file_path: &Path) -> bool {
 	// Common text file extensions
 	let text_extensions = [
-		"rs", "py", "js", "ts", "jsx", "tsx", "go", "java", "kt", "scala",
-		"cpp", "c", "h", "hpp", "cc", "cxx", "cs", "php", "rb", "pl", "pm",
-		"sh", "bash", "zsh", "fish", "ps1", "bat", "cmd",
-		"html", "htm", "xml", "xhtml", "svg", "css", "scss", "sass", "less",
-		"json", "yaml", "yml", "toml", "ini", "cfg", "conf", "config",
-		"md", "markdown", "rst", "txt", "text", "rtf",
-		"sql", "ddl", "dml", "graphql", "gql",
-		"dockerfile", "makefile", "cmake", "gradle", "maven",
-		"vue", "svelte", "astro", "ejs", "hbs", "mustache",
-		"r", "m", "swift", "dart", "lua", "nim", "zig", "v",
+		"rs",
+		"py",
+		"js",
+		"ts",
+		"jsx",
+		"tsx",
+		"go",
+		"java",
+		"kt",
+		"scala",
+		"cpp",
+		"c",
+		"h",
+		"hpp",
+		"cc",
+		"cxx",
+		"cs",
+		"php",
+		"rb",
+		"pl",
+		"pm",
+		"sh",
+		"bash",
+		"zsh",
+		"fish",
+		"ps1",
+		"bat",
+		"cmd",
+		"html",
+		"htm",
+		"xml",
+		"xhtml",
+		"svg",
+		"css",
+		"scss",
+		"sass",
+		"less",
+		"json",
+		"yaml",
+		"yml",
+		"toml",
+		"ini",
+		"cfg",
+		"conf",
+		"config",
+		"md",
+		"markdown",
+		"rst",
+		"txt",
+		"text",
+		"rtf",
+		"sql",
+		"ddl",
+		"dml",
+		"graphql",
+		"gql",
+		"dockerfile",
+		"makefile",
+		"cmake",
+		"gradle",
+		"maven",
+		"vue",
+		"svelte",
+		"astro",
+		"ejs",
+		"hbs",
+		"mustache",
+		"r",
+		"m",
+		"swift",
+		"dart",
+		"lua",
+		"nim",
+		"zig",
+		"v",
 	];
 
 	if let Some(extension) = file_path.extension() {
@@ -249,16 +322,35 @@ fn is_likely_text_file(file_path: &Path) -> bool {
 	}
 
 	// Check filename patterns
-	let filename = file_path.file_name()
+	let filename = file_path
+		.file_name()
 		.map(|n| n.to_string_lossy().to_lowercase())
 		.unwrap_or_default();
 
 	let text_filenames = [
-		"dockerfile", "makefile", "rakefile", "gemfile", "podfile",
-		"license", "readme", "changelog", "authors", "contributors",
-		"copying", "install", "news", "todo", "version",
-		".gitignore", ".gitattributes", ".editorconfig", ".eslintrc",
-		".prettierrc", ".babelrc", ".nvmrc", ".rustfmt.toml",
+		"dockerfile",
+		"makefile",
+		"rakefile",
+		"gemfile",
+		"podfile",
+		"license",
+		"readme",
+		"changelog",
+		"authors",
+		"contributors",
+		"copying",
+		"install",
+		"news",
+		"todo",
+		"version",
+		".gitignore",
+		".gitattributes",
+		".editorconfig",
+		".eslintrc",
+		".prettierrc",
+		".babelrc",
+		".nvmrc",
+		".rustfmt.toml",
 	];
 
 	for pattern in &text_filenames {
@@ -279,17 +371,18 @@ fn is_likely_text_file(file_path: &Path) -> bool {
 	false
 }
 
-fn format_file(
-	file_path: &Path,
-	apply: bool,
-	verbose: bool,
-) -> Result<usize> {
+fn format_file(file_path: &Path, apply: bool, verbose: bool) -> Result<usize> {
 	let content = fs::read_to_string(file_path)
 		.with_context(|| format!("Failed to read file: {}", file_path.display()))?;
 
 	// Get EditorConfig properties for this specific file
-	let properties = properties_of(file_path)
-		.map_err(|e| anyhow!("Failed to get editorconfig properties for {}: {}", file_path.display(), e))?;
+	let properties = properties_of(file_path).map_err(|e| {
+		anyhow!(
+			"Failed to get editorconfig properties for {}: {}",
+			file_path.display(),
+			e
+		)
+	})?;
 
 	if verbose {
 		println!("  EditorConfig properties for {}:", file_path.display());
@@ -362,7 +455,9 @@ fn format_file(
 	// 3. Handle indentation
 	if let Ok(indent_style) = properties.get::<IndentStyle>() {
 		let indent_size = get_effective_indent_size(&properties);
-		if let Ok(indented_content) = apply_indentation(&new_content, indent_style, indent_size, verbose) {
+		if let Ok(indented_content) =
+			apply_indentation(&new_content, indent_style, indent_size, verbose)
+		{
 			if indented_content != new_content {
 				new_content = indented_content;
 				changes += 1;
@@ -371,7 +466,9 @@ fn format_file(
 	}
 
 	// 4. Handle trailing whitespace
-	if let Ok(ec4rs::property::TrimTrailingWs::Value(true)) = properties.get::<ec4rs::property::TrimTrailingWs>() {
+	if let Ok(ec4rs::property::TrimTrailingWs::Value(true)) =
+		properties.get::<ec4rs::property::TrimTrailingWs>()
+	{
 		let trimmed_content = trim_trailing_whitespace(&new_content);
 		if trimmed_content != new_content {
 			new_content = trimmed_content;
@@ -461,11 +558,8 @@ fn apply_indentation(
 		}
 
 		let (leading_whitespace, rest) = split_leading_whitespace(line);
-		let converted_indent = convert_indentation_smart(
-			&leading_whitespace,
-			indent_style,
-			indent_size,
-		);
+		let converted_indent =
+			convert_indentation_smart(&leading_whitespace, indent_style, indent_size);
 
 		if converted_indent != leading_whitespace {
 			indent_changes += 1;
@@ -475,8 +569,10 @@ fn apply_indentation(
 	}
 
 	if indent_changes > 0 && verbose {
-		println!("  - Converted indentation to {:?} (size: {}) on {} lines",
-			indent_style, indent_size, indent_changes);
+		println!(
+			"  - Converted indentation to {:?} (size: {}) on {} lines",
+			indent_style, indent_size, indent_changes
+		);
 	}
 
 	// Preserve the original line ending structure
@@ -558,7 +654,8 @@ fn determine_indentation_level(whitespace: &str, reference_size: usize) -> usize
 				if space_count > 0 {
 					// Detect the likely indentation size by examining the space count
 					// Common indentations are 2, 4, or 8 spaces
-					let detected_indent_size = detect_space_indent_size(space_count, reference_size);
+					let detected_indent_size =
+						detect_space_indent_size(space_count, reference_size);
 					level += space_count / detected_indent_size;
 				}
 			}
@@ -586,7 +683,8 @@ fn detect_space_indent_size(space_count: usize, _reference_size: usize) -> usize
 
 fn trim_trailing_whitespace(content: &str) -> String {
 	let line_ending = detect_line_ending(content);
-	let lines: Vec<String> = content.lines()
+	let lines: Vec<String> = content
+		.lines()
 		.map(|line| line.trim_end().to_string())
 		.collect();
 
@@ -638,7 +736,8 @@ fn check_line_length(content: &str, max_line_length: u32, file_path: &Path, verb
 		return;
 	}
 
-	let long_lines: Vec<usize> = content.lines()
+	let long_lines: Vec<usize> = content
+		.lines()
 		.enumerate()
 		.filter_map(|(i, line)| {
 			if line.len() > max_line_length as usize {
@@ -651,8 +750,12 @@ fn check_line_length(content: &str, max_line_length: u32, file_path: &Path, verb
 		.collect();
 
 	if !long_lines.is_empty() {
-		println!("  - Warning: {} lines exceed max length ({}) in {}",
-			long_lines.len(), max_line_length, file_path.display());
+		println!(
+			"  - Warning: {} lines exceed max length ({}) in {}",
+			long_lines.len(),
+			max_line_length,
+			file_path.display()
+		);
 		if verbose {
 			for line_num in long_lines {
 				println!("    Line {}", line_num);

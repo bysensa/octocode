@@ -15,14 +15,14 @@
 use anyhow::Result;
 use chrono::Utc;
 
-use crate::config::Config;
-use crate::embedding::{parse_provider_model, create_embedding_provider_from_parts};
-use super::types::{
-	Memory, MemoryType, MemoryMetadata, MemoryQuery, MemorySearchResult,
-	MemoryRelationship, RelationshipType, MemoryConfig
-};
-use super::store::MemoryStore;
 use super::git_utils::GitUtils;
+use super::store::MemoryStore;
+use super::types::{
+	Memory, MemoryConfig, MemoryMetadata, MemoryQuery, MemoryRelationship, MemorySearchResult,
+	MemoryType, RelationshipType,
+};
+use crate::config::Config;
+use crate::embedding::{create_embedding_provider_from_parts, parse_provider_model};
 
 /// High-level memory management interface
 pub struct MemoryManager {
@@ -45,7 +45,8 @@ impl MemoryManager {
 		let (provider, model) = parse_provider_model(model_string);
 		let embedding_provider = create_embedding_provider_from_parts(&provider, &model)?;
 
-		let store = MemoryStore::new(&db_path_str, embedding_provider, memory_config.clone()).await?;
+		let store =
+			MemoryStore::new(&db_path_str, embedding_provider, memory_config.clone()).await?;
 
 		Ok(Self {
 			store,
@@ -65,7 +66,8 @@ impl MemoryManager {
 		let (provider, model) = parse_provider_model(model_string);
 		let embedding_provider = create_embedding_provider_from_parts(&provider, &model)?;
 
-		let store = MemoryStore::new(&db_path_str, embedding_provider, memory_config.clone()).await?;
+		let store =
+			MemoryStore::new(&db_path_str, embedding_provider, memory_config.clone()).await?;
 
 		Ok(Self {
 			store,
@@ -103,7 +105,8 @@ impl MemoryManager {
 		// Auto-detect related files from Git changes if none provided
 		if metadata.related_files.is_empty() {
 			if let Ok(modified_files) = GitUtils::get_modified_files() {
-				metadata.related_files = modified_files.into_iter().take(5).collect(); // Limit to 5 files
+				metadata.related_files = modified_files.into_iter().take(5).collect();
+				// Limit to 5 files
 			}
 		}
 
@@ -121,7 +124,11 @@ impl MemoryManager {
 	}
 
 	/// Remember (search) memories based on query
-	pub async fn remember(&self, query: &str, filters: Option<MemoryQuery>) -> Result<Vec<MemorySearchResult>> {
+	pub async fn remember(
+		&self,
+		query: &str,
+		filters: Option<MemoryQuery>,
+	) -> Result<Vec<MemorySearchResult>> {
 		let mut search_query = filters.unwrap_or_default();
 		search_query.query_text = Some(query.to_string());
 
@@ -204,7 +211,11 @@ impl MemoryManager {
 	}
 
 	/// Get memories by type
-	pub async fn get_memories_by_type(&self, memory_type: MemoryType, limit: Option<usize>) -> Result<Vec<Memory>> {
+	pub async fn get_memories_by_type(
+		&self,
+		memory_type: MemoryType,
+		limit: Option<usize>,
+	) -> Result<Vec<Memory>> {
 		let query = MemoryQuery {
 			memory_types: Some(vec![memory_type]),
 			limit,
@@ -218,7 +229,10 @@ impl MemoryManager {
 	}
 
 	/// Get memories related to files
-	pub async fn get_memories_for_files(&self, file_paths: Vec<String>) -> Result<Vec<MemorySearchResult>> {
+	pub async fn get_memories_for_files(
+		&self,
+		file_paths: Vec<String>,
+	) -> Result<Vec<MemorySearchResult>> {
 		// Convert to relative paths
 		let relative_paths: Vec<String> = file_paths
 			.into_iter()
@@ -273,7 +287,9 @@ impl MemoryManager {
 		let mut type_counts = std::collections::HashMap::new();
 
 		for memory in &recent_memories {
-			*type_counts.entry(memory.memory_type.to_string()).or_insert(0) += 1;
+			*type_counts
+				.entry(memory.memory_type.to_string())
+				.or_insert(0) += 1;
 		}
 
 		Ok(MemoryStats {
@@ -351,20 +367,27 @@ impl MemoryManager {
 		let similar_memories = self.store.search_memories(&similar_query).await?;
 
 		for result in similar_memories {
-			if result.memory.id != memory.id && result.relevance_score >= self.config.relationship_threshold {
+			if result.memory.id != memory.id
+				&& result.relevance_score >= self.config.relationship_threshold
+			{
 				let relationship_type = if result.relevance_score > 0.9 {
 					RelationshipType::Similar
 				} else {
 					RelationshipType::RelatedTo
 				};
 
-				let _ = self.create_relationship(
-					memory.id.clone(),
-					result.memory.id,
-					relationship_type,
-					result.relevance_score,
-					format!("Auto-detected relationship (similarity: {:.2})", result.relevance_score)
-				).await;
+				let _ = self
+					.create_relationship(
+						memory.id.clone(),
+						result.memory.id,
+						relationship_type,
+						result.relevance_score,
+						format!(
+							"Auto-detected relationship (similarity: {:.2})",
+							result.relevance_score
+						),
+					)
+					.await;
 			}
 		}
 
@@ -379,13 +402,15 @@ impl MemoryManager {
 			let file_related = self.store.search_memories(&file_query).await?;
 			for result in file_related {
 				if result.memory.id != memory.id {
-					let _ = self.create_relationship(
-						memory.id.clone(),
-						result.memory.id,
-						RelationshipType::RelatedTo,
-						0.7, // File relationship strength
-						"Shares related files".to_string()
-					).await;
+					let _ = self
+						.create_relationship(
+							memory.id.clone(),
+							result.memory.id,
+							RelationshipType::RelatedTo,
+							0.7, // File relationship strength
+							"Shares related files".to_string(),
+						)
+						.await;
 				}
 			}
 		}
@@ -398,7 +423,9 @@ impl MemoryManager {
 		// Remove existing auto-generated relationships
 		let existing_relationships = self.get_relationships(&memory.id).await?;
 		for rel in existing_relationships {
-			if rel.description.contains("Auto-detected") || rel.description.contains("Shares related files") {
+			if rel.description.contains("Auto-detected")
+				|| rel.description.contains("Shares related files")
+			{
 				// Delete relationship - would need a delete method in store
 				// For now, we'll skip deletion and just create new ones
 			}

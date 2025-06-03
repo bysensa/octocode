@@ -37,18 +37,27 @@ impl AIEnhancements {
 	}
 
 	// Enhanced relationship discovery with optional AI for complex cases
-	pub async fn discover_relationships_with_ai_enhancement(&self, new_files: &[CodeNode], all_nodes: &[CodeNode]) -> Result<Vec<CodeRelationship>> {
+	pub async fn discover_relationships_with_ai_enhancement(
+		&self,
+		new_files: &[CodeNode],
+		all_nodes: &[CodeNode],
+	) -> Result<Vec<CodeRelationship>> {
 		// Start with rule-based relationships (fast and reliable)
 		let mut relationships = crate::indexer::graphrag::relationships::RelationshipDiscovery::discover_relationships_efficiently(new_files, all_nodes).await?;
 
 		// Add AI-enhanced relationship discovery for complex architectural patterns
-		let ai_relationships = self.discover_complex_relationships_with_ai(new_files, all_nodes).await?;
+		let ai_relationships = self
+			.discover_complex_relationships_with_ai(new_files, all_nodes)
+			.await?;
 		relationships.extend(ai_relationships);
 
 		// Deduplicate
 		relationships.sort_by(|a, b| {
-			(a.source.clone(), a.target.clone(), a.relation_type.clone())
-				.cmp(&(b.source.clone(), b.target.clone(), b.relation_type.clone()))
+			(a.source.clone(), a.target.clone(), a.relation_type.clone()).cmp(&(
+				b.source.clone(),
+				b.target.clone(),
+				b.relation_type.clone(),
+			))
 		});
 		relationships.dedup_by(|a, b| {
 			a.source == b.source && a.target == b.target && a.relation_type == b.relation_type
@@ -58,11 +67,16 @@ impl AIEnhancements {
 	}
 
 	// Use AI to discover complex architectural relationships
-	async fn discover_complex_relationships_with_ai(&self, new_files: &[CodeNode], all_nodes: &[CodeNode]) -> Result<Vec<CodeRelationship>> {
+	async fn discover_complex_relationships_with_ai(
+		&self,
+		new_files: &[CodeNode],
+		all_nodes: &[CodeNode],
+	) -> Result<Vec<CodeRelationship>> {
 		let mut ai_relationships = Vec::new();
 
 		// Only use AI for files that are likely to have complex architectural relationships
-		let complex_files: Vec<&CodeNode> = new_files.iter()
+		let complex_files: Vec<&CodeNode> = new_files
+			.iter()
 			.filter(|node| self.should_use_ai_for_relationships(node))
 			.collect();
 
@@ -73,7 +87,10 @@ impl AIEnhancements {
 		// Process in small batches to avoid overwhelming the AI
 		const AI_BATCH_SIZE: usize = 3;
 		for batch in complex_files.chunks(AI_BATCH_SIZE) {
-			if let Ok(batch_relationships) = self.analyze_architectural_relationships_batch(batch, all_nodes).await {
+			if let Ok(batch_relationships) = self
+				.analyze_architectural_relationships_batch(batch, all_nodes)
+				.await
+			{
 				ai_relationships.extend(batch_relationships);
 			}
 		}
@@ -84,18 +101,32 @@ impl AIEnhancements {
 	// Determine if a file is complex enough to benefit from AI relationship analysis
 	fn should_use_ai_for_relationships(&self, node: &CodeNode) -> bool {
 		// Use AI for relationship discovery on files that are architecturally significant
-		let is_interface_heavy = node.symbols.iter().any(|s| s.contains("interface_") || s.contains("trait_"));
-		let is_config_or_setup = node.symbols.iter().any(|s| s.contains("config") || s.contains("setup") || s.contains("init"));
-		let is_core_module = node.path.contains("core") || node.path.contains("lib") || node.name == "main" || node.name == "index";
+		let is_interface_heavy = node
+			.symbols
+			.iter()
+			.any(|s| s.contains("interface_") || s.contains("trait_"));
+		let is_config_or_setup = node
+			.symbols
+			.iter()
+			.any(|s| s.contains("config") || s.contains("setup") || s.contains("init"));
+		let is_core_module = node.path.contains("core")
+			|| node.path.contains("lib")
+			|| node.name == "main"
+			|| node.name == "index";
 		let has_many_exports = node.exports.len() > 5;
 		let is_large_file = node.size_lines > 200;
 
 		// Focus AI on files that are likely to have complex, non-obvious relationships
-		(is_interface_heavy || is_config_or_setup || is_core_module) && (has_many_exports || is_large_file)
+		(is_interface_heavy || is_config_or_setup || is_core_module)
+			&& (has_many_exports || is_large_file)
 	}
 
 	// Analyze architectural relationships using AI in small batches
-	async fn analyze_architectural_relationships_batch(&self, source_nodes: &[&CodeNode], all_nodes: &[CodeNode]) -> Result<Vec<CodeRelationship>> {
+	async fn analyze_architectural_relationships_batch(
+		&self,
+		source_nodes: &[&CodeNode],
+		all_nodes: &[CodeNode],
+	) -> Result<Vec<CodeRelationship>> {
 		let mut batch_prompt = String::from(
 			"You are an expert software architect. Analyze these code files and identify ARCHITECTURAL relationships.\n\
 				Focus on design patterns, dependency injection, factory patterns, observer patterns, etc.\n\
@@ -115,14 +146,25 @@ impl AIEnhancements {
 				"File: {}\nLanguage: {}\nKey symbols: {}\nExports: {}\n\n",
 				node.path,
 				node.language,
-				node.symbols.iter().take(8).cloned().collect::<Vec<_>>().join(", "),
-				node.exports.iter().take(5).cloned().collect::<Vec<_>>().join(", ")
+				node.symbols
+					.iter()
+					.take(8)
+					.cloned()
+					.collect::<Vec<_>>()
+					.join(", "),
+				node.exports
+					.iter()
+					.take(5)
+					.cloned()
+					.collect::<Vec<_>>()
+					.join(", ")
 			));
 		}
 
 		// Add relevant target nodes (potential relationship targets)
 		batch_prompt.push_str("POTENTIAL RELATIONSHIP TARGETS:\n");
-		let relevant_targets: Vec<&CodeNode> = all_nodes.iter()
+		let relevant_targets: Vec<&CodeNode> = all_nodes
+			.iter()
 			.filter(|n| source_nodes.iter().all(|s| s.id != n.id)) // Not source files
 			.filter(|n| !n.exports.is_empty() || n.size_lines > 100) // Has exports or is substantial
 			.take(10) // Limit context size
@@ -133,19 +175,28 @@ impl AIEnhancements {
 				"File: {}\nLanguage: {}\nExports: {}\n\n",
 				node.path,
 				node.language,
-				node.exports.iter().take(3).cloned().collect::<Vec<_>>().join(", ")
+				node.exports
+					.iter()
+					.take(3)
+					.cloned()
+					.collect::<Vec<_>>()
+					.join(", ")
 			));
 		}
 
 		batch_prompt.push_str("JSON Response:");
 
 		// Call AI with architectural analysis
-		match self.call_llm(&self.config.graphrag.relationship_model, batch_prompt, None).await {
+		match self
+			.call_llm(&self.config.graphrag.relationship_model, batch_prompt, None)
+			.await
+		{
 			Ok(response) => {
 				// Parse AI response
 				if let Ok(ai_relationships) = self.parse_ai_architectural_relationships(&response) {
 					// Filter and validate relationships
-					let valid_relationships: Vec<CodeRelationship> = ai_relationships.into_iter()
+					let valid_relationships: Vec<CodeRelationship> = ai_relationships
+						.into_iter()
 						.filter(|rel| rel.confidence > 0.7) // Only high-confidence architectural relationships
 						.filter(|rel| all_nodes.iter().any(|n| n.path == rel.target)) // Ensure target exists
 						.map(|mut rel| {
@@ -158,7 +209,7 @@ impl AIEnhancements {
 				} else {
 					Ok(Vec::new())
 				}
-			},
+			}
 			Err(e) => {
 				eprintln!("Warning: AI architectural analysis failed: {}", e);
 				Ok(Vec::new())
@@ -167,7 +218,10 @@ impl AIEnhancements {
 	}
 
 	// Parse AI response for architectural relationships
-	fn parse_ai_architectural_relationships(&self, response: &str) -> Result<Vec<CodeRelationship>> {
+	fn parse_ai_architectural_relationships(
+		&self,
+		response: &str,
+	) -> Result<Vec<CodeRelationship>> {
 		#[derive(Deserialize)]
 		struct AiRelationship {
 			source_path: String,
@@ -179,7 +233,8 @@ impl AIEnhancements {
 
 		// Try to parse as JSON array
 		if let Ok(ai_rels) = serde_json::from_str::<Vec<AiRelationship>>(response) {
-			let relationships = ai_rels.into_iter()
+			let relationships = ai_rels
+				.into_iter()
 				.map(|ai_rel| CodeRelationship {
 					source: ai_rel.source_path,
 					target: ai_rel.target_path,
@@ -197,11 +252,25 @@ impl AIEnhancements {
 	}
 
 	// Determine if a file is complex enough to benefit from AI analysis
-	pub fn should_use_ai_for_description(&self, symbols: &[String], lines: u32, language: &str) -> bool {
+	pub fn should_use_ai_for_description(
+		&self,
+		symbols: &[String],
+		lines: u32,
+		language: &str,
+	) -> bool {
 		// Use AI for files that are likely to benefit from better understanding
-		let function_count = symbols.iter().filter(|s| s.contains("function_") || s.contains("method_")).count();
-		let class_count = symbols.iter().filter(|s| s.contains("class_") || s.contains("struct_")).count();
-		let interface_count = symbols.iter().filter(|s| s.contains("interface_") || s.contains("trait_")).count();
+		let function_count = symbols
+			.iter()
+			.filter(|s| s.contains("function_") || s.contains("method_"))
+			.count();
+		let class_count = symbols
+			.iter()
+			.filter(|s| s.contains("class_") || s.contains("struct_"))
+			.count();
+		let interface_count = symbols
+			.iter()
+			.filter(|s| s.contains("interface_") || s.contains("trait_"))
+			.count();
 
 		// AI is beneficial for:
 		// 1. Large files (>100 lines) with complex structure
@@ -211,12 +280,17 @@ impl AIEnhancements {
 		// 5. Files with interfaces/traits (architectural significance)
 
 		let is_large_complex = lines > 100 && (function_count + class_count) > 5;
-		let is_config_file = symbols.iter().any(|s| s.contains("config") || s.contains("setting"));
-		let is_core_file = symbols.iter().any(|s| s.contains("main") || s.contains("lib") || s.contains("core"));
+		let is_config_file = symbols
+			.iter()
+			.any(|s| s.contains("config") || s.contains("setting"));
+		let is_core_file = symbols
+			.iter()
+			.any(|s| s.contains("main") || s.contains("lib") || s.contains("core"));
 		let has_architecture = interface_count > 0 || class_count > 3;
 		let is_important_language = matches!(language, "rust" | "typescript" | "python" | "go");
 
-		(is_large_complex || is_config_file || is_core_file || has_architecture) && is_important_language
+		(is_large_complex || is_config_file || is_core_file || has_architecture)
+			&& is_important_language
 	}
 
 	// Build a meaningful content sample for AI analysis (not full file content)
@@ -237,14 +311,20 @@ impl AIEnhancements {
 			// Add block content with some context
 			let block_content = if block.content.len() > 300 {
 				// For large blocks, take beginning and end
-				format!("{}\n...\n{}",
+				format!(
+					"{}\n...\n{}",
 					&block.content[0..150],
-					&block.content[block.content.len()-150..])
+					&block.content[block.content.len() - 150..]
+				)
 			} else {
 				block.content.clone()
 			};
 
-			sample.push_str(&format!("// Block: {} symbols\n{}\n\n", block.symbols.len(), block_content));
+			sample.push_str(&format!(
+				"// Block: {} symbols\n{}\n\n",
+				block.symbols.len(),
+				block_content
+			));
 			total_chars += block_content.len() + 50; // +50 for formatting
 		}
 
@@ -252,9 +332,21 @@ impl AIEnhancements {
 	}
 
 	// Extract AI-powered description for complex files
-	pub async fn extract_ai_description(&self, content_sample: &str, file_path: &str, language: &str, symbols: &[String]) -> Result<String> {
-		let function_count = symbols.iter().filter(|s| s.contains("function_") || s.contains("method_")).count();
-		let class_count = symbols.iter().filter(|s| s.contains("class_") || s.contains("struct_")).count();
+	pub async fn extract_ai_description(
+		&self,
+		content_sample: &str,
+		file_path: &str,
+		language: &str,
+		symbols: &[String],
+	) -> Result<String> {
+		let function_count = symbols
+			.iter()
+			.filter(|s| s.contains("function_") || s.contains("method_"))
+			.count();
+		let class_count = symbols
+			.iter()
+			.filter(|s| s.contains("class_") || s.contains("struct_"))
+			.count();
 
 		let prompt = format!(
 			"Analyze this {} file and provide a concise 2-3 sentence description focusing on its ROLE and PURPOSE in the codebase.\n\
@@ -275,7 +367,10 @@ impl AIEnhancements {
 			content_sample
 		);
 
-		match self.call_llm(&self.config.graphrag.description_model, prompt, None).await {
+		match self
+			.call_llm(&self.config.graphrag.description_model, prompt, None)
+			.await
+		{
 			Ok(description) => {
 				let cleaned = description.trim();
 				if cleaned.len() > 300 {
@@ -283,7 +378,7 @@ impl AIEnhancements {
 				} else {
 					Ok(cleaned.to_string())
 				}
-			},
+			}
 			Err(e) => {
 				eprintln!("Warning: AI description failed for {}: {}", file_path, e);
 				Err(e)
@@ -292,7 +387,12 @@ impl AIEnhancements {
 	}
 
 	// Call LLM API
-	async fn call_llm(&self, model_name: &str, prompt: String, json_schema: Option<serde_json::Value>) -> Result<String> {
+	async fn call_llm(
+		&self,
+		model_name: &str,
+		prompt: String,
+		json_schema: Option<serde_json::Value>,
+	) -> Result<String> {
 		// Check if we have an API key configured
 		let api_key = match &self.config.openrouter.api_key {
 			Some(key) => key.clone(),
@@ -301,13 +401,13 @@ impl AIEnhancements {
 
 		// Prepare request body
 		let mut request_body = json!({
-		"model": model_name,
-		"messages": [{
-		"role": "user",
-		"content": prompt
-	}],
-		// "max_tokens": 200
-	});
+			"model": model_name,
+			"messages": [{
+			"role": "user",
+			"content": prompt
+		}],
+			// "max_tokens": 200
+		});
 
 		// Only add response_format if schema is provided
 		if let Some(schema_value) = json_schema {
@@ -322,19 +422,23 @@ impl AIEnhancements {
 		}
 
 		// Call OpenRouter API
-		let response = self.client
+		let response = self
+			.client
 			.post("https://openrouter.ai/api/v1/chat/completions")
 			.header("Authorization", format!("Bearer {}", api_key))
 			.header("HTTP-Referer", "https://github.com/muvon/octocode")
 			.header("X-Title", "Octodev")
 			.json(&request_body)
 			.send()
-		.await?;
+			.await?;
 
 		// Check if the API call was successful
 		if !response.status().is_success() {
 			let status = response.status();
-			let error_text = response.text().await.unwrap_or_else(|_| "Unable to read error response".to_string());
+			let error_text = response
+				.text()
+				.await
+				.unwrap_or_else(|_| "Unable to read error response".to_string());
 			return Err(anyhow::anyhow!("API error: {} - {}", status, error_text));
 		}
 
@@ -346,7 +450,10 @@ impl AIEnhancements {
 			Ok(content.to_string())
 		} else {
 			// Provide more detailed error information
-			Err(anyhow::anyhow!("Failed to get response content: {:?}", response_json))
+			Err(anyhow::anyhow!(
+				"Failed to get response content: {:?}",
+				response_json
+			))
 		}
 	}
 }

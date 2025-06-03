@@ -37,7 +37,7 @@
 #[cfg(feature = "sentence-transformer")]
 use anyhow::{Context, Result};
 #[cfg(feature = "sentence-transformer")]
-use candle_core::{Device, Tensor, DType};
+use candle_core::{DType, Device, Tensor};
 #[cfg(feature = "sentence-transformer")]
 use candle_nn::VarBuilder;
 #[cfg(feature = "sentence-transformer")]
@@ -45,11 +45,11 @@ use candle_transformers::models::bert::{BertModel, Config as BertConfig};
 #[cfg(feature = "sentence-transformer")]
 use hf_hub::{api::tokio::Api, Repo, RepoType};
 #[cfg(feature = "sentence-transformer")]
-use tokenizers::Tokenizer;
+use std::collections::HashMap;
 #[cfg(feature = "sentence-transformer")]
 use std::sync::Arc;
 #[cfg(feature = "sentence-transformer")]
-use std::collections::HashMap;
+use tokenizers::Tokenizer;
 #[cfg(feature = "sentence-transformer")]
 use tokio::sync::RwLock;
 
@@ -93,7 +93,9 @@ impl SentenceTransformerModel {
 		} else if let Ok(path) = repo.get("pytorch_model.bin").await {
 			path
 		} else {
-			return Err(anyhow::anyhow!("Could not find model weights in safetensors or pytorch format"));
+			return Err(anyhow::anyhow!(
+				"Could not find model weights in safetensors or pytorch format"
+			));
 		};
 
 		// Load configuration
@@ -135,13 +137,13 @@ impl SentenceTransformerModel {
 
 		for text in texts {
 			// Tokenize input - convert String to &str
-			let encoding = self.tokenizer
+			let encoding = self
+				.tokenizer
 				.encode(text.as_str(), true)
 				.map_err(|e| anyhow::anyhow!("Tokenization failed: {}", e))?;
 
 			let tokens = encoding.get_ids();
-			let token_ids = Tensor::new(tokens, &self.device)?
-				.unsqueeze(0)?; // Add batch dimension
+			let token_ids = Tensor::new(tokens, &self.device)?.unsqueeze(0)?; // Add batch dimension
 
 			// Create attention mask (all 1s for valid tokens)
 			let attention_mask = Tensor::ones((1, tokens.len()), DType::U8, &self.device)?;
@@ -214,7 +216,8 @@ impl SentenceTransformerProvider {
 		}
 
 		// Model not in cache, load it
-		let model = SentenceTransformerModel::load(model_name).await
+		let model = SentenceTransformerModel::load(model_name)
+			.await
 			.with_context(|| format!("Failed to load SentenceTransformer model: {}", model_name))?;
 
 		let model_arc = Arc::new(model);
@@ -234,21 +237,22 @@ impl SentenceTransformerProvider {
 
 		// Run encoding in a blocking task to avoid blocking async runtime
 		let contents = contents.to_string();
-		let result = tokio::task::spawn_blocking(move || {
-			model_instance.encode(&contents)
-		}).await??;
+		let result =
+			tokio::task::spawn_blocking(move || model_instance.encode(&contents)).await??;
 
 		Ok(result)
 	}
 
 	/// Generate batch embeddings for multiple texts
-	pub async fn generate_embeddings_batch(texts: Vec<String>, model: &str) -> Result<Vec<Vec<f32>>> {
+	pub async fn generate_embeddings_batch(
+		texts: Vec<String>,
+		model: &str,
+	) -> Result<Vec<Vec<f32>>> {
 		let model_instance = Self::get_model(model).await?;
 
 		// Run encoding in a blocking task to avoid blocking async runtime
-		let result = tokio::task::spawn_blocking(move || {
-			model_instance.encode_batch(&texts)
-		}).await??;
+		let result =
+			tokio::task::spawn_blocking(move || model_instance.encode_batch(&texts)).await??;
 
 		Ok(result)
 	}
@@ -267,7 +271,10 @@ impl SentenceTransformerProvider {
 		Err(anyhow::anyhow!("SentenceTransformer support is not compiled in. Please rebuild with --features sentence-transformer"))
 	}
 
-	pub async fn generate_embeddings_batch(_texts: Vec<String>, _model: &str) -> Result<Vec<Vec<f32>>> {
+	pub async fn generate_embeddings_batch(
+		_texts: Vec<String>,
+		_model: &str,
+	) -> Result<Vec<Vec<f32>>> {
 		Err(anyhow::anyhow!("SentenceTransformer support is not compiled in. Please rebuild with --features sentence-transformer"))
 	}
 }

@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use anyhow::Result;
-use std::process::Command;
 use std::path::Path;
+use std::process::Command;
 
 /// Utilities for Git operations
 pub struct GitUtils;
@@ -109,7 +109,10 @@ impl GitUtils {
 	}
 
 	/// Get files changed between two commits
-	pub fn get_changed_files_between_commits(from_commit: &str, to_commit: &str) -> Result<Vec<String>> {
+	pub fn get_changed_files_between_commits(
+		from_commit: &str,
+		to_commit: &str,
+	) -> Result<Vec<String>> {
 		let output = Command::new("git")
 			.args(["diff", "--name-only", from_commit, to_commit])
 			.output()?;
@@ -130,7 +133,12 @@ impl GitUtils {
 	/// Get commit information for a specific commit
 	pub fn get_commit_info(commit_hash: &str) -> Option<CommitInfo> {
 		let output = Command::new("git")
-			.args(["show", "--format=%H|%h|%an|%ae|%at|%s", "--no-patch", commit_hash])
+			.args([
+				"show",
+				"--format=%H|%h|%an|%ae|%at|%s",
+				"--no-patch",
+				commit_hash,
+			])
 			.output()
 			.ok()?;
 
@@ -174,7 +182,10 @@ impl GitUtils {
 	}
 
 	/// Get commits that modified a specific file
-	pub fn get_file_commit_history<P: AsRef<Path>>(file_path: P, limit: Option<usize>) -> Result<Vec<String>> {
+	pub fn get_file_commit_history<P: AsRef<Path>>(
+		file_path: P,
+		limit: Option<usize>,
+	) -> Result<Vec<String>> {
 		let mut args = vec!["log", "--format=%H", "--follow"];
 
 		let limit_str;
@@ -189,9 +200,7 @@ impl GitUtils {
 		let path_str = file_path.as_ref().to_str().unwrap_or("");
 		args.push(path_str);
 
-		let output = Command::new("git")
-			.args(&args)
-			.output()?;
+		let output = Command::new("git").args(&args).output()?;
 
 		if output.status.success() {
 			let commits_str = String::from_utf8(output.stdout)?;

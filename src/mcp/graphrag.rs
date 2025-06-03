@@ -72,12 +72,17 @@ impl GraphRagProvider {
 			return Err(anyhow::anyhow!("Invalid GraphRAG query: must be at least 10 characters long and describe relationships or architecture"));
 		}
 		if query.len() > 1000 {
-			return Err(anyhow::anyhow!("Invalid GraphRAG query: must be no more than 1000 characters long"));
+			return Err(anyhow::anyhow!(
+				"Invalid GraphRAG query: must be no more than 1000 characters long"
+			));
 		}
 
 		if self.debug {
-			eprintln!("Executing GraphRAG search: query='{}' in directory '{}'",
-				query, self.working_directory.display());
+			eprintln!(
+				"Executing GraphRAG search: query='{}' in directory '{}'",
+				query,
+				self.working_directory.display()
+			);
 		}
 
 		// Change to the working directory for the search

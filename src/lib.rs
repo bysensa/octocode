@@ -30,12 +30,12 @@
 pub mod config;
 pub mod embedding;
 pub mod indexer;
-pub mod memory;
 pub mod mcp;
-pub mod store;
-pub mod storage;
-pub mod state;
+pub mod memory;
 pub mod reranker;
+pub mod state;
+pub mod storage;
+pub mod store;
 
 // Re-export commonly used items for convenience
 pub use config::Config;

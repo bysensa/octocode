@@ -14,8 +14,8 @@
 
 //! Bash language implementation for the indexer
 
-use tree_sitter::Node;
 use crate::indexer::languages::Language;
+use tree_sitter::Node;
 
 pub struct Bash {}
 
@@ -29,9 +29,7 @@ impl Language for Bash {
 	}
 
 	fn get_meaningful_kinds(&self) -> Vec<&'static str> {
-		vec![
-			"function_definition",
-		]
+		vec!["function_definition"]
 	}
 
 	fn extract_symbols(&self, node: Node, contents: &str) -> Vec<String> {
@@ -51,7 +49,7 @@ impl Language for Bash {
 
 				// Extract variables from function body
 				self.extract_bash_variables(node, contents, &mut symbols);
-			},
+			}
 			_ => self.extract_identifiers(node, contents, &mut symbols),
 		}
 
@@ -79,7 +77,9 @@ impl Language for Bash {
 		if cursor.goto_first_child() {
 			loop {
 				self.extract_identifiers(cursor.node(), contents, symbols);
-				if !cursor.goto_next_sibling() { break; }
+				if !cursor.goto_next_sibling() {
+					break;
+				}
 			}
 		}
 	}
@@ -147,7 +147,9 @@ impl Bash {
 				// Continue traversing for nested assignments
 				self.extract_identifiers(child, contents, symbols);
 
-				if !cursor.goto_next_sibling() { break; }
+				if !cursor.goto_next_sibling() {
+					break;
+				}
 			}
 		}
 	}

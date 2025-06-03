@@ -15,7 +15,10 @@
 // GraphRAG core builder implementation
 
 use crate::config::Config;
-use crate::embedding::{calculate_unique_content_hash, types::parse_provider_model, create_embedding_provider_from_parts, EmbeddingProvider};
+use crate::embedding::{
+	calculate_unique_content_hash, create_embedding_provider_from_parts,
+	types::parse_provider_model, EmbeddingProvider,
+};
 use crate::indexer::graphrag::ai::AIEnhancements;
 use crate::indexer::graphrag::database::DatabaseOperations;
 use crate::indexer::graphrag::relationships::RelationshipDiscovery;
@@ -36,7 +39,7 @@ pub struct GraphBuilder {
 	graph: Arc<RwLock<CodeGraph>>,
 	embedding_provider: Arc<Box<dyn EmbeddingProvider>>,
 	store: Store,
-	project_root: PathBuf,  // Project root for relative path calculations
+	project_root: PathBuf, // Project root for relative path calculations
 	ai_enhancements: Option<AIEnhancements>,
 }
 
@@ -49,8 +52,10 @@ impl GraphBuilder {
 		// GraphRAG uses text embeddings for file descriptions and relationships, not code embeddings
 		let model_string = &config.embedding.text_model;
 		let (provider_type, model) = parse_provider_model(model_string);
-		let embedding_provider = Arc::new(create_embedding_provider_from_parts(&provider_type, &model)
-			.context("Failed to initialize embedding provider from config")?);
+		let embedding_provider = Arc::new(
+			create_embedding_provider_from_parts(&provider_type, &model)
+				.context("Failed to initialize embedding provider from config")?,
+		);
 
 		// Initialize the store for database access
 		let store = Store::new().await?;
@@ -78,7 +83,10 @@ impl GraphBuilder {
 	}
 
 	// Legacy method for backward compatibility
-	pub async fn new_with_ai_enhancements(config: Config, _use_ai_enhancements: bool) -> Result<Self> {
+	pub async fn new_with_ai_enhancements(
+		config: Config,
+		_use_ai_enhancements: bool,
+	) -> Result<Self> {
 		// Note: _use_ai_enhancements parameter is ignored, using config.index.llm_enabled instead
 		Self::new(config).await
 	}
@@ -99,7 +107,11 @@ impl GraphBuilder {
 	}
 
 	// Process files efficiently using existing code blocks for better performance
-	pub async fn process_files_from_codeblocks(&self, code_blocks: &[CodeBlock], state: Option<SharedState>) -> Result<()> {
+	pub async fn process_files_from_codeblocks(
+		&self,
+		code_blocks: &[CodeBlock],
+		state: Option<SharedState>,
+	) -> Result<()> {
 		let mut new_nodes = Vec::new();
 		let mut processed_count = 0;
 		let mut skipped_count = 0;
@@ -107,7 +119,10 @@ impl GraphBuilder {
 		// Group code blocks by file for efficient processing
 		let mut files_to_blocks: HashMap<String, Vec<&CodeBlock>> = HashMap::new();
 		for block in code_blocks {
-			files_to_blocks.entry(block.path.clone()).or_default().push(block);
+			files_to_blocks
+				.entry(block.path.clone())
+				.or_default()
+				.push(block);
 		}
 
 		// Process each file
@@ -122,7 +137,8 @@ impl GraphBuilder {
 			};
 
 			// Calculate file hash based on all blocks
-			let combined_content: String = file_blocks.iter()
+			let combined_content: String = file_blocks
+				.iter()
 				.map(|b| b.content.as_str())
 				.collect::<Vec<_>>()
 				.join("\n");
@@ -134,8 +150,8 @@ impl GraphBuilder {
 				Some(existing_node) if existing_node.hash == content_hash => {
 					skipped_count += 1;
 					false
-				},
-				_ => true
+				}
+				_ => true,
 			};
 			drop(graph);
 
@@ -151,7 +167,8 @@ impl GraphBuilder {
 				let kind = RelationshipDiscovery::determine_file_kind(&relative_path);
 
 				// Extract language from the first block (should be consistent)
-				let language = file_blocks.first()
+				let language = file_blocks
+					.first()
 					.map(|b| b.language.clone())
 					.unwrap_or_else(|| "unknown".to_string());
 
@@ -165,7 +182,9 @@ impl GraphBuilder {
 					total_lines = total_lines.max(block.end_line);
 
 					// Extract function information from this block
-					if let Ok(functions) = RelationshipDiscovery::extract_functions_from_block(block) {
+					if let Ok(functions) =
+						RelationshipDiscovery::extract_functions_from_block(block)
+					{
 						all_functions.extend(functions);
 					}
 				}
@@ -173,21 +192,40 @@ impl GraphBuilder {
 				let symbols: Vec<String> = all_symbols.into_iter().collect();
 
 				// Efficiently extract imports and exports based on language and symbols
-				let (imports, exports) = RelationshipDiscovery::extract_imports_exports_efficient(&symbols, &language, &relative_path);
+				let (imports, exports) = RelationshipDiscovery::extract_imports_exports_efficient(
+					&symbols,
+					&language,
+					&relative_path,
+				);
 
 				// Generate description - use AI for complex files when enabled
-				let description = if self.llm_enabled() && self.should_use_ai_for_description(&symbols, total_lines as u32, &language) {
+				let description = if self.llm_enabled()
+					&& self.should_use_ai_for_description(&symbols, total_lines as u32, &language)
+				{
 					// Collect a meaningful content sample for AI analysis
 					let content_sample = self.build_content_sample_for_ai(&file_blocks);
-					self.extract_ai_description(&content_sample, &file_path, &language, &symbols).await
-						.unwrap_or_else(|_| RelationshipDiscovery::generate_simple_description(&file_name, &language, &symbols, total_lines as u32))
+					self.extract_ai_description(&content_sample, &file_path, &language, &symbols)
+						.await
+						.unwrap_or_else(|_| {
+							RelationshipDiscovery::generate_simple_description(
+								&file_name,
+								&language,
+								&symbols,
+								total_lines as u32,
+							)
+						})
 				} else {
-					RelationshipDiscovery::generate_simple_description(&file_name, &language, &symbols, total_lines as u32)
+					RelationshipDiscovery::generate_simple_description(
+						&file_name,
+						&language,
+						&symbols,
+						total_lines as u32,
+					)
 				};
 
 				// Generate embedding for the file summary (much lighter than full content)
-				let summary_text = format!("{} {} symbols: {}",
-					file_name, language, symbols.join(" "));
+				let summary_text =
+					format!("{} {} symbols: {}", file_name, language, symbols.join(" "));
 				let embedding = self.generate_embedding(&summary_text).await?;
 
 				// Create the file node
@@ -227,7 +265,8 @@ impl GraphBuilder {
 		if !new_nodes.is_empty() {
 			let relationships = if self.llm_enabled() {
 				// Enhanced relationship discovery with optional AI for complex cases
-				self.discover_relationships_with_ai_enhancement(&new_nodes).await?
+				self.discover_relationships_with_ai_enhancement(&new_nodes)
+					.await?
 			} else {
 				// Fast rule-based relationship discovery only
 				self.discover_relationships_efficiently(&new_nodes).await?
@@ -239,7 +278,9 @@ impl GraphBuilder {
 
 				// Save the nodes and relationships
 				let db_ops = DatabaseOperations::new(&self.store);
-				db_ops.save_graph_incremental(&new_nodes, &relationships).await?;
+				db_ops
+					.save_graph_incremental(&new_nodes, &relationships)
+					.await?;
 			} else {
 				// Save just the nodes
 				let db_ops = DatabaseOperations::new(&self.store);
@@ -250,23 +291,33 @@ impl GraphBuilder {
 		// Update final state
 		if let Some(state) = state {
 			let mut state_guard = state.write();
-			state_guard.status_message = format!("GraphRAG processing complete: {} files processed ({} skipped)", processed_count, skipped_count);
+			state_guard.status_message = format!(
+				"GraphRAG processing complete: {} files processed ({} skipped)",
+				processed_count, skipped_count
+			);
 		} else {
-			println!("GraphRAG: Processed {} files ({} skipped)", processed_count, skipped_count);
+			println!(
+				"GraphRAG: Processed {} files ({} skipped)",
+				processed_count, skipped_count
+			);
 		}
 
 		Ok(())
 	}
 
 	// Enhanced relationship discovery with optional AI for complex cases
-	async fn discover_relationships_with_ai_enhancement(&self, new_files: &[CodeNode]) -> Result<Vec<CodeRelationship>> {
+	async fn discover_relationships_with_ai_enhancement(
+		&self,
+		new_files: &[CodeNode],
+	) -> Result<Vec<CodeRelationship>> {
 		if let Some(ref ai) = self.ai_enhancements {
 			// Get all nodes for context
 			let all_nodes = {
 				let graph = self.graph.read().await;
 				graph.nodes.values().cloned().collect::<Vec<CodeNode>>()
 			};
-			ai.discover_relationships_with_ai_enhancement(new_files, &all_nodes).await
+			ai.discover_relationships_with_ai_enhancement(new_files, &all_nodes)
+				.await
 		} else {
 			// Fallback to efficient discovery without AI
 			self.discover_relationships_efficiently(new_files).await
@@ -274,7 +325,10 @@ impl GraphBuilder {
 	}
 
 	// Discover relationships efficiently without AI for most cases
-	async fn discover_relationships_efficiently(&self, new_files: &[CodeNode]) -> Result<Vec<CodeRelationship>> {
+	async fn discover_relationships_efficiently(
+		&self,
+		new_files: &[CodeNode],
+	) -> Result<Vec<CodeRelationship>> {
 		// Get all nodes from the graph for relationship discovery
 		let all_nodes = {
 			let graph = self.graph.read().await;
@@ -285,7 +339,12 @@ impl GraphBuilder {
 	}
 
 	// Determine if a file is complex enough to benefit from AI analysis
-	fn should_use_ai_for_description(&self, symbols: &[String], lines: u32, language: &str) -> bool {
+	fn should_use_ai_for_description(
+		&self,
+		symbols: &[String],
+		lines: u32,
+		language: &str,
+	) -> bool {
 		if let Some(ref ai) = self.ai_enhancements {
 			ai.should_use_ai_for_description(symbols, lines, language)
 		} else {
@@ -303,16 +362,27 @@ impl GraphBuilder {
 	}
 
 	// Extract AI-powered description for complex files
-	async fn extract_ai_description(&self, content_sample: &str, file_path: &str, language: &str, symbols: &[String]) -> Result<String> {
+	async fn extract_ai_description(
+		&self,
+		content_sample: &str,
+		file_path: &str,
+		language: &str,
+		symbols: &[String],
+	) -> Result<String> {
 		if let Some(ref ai) = self.ai_enhancements {
-			ai.extract_ai_description(content_sample, file_path, language, symbols).await
+			ai.extract_ai_description(content_sample, file_path, language, symbols)
+				.await
 		} else {
 			Err(anyhow::anyhow!("AI enhancements not available"))
 		}
 	}
 
 	// Legacy method for backward compatibility - now uses efficient code block processing
-	pub async fn process_code_blocks(&self, code_blocks: &[CodeBlock], state: Option<SharedState>) -> Result<()> {
+	pub async fn process_code_blocks(
+		&self,
+		code_blocks: &[CodeBlock],
+		state: Option<SharedState>,
+	) -> Result<()> {
 		// Use the new efficient method that processes code blocks directly
 		self.process_files_from_codeblocks(code_blocks, state).await
 	}
@@ -363,11 +433,19 @@ impl GraphBuilder {
 			let name_contains = node.name.to_lowercase().contains(&query_lower);
 			let kind_contains = node.kind.to_lowercase().contains(&query_lower);
 			let desc_contains = node.description.to_lowercase().contains(&query_lower);
-			let symbols_contain = node.symbols.iter().any(|s| s.to_lowercase().contains(&query_lower));
+			let symbols_contain = node
+				.symbols
+				.iter()
+				.any(|s| s.to_lowercase().contains(&query_lower));
 
 			// Use a lower threshold for semantic similarity (0.5 instead of 0.6)
 			// OR include if the query is a substring of any important field
-			if similarity > 0.5 || name_contains || kind_contains || desc_contains || symbols_contain {
+			if similarity > 0.5
+				|| name_contains
+				|| kind_contains
+				|| desc_contains
+				|| symbols_contain
+			{
 				// Boost similarity score for exact matches to ensure they appear at the top
 				let boosted_similarity = if name_contains || kind_contains || symbols_contain {
 					// Ensure exact matches get higher priority
@@ -384,9 +462,7 @@ impl GraphBuilder {
 		similarities.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
 		// Return the nodes (without the similarity scores)
-		let results = similarities.into_iter()
-			.map(|(_, node)| node)
-			.collect();
+		let results = similarities.into_iter().map(|(_, node)| node).collect();
 
 		Ok(results)
 	}
@@ -397,11 +473,18 @@ impl GraphBuilder {
 		let query_embedding = self.generate_embedding(query).await?;
 
 		let db_ops = DatabaseOperations::new(&self.store);
-		db_ops.search_nodes_in_database(&query_embedding, query).await
+		db_ops
+			.search_nodes_in_database(&query_embedding, query)
+			.await
 	}
 
 	// Find paths between nodes in the graph
-	pub async fn find_paths(&self, source_id: &str, target_id: &str, max_depth: usize) -> Result<Vec<Vec<String>>> {
+	pub async fn find_paths(
+		&self,
+		source_id: &str,
+		target_id: &str,
+		max_depth: usize,
+	) -> Result<Vec<Vec<String>>> {
 		let graph = self.graph.read().await;
 
 		// Ensure both nodes exist
@@ -412,7 +495,8 @@ impl GraphBuilder {
 		// Build an adjacency list for easier traversal
 		let mut adjacency_list: HashMap<String, Vec<String>> = HashMap::new();
 		for rel in &graph.relationships {
-			adjacency_list.entry(rel.source.clone())
+			adjacency_list
+				.entry(rel.source.clone())
 				.or_default()
 				.push(rel.target.clone());
 		}

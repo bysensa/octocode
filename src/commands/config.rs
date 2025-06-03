@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use clap::Args;
 use anyhow::Result;
+use clap::Args;
 use octocode::config::Config;
-use octocode::embedding::types::{EmbeddingProviderType, parse_provider_model};
+use octocode::embedding::types::{parse_provider_model, EmbeddingProviderType};
 
 #[derive(Args)]
 pub struct ConfigArgs {
@@ -88,7 +88,14 @@ pub fn execute(args: &ConfigArgs, mut config: Config) -> Result<()> {
 		println!("   Model: {}", config.openrouter.model);
 		println!("   Base URL: {}", config.openrouter.base_url);
 		println!("   Timeout: {}s", config.openrouter.timeout);
-		println!("   API Key: {}", if config.openrouter.api_key.is_some() { "✅ Set" } else { "❌ Not set" });
+		println!(
+			"   API Key: {}",
+			if config.openrouter.api_key.is_some() {
+				"✅ Set"
+			} else {
+				"❌ Not set"
+			}
+		);
 		println!();
 
 		// Embedding Configuration
@@ -107,7 +114,7 @@ pub fn execute(args: &ConfigArgs, mut config: Config) -> Result<()> {
 					"❌ Not set"
 				};
 				println!("   Jina API key: {}", api_key_status);
-			},
+			}
 			EmbeddingProviderType::Voyage => {
 				let api_key_status = if config.embedding.get_api_key(&active_provider).is_some() {
 					"✅ Set"
@@ -115,7 +122,7 @@ pub fn execute(args: &ConfigArgs, mut config: Config) -> Result<()> {
 					"❌ Not set"
 				};
 				println!("   Voyage API key: {}", api_key_status);
-			},
+			}
 			EmbeddingProviderType::Google => {
 				let api_key_status = if config.embedding.get_api_key(&active_provider).is_some() {
 					"✅ Set"
@@ -123,7 +130,7 @@ pub fn execute(args: &ConfigArgs, mut config: Config) -> Result<()> {
 					"❌ Not set"
 				};
 				println!("   Google API key: {}", api_key_status);
-			},
+			}
 			_ => {
 				// FastEmbed and SentenceTransformer don't need API keys
 				println!("   API key: Not required");
@@ -134,21 +141,47 @@ pub fn execute(args: &ConfigArgs, mut config: Config) -> Result<()> {
 		// Indexing Configuration
 		println!("📚 Indexing Configuration:");
 		println!("   Chunk size: {} characters", config.index.chunk_size);
-		println!("   Chunk overlap: {} characters", config.index.chunk_overlap);
-		println!("   Batch size: {} texts", config.index.embeddings_batch_size);
-		println!("   GraphRAG: {}", if config.index.graphrag_enabled { "✅ Enabled" } else { "❌ Disabled" });
-		println!("   LLM processing: {}", if config.index.llm_enabled { "✅ Enabled" } else { "❌ Disabled" });
+		println!(
+			"   Chunk overlap: {} characters",
+			config.index.chunk_overlap
+		);
+		println!(
+			"   Batch size: {} texts",
+			config.index.embeddings_batch_size
+		);
+		println!(
+			"   GraphRAG: {}",
+			if config.index.graphrag_enabled {
+				"✅ Enabled"
+			} else {
+				"❌ Disabled"
+			}
+		);
+		println!(
+			"   LLM processing: {}",
+			if config.index.llm_enabled {
+				"✅ Enabled"
+			} else {
+				"❌ Disabled"
+			}
+		);
 		println!();
 
 		// Search Configuration
 		println!("🔎 Search Configuration:");
 		println!("   Max results: {}", config.search.max_results);
-		println!("   Similarity threshold: {:.2}", config.search.similarity_threshold);
+		println!(
+			"   Similarity threshold: {:.2}",
+			config.search.similarity_threshold
+		);
 		println!("   Top-k results: {}", config.search.top_k);
 		println!("   Output format: {}", config.search.output_format);
 		println!("   Max files: {}", config.search.max_files);
 		println!("   Context lines: {}", config.search.context_lines);
-		println!("   Block max chars: {}", config.search.search_block_max_characters);
+		println!(
+			"   Block max chars: {}",
+			config.search.search_block_max_characters
+		);
 		println!();
 
 		// Storage Locations
@@ -156,7 +189,10 @@ pub fn execute(args: &ConfigArgs, mut config: Config) -> Result<()> {
 		if let Ok(storage_dir) = octocode::storage::get_system_storage_dir() {
 			println!("   System storage: {}", storage_dir.display());
 			println!("   FastEmbed cache: {}/fastembed/", storage_dir.display());
-			println!("   SentenceTransformer cache: {}/sentencetransformer/", storage_dir.display());
+			println!(
+				"   SentenceTransformer cache: {}/sentencetransformer/",
+				storage_dir.display()
+			);
 		}
 		if let Ok(current_dir) = std::env::current_dir() {
 			if let Ok(db_path) = octocode::storage::get_project_database_path(&current_dir) {
@@ -173,8 +209,14 @@ pub fn execute(args: &ConfigArgs, mut config: Config) -> Result<()> {
 		if config.index.graphrag_enabled {
 			println!();
 			println!("🕸️  GraphRAG Configuration:");
-			println!("   Description model: {}", config.graphrag.description_model);
-			println!("   Relationship model: {}", config.graphrag.relationship_model);
+			println!(
+				"   Description model: {}",
+				config.graphrag.description_model
+			);
+			println!(
+				"   Relationship model: {}",
+				config.graphrag.relationship_model
+			);
 		}
 
 		return Ok(());
@@ -192,7 +234,10 @@ pub fn execute(args: &ConfigArgs, mut config: Config) -> Result<()> {
 		// Parse provider from the model string and set the code model
 		let (provider, _) = parse_provider_model(code_model);
 		config.embedding.code_model = code_model.clone();
-		println!("Code embedding model set to: {} (provider: {:?})", code_model, provider);
+		println!(
+			"Code embedding model set to: {} (provider: {:?})",
+			code_model, provider
+		);
 		updated = true;
 	}
 
@@ -200,7 +245,10 @@ pub fn execute(args: &ConfigArgs, mut config: Config) -> Result<()> {
 		// Parse provider from the model string and set the text model
 		let (provider, _) = parse_provider_model(text_model);
 		config.embedding.text_model = text_model.clone();
-		println!("Text embedding model set to: {} (provider: {:?})", text_model, provider);
+		println!(
+			"Text embedding model set to: {} (provider: {:?})",
+			text_model, provider
+		);
 		updated = true;
 	}
 
@@ -230,7 +278,14 @@ pub fn execute(args: &ConfigArgs, mut config: Config) -> Result<()> {
 
 	if let Some(graphrag_enabled) = args.graphrag_enabled {
 		config.index.graphrag_enabled = graphrag_enabled;
-		println!("GraphRAG {}", if graphrag_enabled { "enabled" } else { "disabled" });
+		println!(
+			"GraphRAG {}",
+			if graphrag_enabled {
+				"enabled"
+			} else {
+				"disabled"
+			}
+		);
 		updated = true;
 	}
 

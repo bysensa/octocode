@@ -14,8 +14,8 @@
 
 //! Rust language implementation for the indexer
 
-use tree_sitter::Node;
 use crate::indexer::languages::Language;
+use tree_sitter::Node;
 
 pub struct Rust {}
 
@@ -56,7 +56,8 @@ impl Language for Rust {
 					}
 				}
 			}
-			"struct_item" | "enum_item" | "trait_item" | "mod_item" | "const_item" | "macro_definition" => {
+			"struct_item" | "enum_item" | "trait_item" | "mod_item" | "const_item"
+			| "macro_definition" => {
 				for child in node.children(&mut node.walk()) {
 					if child.kind() == "identifier" || child.kind().contains("name") {
 						if let Ok(n) = child.utf8_text(contents.as_bytes()) {
@@ -93,7 +94,9 @@ impl Language for Rust {
 		if cursor.goto_first_child() {
 			loop {
 				self.extract_identifiers(cursor.node(), contents, symbols);
-				if !cursor.goto_next_sibling() { break; }
+				if !cursor.goto_next_sibling() {
+					break;
+				}
 			}
 		}
 	}

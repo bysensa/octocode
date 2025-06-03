@@ -21,10 +21,10 @@
 //!
 //! The server automatically enables available tools based on configuration.
 
-pub mod types;
-pub mod semantic_code;
 pub mod graphrag;
 pub mod memory;
+pub mod semantic_code;
 pub mod server;
+pub mod types;
 
 pub use server::McpServer;

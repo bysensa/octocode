@@ -14,8 +14,8 @@
 
 //! JSON language implementation for the indexer
 
-use tree_sitter::Node;
 use crate::indexer::languages::Language;
+use tree_sitter::Node;
 
 pub struct Json {}
 
@@ -29,10 +29,7 @@ impl Language for Json {
 	}
 
 	fn get_meaningful_kinds(&self) -> Vec<&'static str> {
-		vec![
-			"object",
-			"array",
-		]
+		vec!["object", "array"]
 	}
 
 	fn extract_symbols(&self, node: Node, contents: &str) -> Vec<String> {
@@ -74,7 +71,9 @@ impl Language for Json {
 		if cursor.goto_first_child() {
 			loop {
 				self.extract_identifiers(cursor.node(), contents, symbols);
-				if !cursor.goto_next_sibling() { break; }
+				if !cursor.goto_next_sibling() {
+					break;
+				}
 			}
 		}
 	}
@@ -142,7 +141,8 @@ impl Json {
 				}
 
 				// Check if this is a nested object
-				if pair_cursor.goto_next_sibling() && pair_cursor.goto_next_sibling() {  // Skip the colon
+				if pair_cursor.goto_next_sibling() && pair_cursor.goto_next_sibling() {
+					// Skip the colon
 					let value_node = pair_cursor.node();
 					if value_node.kind() == "object" || value_node.kind() == "array" {
 						self.extract_json_keys(value_node, contents, symbols);

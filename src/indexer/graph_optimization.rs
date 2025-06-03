@@ -64,8 +64,11 @@ impl TaskFocusedSubgraph {
 		let mut markdown = String::new();
 
 		// Add heading
-		markdown.push_str(&format!("# Code Knowledge Graph: {} nodes, {} relationships\n\n",
-			self.nodes.len(), self.relationships.len()));
+		markdown.push_str(&format!(
+			"# Code Knowledge Graph: {} nodes, {} relationships\n\n",
+			self.nodes.len(),
+			self.relationships.len()
+		));
 
 		// Add key concepts section if we have any
 		if !self.key_concepts.is_empty() {
@@ -77,7 +80,10 @@ impl TaskFocusedSubgraph {
 
 			// Display top concepts (limit to 10 to save tokens)
 			for (concept, relevance) in concepts.iter().take(10) {
-				markdown.push_str(&format!("- **{}** (relevance: {:.2})\n", concept, relevance));
+				markdown.push_str(&format!(
+					"- **{}** (relevance: {:.2})\n",
+					concept, relevance
+				));
 			}
 			markdown.push('\n');
 		}
@@ -89,12 +95,16 @@ impl TaskFocusedSubgraph {
 			let mut files: Vec<_> = self.relevant_files.iter().collect();
 			files.sort(); // Sort alphabetically for consistent display
 
-			for file in files.iter().take(15) { // Limit to 15 files to save tokens
+			for file in files.iter().take(15) {
+				// Limit to 15 files to save tokens
 				markdown.push_str(&format!("- `{}`\n", file));
 			}
 
 			if self.relevant_files.len() > 15 {
-				markdown.push_str(&format!("- *(and {} more files)*\n", self.relevant_files.len() - 15));
+				markdown.push_str(&format!(
+					"- *(and {} more files)*\n",
+					self.relevant_files.len() - 15
+				));
 			}
 
 			markdown.push('\n');
@@ -109,7 +119,8 @@ impl TaskFocusedSubgraph {
 			let mut node_by_kind: HashMap<String, Vec<&CodeNode>> = HashMap::new();
 
 			for node in &self.nodes {
-				node_by_kind.entry(node.kind.clone())
+				node_by_kind
+					.entry(node.kind.clone())
 					.or_default()
 					.push(node);
 			}
@@ -149,7 +160,8 @@ impl TaskFocusedSubgraph {
 			let mut rels_by_type: HashMap<String, Vec<&CodeRelationship>> = HashMap::new();
 
 			for rel in &self.relationships {
-				rels_by_type.entry(rel.relation_type.clone())
+				rels_by_type
+					.entry(rel.relation_type.clone())
 					.or_default()
 					.push(rel);
 			}
@@ -158,7 +170,8 @@ impl TaskFocusedSubgraph {
 			let mut rel_types: Vec<_> = rels_by_type.iter().collect();
 			rel_types.sort_by(|a, b| b.1.len().cmp(&a.1.len())); // Sort by frequency
 
-			for (rel_type, rels) in rel_types.iter().take(5) { // Show top 5 relationship types
+			for (rel_type, rels) in rel_types.iter().take(5) {
+				// Show top 5 relationship types
 				markdown.push_str(&format!("### {} relationships\n\n", rel_type));
 
 				// Show just a few examples of each type
@@ -171,8 +184,11 @@ impl TaskFocusedSubgraph {
 				}
 
 				if rels.len() > 3 {
-					markdown.push_str(&format!("- *(and {} more {} relationships)*\n",
-						rels.len() - 3, rel_type));
+					markdown.push_str(&format!(
+						"- *(and {} more {} relationships)*\n",
+						rels.len() - 3,
+						rel_type
+					));
 				}
 
 				markdown.push('\n');
@@ -196,10 +212,11 @@ impl TaskFocusedSubgraph {
 	/// Add a relationship to the subgraph
 	pub fn add_relationship(&mut self, relationship: CodeRelationship) {
 		// Only add if not already present
-		if !self.relationships.iter().any(|r|
-			r.source == relationship.source &&
-			r.target == relationship.target &&
-			r.relation_type == relationship.relation_type) {
+		if !self.relationships.iter().any(|r| {
+			r.source == relationship.source
+				&& r.target == relationship.target
+				&& r.relation_type == relationship.relation_type
+		}) {
 			self.relationships.push(relationship);
 		}
 	}
@@ -226,7 +243,7 @@ impl GraphOptimizer {
 		&self,
 		_task_description: &str,
 		query_embedding: &[f32],
-		full_graph: &CodeGraph
+		full_graph: &CodeGraph,
 	) -> Result<TaskFocusedSubgraph> {
 		let mut subgraph = TaskFocusedSubgraph::new();
 
@@ -247,7 +264,8 @@ impl GraphOptimizer {
 		}
 
 		// 3. Find direct relationships between these nodes
-		let node_ids: HashSet<String> = relevant_nodes.iter()
+		let node_ids: HashSet<String> = relevant_nodes
+			.iter()
 			.map(|(node, _)| node.id.clone())
 			.collect();
 
@@ -264,7 +282,9 @@ impl GraphOptimizer {
 			// If one endpoint is in our subgraph, consider adding the other
 			if node_ids.contains(&relationship.source) && !node_ids.contains(&relationship.target) {
 				additional_nodes.insert(relationship.target.clone());
-			} else if node_ids.contains(&relationship.target) && !node_ids.contains(&relationship.source) {
+			} else if node_ids.contains(&relationship.target)
+				&& !node_ids.contains(&relationship.source)
+			{
 				additional_nodes.insert(relationship.source.clone());
 			}
 
@@ -278,13 +298,17 @@ impl GraphOptimizer {
 		let mut added = 0;
 		for node_id in additional_nodes {
 			if let Some(node) = full_graph.nodes.get(&node_id) {
-				if added < 20 {  // Limit to 20 additional nodes
+				if added < 20 {
+					// Limit to 20 additional nodes
 					subgraph.add_node(node.clone());
 					added += 1;
 
 					// Add relationships that include this node
 					for relationship in &full_graph.relationships {
-						if (relationship.source == node_id || relationship.target == node_id) && subgraph.nodes.iter().any(|n| n.id == relationship.source) && subgraph.nodes.iter().any(|n| n.id == relationship.target) {
+						if (relationship.source == node_id || relationship.target == node_id)
+							&& subgraph.nodes.iter().any(|n| n.id == relationship.source)
+							&& subgraph.nodes.iter().any(|n| n.id == relationship.target)
+						{
 							subgraph.add_relationship(relationship.clone());
 						}
 					}
@@ -302,7 +326,7 @@ impl GraphOptimizer {
 		&self,
 		query_embedding: &[f32],
 		graph: &CodeGraph,
-		limit: usize
+		limit: usize,
 	) -> Result<Vec<(CodeNode, f32)>> {
 		let mut similarities = Vec::new();
 
@@ -319,7 +343,12 @@ impl GraphOptimizer {
 	}
 
 	/// Extract key concepts from a node and add them to the subgraph
-	fn extract_key_concepts(&self, subgraph: &mut TaskFocusedSubgraph, node: &CodeNode, relevance: f32) {
+	fn extract_key_concepts(
+		&self,
+		subgraph: &mut TaskFocusedSubgraph,
+		node: &CodeNode,
+		relevance: f32,
+	) {
 		// Add the node name as a concept
 		subgraph.add_key_concept(node.name.clone(), relevance);
 
@@ -329,7 +358,9 @@ impl GraphOptimizer {
 		// Extract additional concepts from node description
 		// This is a simple approach - in a real implementation, you might use NLP
 		// to extract more meaningful concepts
-		let words: Vec<&str> = node.description.split_whitespace()
+		let words: Vec<&str> = node
+			.description
+			.split_whitespace()
 			.filter(|w| w.len() > 4) // Only consider longer words as potential concepts
 			.collect();
 
@@ -337,8 +368,10 @@ impl GraphOptimizer {
 			// Skip common words, focus on technical terms
 			if is_likely_technical_term(word) {
 				subgraph.add_key_concept(
-					word.trim_matches(|c: char| !c.is_alphanumeric()).to_string(),
-					relevance * 0.5);
+					word.trim_matches(|c: char| !c.is_alphanumeric())
+						.to_string(),
+					relevance * 0.5,
+				);
 			}
 		}
 	}
@@ -349,18 +382,19 @@ impl GraphOptimizer {
 		task_description: &str,
 		query_embedding: &[f32],
 		full_graph: &CodeGraph,
-		code_blocks: &[CodeBlock]
+		code_blocks: &[CodeBlock],
 	) -> Result<String> {
 		// 1. Extract the task-specific subgraph
-		let subgraph = self.extract_task_subgraph(
-			task_description, query_embedding, full_graph).await?;
+		let subgraph = self
+			.extract_task_subgraph(task_description, query_embedding, full_graph)
+			.await?;
 
 		// 2. Convert to markdown representation
 		let graph_markdown = subgraph.to_markdown();
 
 		// 3. Find the most relevant code snippets based on the key concepts
-		let relevant_snippets = self.find_relevant_code_snippets(
-			query_embedding, &subgraph, code_blocks, 5)?;
+		let relevant_snippets =
+			self.find_relevant_code_snippets(query_embedding, &subgraph, code_blocks, 5)?;
 
 		// 4. Combine the graph overview with code snippets
 		let mut result = String::new();
@@ -377,14 +411,17 @@ impl GraphOptimizer {
 			result.push_str("## Relevant Code Snippets\n\n");
 
 			for (idx, (block, similarity)) in relevant_snippets.iter().enumerate() {
-				result.push_str(&format!("### Snippet {} (Relevance: {:.2})\n\n", idx + 1, similarity));
+				result.push_str(&format!(
+					"### Snippet {} (Relevance: {:.2})\n\n",
+					idx + 1,
+					similarity
+				));
 				result.push_str(&format!("File: `{}`\n\n", block.path));
 
 				// Add symbols if available
 				if !block.symbols.is_empty() {
-					let display_symbols: Vec<_> = block.symbols.iter()
-						.filter(|s| !s.contains('_'))
-						.collect();
+					let display_symbols: Vec<_> =
+						block.symbols.iter().filter(|s| !s.contains('_')).collect();
 
 					if !display_symbols.is_empty() {
 						result.push_str("**Symbols:** ");
@@ -413,8 +450,15 @@ impl GraphOptimizer {
 						result.push_str(&format!("{}{}", line, "\n"));
 					}
 					// Add indicator of omitted lines
-					result.push_str(&format!("// ... {} lines omitted ...{}\n", lines.len() - 20,
-						if !lines.is_empty() { " for brevity" } else { "" }));
+					result.push_str(&format!(
+						"// ... {} lines omitted ...{}\n",
+						lines.len() - 20,
+						if !lines.is_empty() {
+							" for brevity"
+						} else {
+							""
+						}
+					));
 					// Show last 10 lines
 					for line in lines.iter().skip(lines.len() - 10) {
 						result.push_str(&format!("{}{}", line, "\n"));
@@ -440,24 +484,28 @@ impl GraphOptimizer {
 		query_embedding: &[f32],
 		subgraph: &TaskFocusedSubgraph,
 		code_blocks: &[CodeBlock],
-		limit: usize
+		limit: usize,
 	) -> Result<Vec<(CodeBlock, f32)>> {
 		let mut relevant_blocks = Vec::new();
 
 		// Filter blocks to only those in our subgraph's relevant files
-		let filtered_blocks: Vec<_> = code_blocks.iter()
+		let filtered_blocks: Vec<_> = code_blocks
+			.iter()
 			.filter(|block| subgraph.relevant_files.contains(&block.path))
 			.collect();
 
 		// Score each block by relevance to our query
 		for block in filtered_blocks {
 			// Check if the block contains any key concepts
-			let contains_key_concept = !block.symbols.is_empty() &&
-			block.symbols.iter().any(|symbol|
-				subgraph.key_concepts.contains_key(symbol));
+			let contains_key_concept = !block.symbols.is_empty()
+				&& block
+					.symbols
+					.iter()
+					.any(|symbol| subgraph.key_concepts.contains_key(symbol));
 
 			// If contains key concepts, boost the similarity score
-			let mut similarity = cosine_similarity(query_embedding, &generate_block_embedding(block)?);
+			let mut similarity =
+				cosine_similarity(query_embedding, &generate_block_embedding(block)?);
 			if contains_key_concept {
 				similarity *= 1.5; // Boost blocks containing key concepts
 			}
@@ -532,21 +580,25 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
 
 /// Check if a word is likely to be a technical term
 fn is_likely_technical_term(word: &str) -> bool {
-	let word = word.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
+	let word = word
+		.trim_matches(|c: char| !c.is_alphanumeric())
+		.to_lowercase();
 
 	// Skip common English words
-	let common_words = ["about", "after", "again", "below", "could", "every", "first", "found", "great", "house",
+	let common_words = [
+		"about", "after", "again", "below", "could", "every", "first", "found", "great", "house",
 		"large", "learn", "never", "other", "place", "plant", "point", "right", "small", "sound",
 		"spell", "still", "study", "their", "there", "these", "thing", "think", "three", "water",
-		"where", "which", "world", "would", "write"];
+		"where", "which", "world", "would", "write",
+	];
 
 	if common_words.contains(&word.as_str()) {
 		return false;
 	}
 
 	// Words with mixed case are likely technical terms (camelCase, PascalCase)
-	let has_mixed_case = word.chars().any(|c| c.is_uppercase()) &&
-	word.chars().any(|c| c.is_lowercase());
+	let has_mixed_case =
+		word.chars().any(|c| c.is_uppercase()) && word.chars().any(|c| c.is_lowercase());
 
 	// Words with underscores are likely technical terms
 	let has_underscore = word.contains('_');

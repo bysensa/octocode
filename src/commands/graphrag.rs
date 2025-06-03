@@ -15,8 +15,8 @@
 use clap::{Args, ValueEnum};
 
 use octocode::config::Config;
-use octocode::store::Store;
 use octocode::indexer;
+use octocode::store::Store;
 
 #[derive(Args, Debug)]
 pub struct GraphRAGArgs {
@@ -68,7 +68,11 @@ pub enum GraphRAGOperation {
 }
 
 /// Execute a GraphRAG command
-pub async fn execute(_store: &Store, args: &GraphRAGArgs, config: &Config) -> Result<(), anyhow::Error> {
+pub async fn execute(
+	_store: &Store,
+	args: &GraphRAGArgs,
+	config: &Config,
+) -> Result<(), anyhow::Error> {
 	// Check if GraphRAG is enabled in the config
 	if !config.graphrag.enabled {
 		eprintln!("Error: GraphRAG is not enabled in your configuration.");
@@ -143,7 +147,7 @@ pub async fn execute(_store: &Store, args: &GraphRAGArgs, config: &Config) -> Re
 					}
 				}
 			}
-		},
+		}
 		GraphRAGOperation::GetNode => {
 			// Validate required parameters
 			let node_id = match &args.node_id {
@@ -173,16 +177,18 @@ pub async fn execute(_store: &Store, args: &GraphRAGArgs, config: &Config) -> Re
 						}
 					}
 					println!("\u{255a}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}");
-				},
+				}
 				None => println!("Node not found: {}", node_id),
 			}
-		},
+		}
 		GraphRAGOperation::GetRelationships => {
 			// Validate required parameters
 			let node_id = match &args.node_id {
 				Some(id) => id,
 				None => {
-					eprintln!("Error: 'node_id' parameter is required for get_relationships operation.");
+					eprintln!(
+						"Error: 'node_id' parameter is required for get_relationships operation."
+					);
 					eprintln!("Example: octocode graphrag get-relationships --node_id \"src/main.rs/main\"");
 					return Ok(());
 				}
@@ -198,57 +204,67 @@ pub async fn execute(_store: &Store, args: &GraphRAGArgs, config: &Config) -> Re
 			}
 
 			// Find relationships where this node is either source or target
-			let relationships: Vec<_> = graph.relationships.iter()
+			let relationships: Vec<_> = graph
+				.relationships
+				.iter()
 				.filter(|rel| rel.source == *node_id || rel.target == *node_id)
 				.collect();
 
 			if relationships.is_empty() {
 				println!("No relationships found for node: {}", node_id);
 			} else {
-				println!("Found {} relationships for node {}:\n", relationships.len(), node_id);
+				println!(
+					"Found {} relationships for node {}:\n",
+					relationships.len(),
+					node_id
+				);
 
 				// Outgoing relationships
-				let outgoing: Vec<_> = relationships.iter()
+				let outgoing: Vec<_> = relationships
+					.iter()
 					.filter(|rel| rel.source == *node_id)
 					.collect();
 
 				if !outgoing.is_empty() {
 					println!("Outgoing Relationships:");
 					for rel in outgoing {
-						let target_name = graph.nodes.get(&rel.target)
+						let target_name = graph
+							.nodes
+							.get(&rel.target)
 							.map(|n| n.name.clone())
 							.unwrap_or_else(|| rel.target.clone());
 
-						println!("  - {} \u{2192} {} ({}): {}",
-							rel.relation_type,
-							target_name,
-							rel.target,
-							rel.description);
+						println!(
+							"  - {} \u{2192} {} ({}): {}",
+							rel.relation_type, target_name, rel.target, rel.description
+						);
 					}
 					println!();
 				}
 
 				// Incoming relationships
-				let incoming: Vec<_> = relationships.iter()
+				let incoming: Vec<_> = relationships
+					.iter()
 					.filter(|rel| rel.target == *node_id)
 					.collect();
 
 				if !incoming.is_empty() {
 					println!("Incoming Relationships:");
 					for rel in incoming {
-						let source_name = graph.nodes.get(&rel.source)
+						let source_name = graph
+							.nodes
+							.get(&rel.source)
 							.map(|n| n.name.clone())
 							.unwrap_or_else(|| rel.source.clone());
 
-						println!("  - {} \u{2190} {} ({}): {}",
-							rel.relation_type,
-							source_name,
-							rel.source,
-							rel.description);
+						println!(
+							"  - {} \u{2190} {} ({}): {}",
+							rel.relation_type, source_name, rel.source, rel.description
+						);
 					}
 				}
 			}
-		},
+		}
 		GraphRAGOperation::FindPath => {
 			// Validate required parameters
 			let source_id = match &args.source_id {
@@ -270,8 +286,13 @@ pub async fn execute(_store: &Store, args: &GraphRAGArgs, config: &Config) -> Re
 			};
 
 			// Find paths
-			println!("Finding paths from {} to {} (max depth: {})...", source_id, target_id, args.max_depth);
-			let paths = graph_builder.find_paths(source_id, target_id, args.max_depth).await?;
+			println!(
+				"Finding paths from {} to {} (max depth: {})...",
+				source_id, target_id, args.max_depth
+			);
+			let paths = graph_builder
+				.find_paths(source_id, target_id, args.max_depth)
+				.await?;
 
 			// Get the graph for node name lookup
 			let graph = graph_builder.get_graph().await?;
@@ -287,14 +308,18 @@ pub async fn execute(_store: &Store, args: &GraphRAGArgs, config: &Config) -> Re
 
 					// Display each node in the path
 					for (j, node_id) in path.iter().enumerate() {
-						let node_name = graph.nodes.get(node_id)
+						let node_name = graph
+							.nodes
+							.get(node_id)
 							.map(|n| n.name.clone())
 							.unwrap_or_else(|| node_id.clone());
 
 						if j > 0 {
 							// Look up the relationship
-							let prev_id = &path[j-1];
-							let rel = graph.relationships.iter()
+							let prev_id = &path[j - 1];
+							let rel = graph
+								.relationships
+								.iter()
 								.find(|r| r.source == *prev_id && r.target == *node_id);
 
 							if let Some(rel) = rel {
@@ -309,7 +334,7 @@ pub async fn execute(_store: &Store, args: &GraphRAGArgs, config: &Config) -> Re
 					println!("\n");
 				}
 			}
-		},
+		}
 		GraphRAGOperation::Overview => {
 			// Get the graph
 			let graph = graph_builder.get_graph().await?;
@@ -333,7 +358,10 @@ pub async fn execute(_store: &Store, args: &GraphRAGArgs, config: &Config) -> Re
 			// Display overview
 			println!("GraphRAG Knowledge Graph Overview");
 			println!("=================================\n");
-			println!("The knowledge graph contains {} nodes and {} relationships.\n", node_count, relationship_count);
+			println!(
+				"The knowledge graph contains {} nodes and {} relationships.\n",
+				node_count, relationship_count
+			);
 
 			// Node type statistics
 			println!("Node Types:");

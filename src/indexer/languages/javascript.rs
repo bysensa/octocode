@@ -14,8 +14,8 @@
 
 //! JavaScript language implementation for the indexer
 
-use tree_sitter::Node;
 use crate::indexer::languages::Language;
+use tree_sitter::Node;
 
 pub struct JavaScript {}
 
@@ -115,7 +115,9 @@ impl Language for JavaScript {
 		if cursor.goto_first_child() {
 			loop {
 				self.extract_identifiers(cursor.node(), contents, symbols);
-				if !cursor.goto_next_sibling() { break; }
+				if !cursor.goto_next_sibling() {
+					break;
+				}
 			}
 		}
 	}
@@ -129,7 +131,11 @@ impl Language for JavaScript {
 		// JavaScript-specific semantic groups
 		let semantic_groups = [
 			// Functions and methods
-			&["function_declaration", "method_definition", "arrow_function"] as &[&str],
+			&[
+				"function_declaration",
+				"method_definition",
+				"arrow_function",
+			] as &[&str],
 			// Classes and constructors
 			&["class_declaration", "method_definition"],
 			// Import/export statements
@@ -153,7 +159,9 @@ impl Language for JavaScript {
 
 	fn get_node_type_description(&self, node_type: &str) -> &'static str {
 		match node_type {
-			"function_declaration" | "method_definition" | "arrow_function" => "function declarations",
+			"function_declaration" | "method_definition" | "arrow_function" => {
+				"function declarations"
+			}
 			"class_declaration" => "class declarations",
 			"import_statement" | "export_statement" => "import/export statements",
 			"variable_declaration" | "lexical_declaration" => "variable declarations",
@@ -165,7 +173,12 @@ impl Language for JavaScript {
 impl JavaScript {
 	/// Extract JavaScript variable declarations within a block
 	#[allow(clippy::only_used_in_recursion)]
-	pub fn extract_js_variable_declarations(&self, node: Node, contents: &str, symbols: &mut Vec<String>) {
+	pub fn extract_js_variable_declarations(
+		&self,
+		node: Node,
+		contents: &str,
+		symbols: &mut Vec<String>,
+	) {
 		let mut cursor = node.walk();
 		// Look through all children
 		if cursor.goto_first_child() {
@@ -192,12 +205,13 @@ impl JavaScript {
 					}
 				}
 				// Recursive search in nested blocks (if, for, while loops, etc.)
-				else if child.kind() == "statement_block" ||
-				child.kind().contains("statement") {
+				else if child.kind() == "statement_block" || child.kind().contains("statement") {
 					self.extract_js_variable_declarations(child, contents, symbols);
 				}
 
-				if !cursor.goto_next_sibling() { break; }
+				if !cursor.goto_next_sibling() {
+					break;
+				}
 			}
 		}
 	}

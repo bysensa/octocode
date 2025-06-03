@@ -15,9 +15,9 @@
 use clap::Args;
 
 use octocode::config::Config;
-use octocode::store::Store;
-use octocode::state;
 use octocode::indexer;
+use octocode::state;
+use octocode::store::Store;
 
 use super::index::IndexArgs;
 
@@ -36,19 +36,33 @@ pub struct WatchArgs {
 	pub no_git: bool,
 }
 
-pub async fn execute(store: &Store, config: &Config, args: &WatchArgs) -> Result<(), anyhow::Error> {
+pub async fn execute(
+	store: &Store,
+	config: &Config,
+	args: &WatchArgs,
+) -> Result<(), anyhow::Error> {
 	let current_dir = std::env::current_dir()?;
 
 	// Only show verbose output if not in quiet mode
 	if !args.quiet {
-		println!("Starting watch mode for current directory: {}", current_dir.display());
+		println!(
+			"Starting watch mode for current directory: {}",
+			current_dir.display()
+		);
 		println!("Initial indexing...");
 	}
 
 	// Do initial indexing
 	if !args.quiet {
 		// If not in quiet mode, use the regular indexing with progress display
-		super::index::execute(store, config, &IndexArgs { no_git: args.no_git }).await?
+		super::index::execute(
+			store,
+			config,
+			&IndexArgs {
+				no_git: args.no_git,
+			},
+		)
+		.await?
 	} else {
 		// In quiet mode, just do the indexing without progress display
 		let state = state::create_shared_state();
@@ -88,26 +102,33 @@ pub async fn execute(store: &Store, config: &Config, args: &WatchArgs) -> Result
 			match res {
 				Ok(events) => {
 					// Filter out events from .octocode directory to prevent reindexing loops
-					let relevant_events = events.iter().filter(|event| {
-						let path = event.path.to_string_lossy();
-						!path.contains(".octocode") && !path.contains("target/") && !path.contains(".git/")
-					}).count();
+					let relevant_events = events
+						.iter()
+						.filter(|event| {
+							let path = event.path.to_string_lossy();
+							!path.contains(".octocode")
+								&& !path.contains("target/")
+								&& !path.contains(".git/")
+						})
+						.count();
 
 					if relevant_events > 0 {
 						let _ = tx.send(());
 					}
-				},
+				}
 				Err(e) => {
 					if !quiet_mode {
 						eprintln!("Error in file watcher: {:?}", e);
 					}
-				},
+				}
 			}
 		},
 	)?;
 
 	// Add the current directory to the watcher
-	debouncer.watcher().watch(&current_dir, notify::RecursiveMode::Recursive)?;
+	debouncer
+		.watcher()
+		.watch(&current_dir, notify::RecursiveMode::Recursive)?;
 
 	// Create shared state for reindexing
 	let state = state::create_shared_state();
@@ -136,7 +157,14 @@ pub async fn execute(store: &Store, config: &Config, args: &WatchArgs) -> Result
 
 				if !args.quiet {
 					// Use regular indexing with progress in non-quiet mode
-					super::index::execute(store, &config, &IndexArgs { no_git: args.no_git }).await?
+					super::index::execute(
+						store,
+						&config,
+						&IndexArgs {
+							no_git: args.no_git,
+						},
+					)
+					.await?
 				} else {
 					// In quiet mode, just do the indexing without progress display
 					let git_repo_root = if !args.no_git {
@@ -144,9 +172,10 @@ pub async fn execute(store: &Store, config: &Config, args: &WatchArgs) -> Result
 					} else {
 						None
 					};
-					indexer::index_files(store, state.clone(), &config, git_repo_root.as_deref()).await?;
+					indexer::index_files(store, state.clone(), &config, git_repo_root.as_deref())
+						.await?;
 				}
-			},
+			}
 			Err(e) => {
 				if !args.quiet {
 					eprintln!("Watch error: {:?}", e);

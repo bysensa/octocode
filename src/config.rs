@@ -71,13 +71,9 @@ fn default_chunk_overlap() -> usize {
 	100
 }
 
-
-
 fn default_max_results() -> usize {
 	50
 }
-
-
 
 fn default_similarity_threshold() -> f32 {
 	0.6
@@ -240,8 +236,6 @@ impl Default for SearchConfig {
 	}
 }
 
-
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
 	#[serde(default)]
@@ -325,8 +319,6 @@ impl Config {
 		Ok(system_storage.join("config.toml"))
 	}
 
-
-
 	pub fn get_model(&self) -> &str {
 		&self.openrouter.model
 	}
@@ -350,6 +342,9 @@ mod tests {
 		assert_eq!(config.openrouter.model, "openai/gpt-4.1-mini");
 		assert_eq!(config.index.chunk_size, 2000);
 		assert_eq!(config.search.max_results, 50);
-		assert_eq!(config.embedding.get_active_provider(), crate::embedding::types::EmbeddingProviderType::FastEmbed);
+		assert_eq!(
+			config.embedding.get_active_provider(),
+			crate::embedding::types::EmbeddingProviderType::FastEmbed
+		);
 	}
 }

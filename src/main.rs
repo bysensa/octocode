@@ -30,7 +30,7 @@
 // Copyright (c) 2025 Muvon Un Limited
 // Licensed under the MIT License
 
-use clap::{Parser, Subcommand, CommandFactory};
+use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Shell};
 
 use octocode::config::Config;
@@ -142,27 +142,23 @@ async fn main() -> Result<(), anyhow::Error> {
 	match &args.command {
 		Commands::Index(index_args) => {
 			commands::index::execute(&store, &config, index_args).await?
-		},
+		}
 		Commands::Search(search_args) => {
 			commands::search::execute(&store, search_args, &config).await?
-		},
-		Commands::View(view_args) => {
-			commands::view::execute(&store, view_args, &config).await?
-		},
+		}
+		Commands::View(view_args) => commands::view::execute(&store, view_args, &config).await?,
 		Commands::Watch(watch_args) => {
 			commands::watch::execute(&store, &config, watch_args).await?
-		},
+		}
 		Commands::GraphRAG(graphrag_args) => {
 			commands::graphrag::execute(&store, graphrag_args, &config).await?
-		},
-		Commands::Clear => {
-			commands::clear::execute(&store).await?
-		},
+		}
+		Commands::Clear => commands::clear::execute(&store).await?,
 		Commands::Debug(debug_args) => {
 			commands::debug::execute(&store, &config, debug_args).await?
-		},
+		}
 		Commands::Config(_) => unreachable!(), // Already handled above
-		Commands::Mcp(_) => unreachable!(), // Already handled above
+		Commands::Mcp(_) => unreachable!(),    // Already handled above
 		Commands::Commit(_) => unreachable!(), // Already handled above
 		Commands::Review(_) => unreachable!(), // Already handled above
 		Commands::Format(_) => unreachable!(), // Already handled above

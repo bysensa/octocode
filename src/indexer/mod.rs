@@ -15,28 +15,28 @@
 // Indexer module for Octodev
 // Handles code indexing, embedding, and search functionality
 
-pub mod search; // Search functionality
-pub mod languages; // Language-specific processors
+pub mod graph_optimization;
 pub mod graphrag; // GraphRAG generation for code relationships (modular implementation)
-pub mod graph_optimization; // Task-focused graph extraction and optimization
+pub mod languages; // Language-specific processors
+pub mod search; // Search functionality // Task-focused graph extraction and optimization
 
-pub use search::*;
-pub use languages::*;
-pub use graphrag::*;
 pub use graph_optimization::*;
+pub use graphrag::*;
+pub use languages::*;
+pub use search::*;
 
-use crate::state::SharedState;
-use crate::state;
-use crate::store::{Store, CodeBlock, TextBlock, DocumentBlock};
 use crate::config::Config;
 use crate::embedding::calculate_unique_content_hash;
+use crate::state;
+use crate::state::SharedState;
+use crate::store::{CodeBlock, DocumentBlock, Store, TextBlock};
 use std::fs;
 // We're using ignore::WalkBuilder instead of walkdir::WalkDir
-use tree_sitter::{Parser, Node};
 use anyhow::Result;
 use ignore;
-use std::path::{Path, PathBuf};
 use serde::Serialize;
+use std::path::{Path, PathBuf};
+use tree_sitter::{Node, Parser};
 
 #[derive(Debug, Serialize, Clone)]
 pub struct FileSignature {
@@ -48,12 +48,12 @@ pub struct FileSignature {
 
 #[derive(Debug, Serialize, Clone)]
 pub struct SignatureItem {
-	pub kind: String,           // e.g., "function", "struct", "class", etc.
-	pub name: String,           // Name of the item
-	pub signature: String,      // Full signature
-	pub description: Option<String>,  // Comment if available
-	pub start_line: usize,      // Start line number
-	pub end_line: usize,        // End line number
+	pub kind: String,                // e.g., "function", "struct", "class", etc.
+	pub name: String,                // Name of the item
+	pub signature: String,           // Full signature
+	pub description: Option<String>, // Comment if available
+	pub start_line: usize,           // Start line number
+	pub end_line: usize,             // End line number
 }
 
 /// Utility to create an ignore Walker that respects both .gitignore and .noindex files
@@ -67,10 +67,10 @@ impl NoindexWalker {
 
 		// Standard git ignore settings
 		builder
-			.hidden(true)        // Ignore hidden files (like .git/, .vscode/, etc.)
-			.git_ignore(true)    // Respect .gitignore files
-			.git_global(true)    // Respect global git ignore files
-			.git_exclude(true);  // Respect .git/info/exclude files
+			.hidden(true) // Ignore hidden files (like .git/, .vscode/, etc.)
+			.git_ignore(true) // Respect .gitignore files
+			.git_global(true) // Respect global git ignore files
+			.git_exclude(true); // Respect .git/info/exclude files
 
 		// Add .noindex support by adding it as an additional ignore file
 		let noindex_path = current_dir.join(".noindex");
@@ -78,7 +78,7 @@ impl NoindexWalker {
 			match builder.add_ignore(&noindex_path) {
 				Some(e) => {
 					eprintln!("Warning: Failed to load .noindex file: {}", e);
-				},
+				}
 				None => {
 					// Successfully loaded - no need to be verbose
 				}
@@ -152,8 +152,8 @@ impl PathUtils {
 /// Git utilities for repository management
 pub mod git {
 	use anyhow::Result;
-	use std::process::Command;
 	use std::path::Path;
+	use std::process::Command;
 
 	/// Check if current directory is a git repository root
 	pub fn is_git_repo_root(path: &Path) -> bool {
@@ -185,15 +185,20 @@ pub mod git {
 			.output()?;
 
 		if !output.status.success() {
-			return Err(anyhow::anyhow!("Failed to get git commit hash: {}",
-				String::from_utf8_lossy(&output.stderr)));
+			return Err(anyhow::anyhow!(
+				"Failed to get git commit hash: {}",
+				String::from_utf8_lossy(&output.stderr)
+			));
 		}
 
 		Ok(String::from_utf8(output.stdout)?.trim().to_string())
 	}
 
 	/// Get files changed between two commits (including unstaged changes)
-	pub fn get_changed_files_since_commit(repo_path: &Path, since_commit: &str) -> Result<Vec<String>> {
+	pub fn get_changed_files_since_commit(
+		repo_path: &Path,
+		since_commit: &str,
+	) -> Result<Vec<String>> {
 		let mut changed_files = std::collections::HashSet::new();
 
 		// Get committed changes since the specified commit
@@ -315,14 +320,20 @@ pub mod git {
 /// Get file modification time as seconds since Unix epoch
 pub fn get_file_mtime(file_path: &std::path::Path) -> Result<u64> {
 	let metadata = std::fs::metadata(file_path)?;
-	let mtime = metadata.modified()?
+	let mtime = metadata
+		.modified()?
 		.duration_since(std::time::UNIX_EPOCH)?
 		.as_secs();
 	Ok(mtime)
 }
 
 /// Check if file should be skipped based on modification time
-async fn should_skip_file(store: &Store, file_path: &str, actual_mtime: u64, force_reindex: bool) -> Result<bool> {
+async fn should_skip_file(
+	store: &Store,
+	file_path: &str,
+	actual_mtime: u64,
+	force_reindex: bool,
+) -> Result<bool> {
 	// Always process if force reindex
 	if force_reindex {
 		return Ok(false);
@@ -370,7 +381,7 @@ pub fn extract_file_signatures(files: &[PathBuf]) -> Result<Vec<FileSignature>> 
 			// Get the language implementation
 			let lang_impl = match languages::get_language(language) {
 				Some(impl_) => impl_,
-				None => continue,  // Skip unsupported languages
+				None => continue, // Skip unsupported languages
 			};
 
 			// Set the parser language
@@ -382,11 +393,13 @@ pub fn extract_file_signatures(files: &[PathBuf]) -> Result<Vec<FileSignature>> 
 				let display_path = PathUtils::for_display(file_path, &current_dir);
 
 				// Parse the file
-				let tree = parser.parse(&contents, None)
+				let tree = parser
+					.parse(&contents, None)
 					.unwrap_or_else(|| parser.parse("", None).unwrap());
 
 				// Extract signatures from the file
-				let signatures = extract_signatures(tree.root_node(), &contents, lang_impl.as_ref());
+				let signatures =
+					extract_signatures(tree.root_node(), &contents, lang_impl.as_ref());
 
 				// Extract file-level comment if present
 				let file_comment = extract_file_comment(tree.root_node(), &contents);
@@ -406,7 +419,11 @@ pub fn extract_file_signatures(files: &[PathBuf]) -> Result<Vec<FileSignature>> 
 }
 
 /// Extract signatures from a parsed file
-fn extract_signatures(node: Node, contents: &str, lang_impl: &dyn languages::Language) -> Vec<SignatureItem> {
+fn extract_signatures(
+	node: Node,
+	contents: &str,
+	lang_impl: &dyn languages::Language,
+) -> Vec<SignatureItem> {
 	let mut signatures = Vec::new();
 	let meaningful_kinds = lang_impl.get_meaningful_kinds();
 
@@ -416,7 +433,7 @@ fn extract_signatures(node: Node, contents: &str, lang_impl: &dyn languages::Lan
 		contents: &str,
 		lang_impl: &dyn languages::Language,
 		meaningful_kinds: &[&str],
-		signatures: &mut Vec<SignatureItem>
+		signatures: &mut Vec<SignatureItem>,
 	) {
 		let node_kind = node.kind();
 
@@ -454,14 +471,28 @@ fn extract_signatures(node: Node, contents: &str, lang_impl: &dyn languages::Lan
 		let mut cursor = node.walk();
 		if cursor.goto_first_child() {
 			loop {
-				visit_node(cursor.node(), contents, lang_impl, meaningful_kinds, signatures);
-				if !cursor.goto_next_sibling() { break; }
+				visit_node(
+					cursor.node(),
+					contents,
+					lang_impl,
+					meaningful_kinds,
+					signatures,
+				);
+				if !cursor.goto_next_sibling() {
+					break;
+				}
 			}
 		}
 	}
 
 	// Start traversal from the root
-	visit_node(node, contents, lang_impl, &meaningful_kinds, &mut signatures);
+	visit_node(
+		node,
+		contents,
+		lang_impl,
+		&meaningful_kinds,
+		&mut signatures,
+	);
 
 	// Sort by line number for a consistent order
 	signatures.sort_by_key(|sig| sig.start_line);
@@ -473,9 +504,10 @@ fn extract_signatures(node: Node, contents: &str, lang_impl: &dyn languages::Lan
 fn extract_name(node: Node, contents: &str, lang_impl: &dyn languages::Language) -> Option<String> {
 	// Look for identifier nodes
 	for child in node.children(&mut node.walk()) {
-		if child.kind() == "identifier" ||
-		child.kind().contains("name") ||
-		child.kind().contains("function_name") {
+		if child.kind() == "identifier"
+			|| child.kind().contains("name")
+			|| child.kind().contains("function_name")
+		{
 			if let Ok(name) = child.utf8_text(contents.as_bytes()) {
 				if !name.is_empty() {
 					return Some(name.to_string());
@@ -513,7 +545,8 @@ fn extract_preceding_comment(node: Node, contents: &str) -> Option<String> {
 			if last.kind().contains("comment") {
 				if let Ok(comment) = last.utf8_text(contents.as_bytes()) {
 					// Clean up comment markers
-					let comment = comment.trim()
+					let comment = comment
+						.trim()
 						.trim_start_matches("/")
 						.trim_start_matches("*")
 						.trim_start_matches("/")
@@ -536,7 +569,8 @@ fn extract_file_comment(root: Node, contents: &str) -> Option<String> {
 		if first.kind().contains("comment") {
 			if let Ok(comment) = first.utf8_text(contents.as_bytes()) {
 				// Clean up comment markers
-				let comment = comment.trim()
+				let comment = comment
+					.trim()
 					.trim_start_matches("/")
 					.trim_start_matches("*")
 					.trim_start_matches("/")
@@ -697,10 +731,12 @@ pub fn truncate_content_smartly(content: &str, max_characters: usize) -> (String
 		let start_part: String = chars.iter().take(show_start).collect();
 		let end_part: String = chars.iter().skip(chars.len() - show_end).collect();
 
-		let truncated = format!("{}\n[... {} characters omitted ...]\n{}",
+		let truncated = format!(
+			"{}\n[... {} characters omitted ...]\n{}",
 			start_part.trim_end(),
 			chars.len() - show_start - show_end,
-			end_part.trim_start());
+			end_part.trim_start()
+		);
 		return (truncated, true);
 	}
 
@@ -787,7 +823,10 @@ pub fn signatures_to_markdown(signatures: &[FileSignature]) -> String {
 		return markdown;
 	}
 
-	markdown.push_str(&format!("# Found signatures in {} files\n\n", signatures.len()));
+	markdown.push_str(&format!(
+		"# Found signatures in {} files\n\n",
+		signatures.len()
+	));
 
 	for file in signatures {
 		markdown.push_str(&format!("## File: {}\n", file.path));
@@ -810,7 +849,10 @@ pub fn signatures_to_markdown(signatures: &[FileSignature]) -> String {
 					format!("{}-{}", signature.start_line + 1, signature.end_line + 1)
 				};
 
-				markdown.push_str(&format!("### {} `{}` (line {})\n", signature.kind, signature.name, line_display));
+				markdown.push_str(&format!(
+					"### {} `{}` (line {})\n",
+					signature.kind, signature.name, line_display
+				));
 
 				// Show description if available
 				if let Some(desc) = &signature.description {
@@ -869,7 +911,8 @@ pub fn code_blocks_to_markdown_with_config(blocks: &[CodeBlock], config: &Config
 	markdown.push_str(&format!("# Found {} code blocks\n\n", blocks.len()));
 
 	// Group blocks by file path for better organization
-	let mut blocks_by_file: std::collections::HashMap<String, Vec<&CodeBlock>> = std::collections::HashMap::new();
+	let mut blocks_by_file: std::collections::HashMap<String, Vec<&CodeBlock>> =
+		std::collections::HashMap::new();
 
 	for block in blocks {
 		blocks_by_file
@@ -885,7 +928,10 @@ pub fn code_blocks_to_markdown_with_config(blocks: &[CodeBlock], config: &Config
 		for (idx, block) in file_blocks.iter().enumerate() {
 			markdown.push_str(&format!("### Block {} of {}\n", idx + 1, file_blocks.len()));
 			markdown.push_str(&format!("**Language:** {}  ", block.language));
-			markdown.push_str(&format!("**Lines:** {}-{}  ", block.start_line, block.end_line));
+			markdown.push_str(&format!(
+				"**Lines:** {}-{}  ",
+				block.start_line, block.end_line
+			));
 
 			// Show similarity score if available
 			if let Some(distance) = block.distance {
@@ -926,7 +972,10 @@ pub fn code_blocks_to_markdown_with_config(blocks: &[CodeBlock], config: &Config
 
 			// Add note if content was truncated
 			if was_truncated {
-				markdown.push_str(&format!("// Content truncated (limit: {} chars)\n", max_chars));
+				markdown.push_str(&format!(
+					"// Content truncated (limit: {} chars)\n",
+					max_chars
+				));
 			}
 
 			markdown.push_str("```\n\n");
@@ -955,7 +1004,8 @@ pub fn text_blocks_to_markdown_with_config(blocks: &[TextBlock], config: &Config
 	markdown.push_str(&format!("# Found {} text blocks\n\n", blocks.len()));
 
 	// Group blocks by file path for better organization
-	let mut blocks_by_file: std::collections::HashMap<String, Vec<&TextBlock>> = std::collections::HashMap::new();
+	let mut blocks_by_file: std::collections::HashMap<String, Vec<&TextBlock>> =
+		std::collections::HashMap::new();
 
 	for block in blocks {
 		blocks_by_file
@@ -971,7 +1021,10 @@ pub fn text_blocks_to_markdown_with_config(blocks: &[TextBlock], config: &Config
 		for (idx, block) in file_blocks.iter().enumerate() {
 			markdown.push_str(&format!("### Block {} of {}\n", idx + 1, file_blocks.len()));
 			markdown.push_str(&format!("**Language:** {}  ", block.language));
-			markdown.push_str(&format!("**Lines:** {}-{}  ", block.start_line, block.end_line));
+			markdown.push_str(&format!(
+				"**Lines:** {}-{}  ",
+				block.start_line, block.end_line
+			));
 
 			// Show relevance score if available
 			if let Some(distance) = block.distance {
@@ -990,7 +1043,10 @@ pub fn text_blocks_to_markdown_with_config(blocks: &[TextBlock], config: &Config
 
 			// Add note if content was truncated
 			if was_truncated {
-				markdown.push_str(&format!("\n*Content truncated (limit: {} chars)*\n", max_chars));
+				markdown.push_str(&format!(
+					"\n*Content truncated (limit: {} chars)*\n",
+					max_chars
+				));
 			}
 
 			markdown.push('\n');
@@ -1008,7 +1064,10 @@ pub fn document_blocks_to_markdown(blocks: &[DocumentBlock]) -> String {
 }
 
 /// Render document blocks (documentation search results) as markdown string with configuration
-pub fn document_blocks_to_markdown_with_config(blocks: &[DocumentBlock], config: &Config) -> String {
+pub fn document_blocks_to_markdown_with_config(
+	blocks: &[DocumentBlock],
+	config: &Config,
+) -> String {
 	let mut markdown = String::new();
 
 	if blocks.is_empty() {
@@ -1016,10 +1075,14 @@ pub fn document_blocks_to_markdown_with_config(blocks: &[DocumentBlock], config:
 		return markdown;
 	}
 
-	markdown.push_str(&format!("# Found {} documentation sections\n\n", blocks.len()));
+	markdown.push_str(&format!(
+		"# Found {} documentation sections\n\n",
+		blocks.len()
+	));
 
 	// Group blocks by file path for better organization
-	let mut blocks_by_file: std::collections::HashMap<String, Vec<&DocumentBlock>> = std::collections::HashMap::new();
+	let mut blocks_by_file: std::collections::HashMap<String, Vec<&DocumentBlock>> =
+		std::collections::HashMap::new();
 
 	for block in blocks {
 		blocks_by_file
@@ -1033,9 +1096,17 @@ pub fn document_blocks_to_markdown_with_config(blocks: &[DocumentBlock], config:
 		markdown.push_str(&format!("## File: {}\n\n", file_path));
 
 		for (idx, block) in file_blocks.iter().enumerate() {
-			markdown.push_str(&format!("### {} (Section {} of {})\n", block.title, idx + 1, file_blocks.len()));
+			markdown.push_str(&format!(
+				"### {} (Section {} of {})\n",
+				block.title,
+				idx + 1,
+				file_blocks.len()
+			));
 			markdown.push_str(&format!("**Level:** {}  ", block.level));
-			markdown.push_str(&format!("**Lines:** {}-{}  ", block.start_line, block.end_line));
+			markdown.push_str(&format!(
+				"**Lines:** {}-{}  ",
+				block.start_line, block.end_line
+			));
 
 			// Show relevance score if available
 			if let Some(distance) = block.distance {
@@ -1054,7 +1125,10 @@ pub fn document_blocks_to_markdown_with_config(blocks: &[DocumentBlock], config:
 
 			// Add note if content was truncated
 			if was_truncated {
-				markdown.push_str(&format!("\n*Content truncated (limit: {} chars)*\n", max_chars));
+				markdown.push_str(&format!(
+					"\n*Content truncated (limit: {} chars)*\n",
+					max_chars
+				));
 			}
 
 			markdown.push('\n');
@@ -1102,7 +1176,10 @@ pub fn render_signatures_text(signatures: &[FileSignature]) {
 					format!("{}-{}", signature.start_line + 1, signature.end_line + 1)
 				};
 
-				println!("║ {} `{}` (line {})", signature.kind, signature.name, line_display);
+				println!(
+					"║ {} `{}` (line {})",
+					signature.kind, signature.name, line_display
+				);
 
 				// Show description if available
 				if let Some(desc) = &signature.description {
@@ -1143,7 +1220,12 @@ pub fn render_signatures_json(signatures: &[FileSignature]) -> Result<()> {
 }
 
 // Main function to index files with optional git optimization
-pub async fn index_files(store: &Store, state: SharedState, config: &Config, git_repo_root: Option<&Path>) -> Result<()> {
+pub async fn index_files(
+	store: &Store,
+	state: SharedState,
+	config: &Config,
+	git_repo_root: Option<&Path>,
+) -> Result<()> {
 	let current_dir = state.read().current_directory.clone();
 	let mut code_blocks_batch = Vec::new();
 	let mut text_blocks_batch = Vec::new();
@@ -1176,11 +1258,21 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config, git
 						// Get files changed since last indexed commit
 						match git::get_changed_files_since_commit(git_root, &last_commit) {
 							Ok(changed_files) => {
-								println!("🚀 Git optimization: Found {} changed files since last commit", changed_files.len());
-								Some(changed_files.into_iter().collect::<std::collections::HashSet<_>>())
-							},
+								println!(
+									"🚀 Git optimization: Found {} changed files since last commit",
+									changed_files.len()
+								);
+								Some(
+									changed_files
+										.into_iter()
+										.collect::<std::collections::HashSet<_>>(),
+								)
+							}
 							Err(e) => {
-								eprintln!("Warning: Could not get git changes, indexing all files: {}", e);
+								eprintln!(
+									"Warning: Could not get git changes, indexing all files: {}",
+									e
+								);
 								None
 							}
 						}
@@ -1196,12 +1288,22 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config, git
 									}
 									return Ok(());
 								} else {
-									println!("🚀 Git optimization: Found {} uncommitted changes", changed_files.len());
-									Some(changed_files.into_iter().collect::<std::collections::HashSet<_>>())
+									println!(
+										"🚀 Git optimization: Found {} uncommitted changes",
+										changed_files.len()
+									);
+									Some(
+										changed_files
+											.into_iter()
+											.collect::<std::collections::HashSet<_>>(),
+									)
 								}
-							},
+							}
 							Err(e) => {
-								eprintln!("Warning: Could not get git status, indexing all files: {}", e);
+								eprintln!(
+									"Warning: Could not get git status, indexing all files: {}",
+									e
+								);
 								None
 							}
 						}
@@ -1228,11 +1330,11 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config, git
 	let should_cleanup_deleted_files = {
 		let force_reindex = state.read().force_reindex;
 		if force_reindex {
-			false  // Skip cleanup during force reindex
+			false // Skip cleanup during force reindex
 		} else {
 			// Check if this looks like a fresh database by seeing if we have any indexed files
 			let indexed_files = store.get_all_indexed_file_paths().await.unwrap_or_default();
-			!indexed_files.is_empty()  // Only cleanup if we have existing indexed files
+			!indexed_files.is_empty() // Only cleanup if we have existing indexed files
 		}
 	};
 
@@ -1259,7 +1361,9 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config, git
 				files_to_remove.push((indexed_file.clone(), "deleted".to_string()));
 			} else {
 				// Check if file is now ignored by .noindex or .gitignore patterns
-				let is_ignored = ignore_matcher.matched(&absolute_path, absolute_path.is_dir()).is_ignore();
+				let is_ignored = ignore_matcher
+					.matched(&absolute_path, absolute_path.is_dir())
+					.is_ignore();
 				if is_ignored {
 					files_to_remove.push((indexed_file.clone(), "ignored".to_string()));
 				}
@@ -1271,9 +1375,12 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config, git
 			for (file_to_remove, _reason) in &files_to_remove {
 				// Use the comprehensive removal function which handles all tables
 				match store.remove_blocks_by_path(file_to_remove).await {
-					Ok(_) => {}, // Success - no need to be verbose
+					Ok(_) => {} // Success - no need to be verbose
 					Err(e) => {
-						eprintln!("ERROR: Failed to remove blocks for {}: {}", file_to_remove, e);
+						eprintln!(
+							"ERROR: Failed to remove blocks for {}: {}",
+							file_to_remove, e
+						);
 						// Continue with other files even if one fails
 					}
 				}
@@ -1302,7 +1409,9 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config, git
 		for changed_file in changed_files {
 			let absolute_path = current_dir.join(changed_file);
 			if absolute_path.exists() && absolute_path.is_file() {
-				if detect_language(&absolute_path).is_some() || is_allowed_text_extension(&absolute_path) {
+				if detect_language(&absolute_path).is_some()
+					|| is_allowed_text_extension(&absolute_path)
+				{
 					count += 1;
 				}
 			}
@@ -1349,7 +1458,9 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config, git
 		// OPTIMIZATION: Check file modification time to skip unchanged files
 		let force_reindex = state.read().force_reindex;
 		if let Ok(actual_mtime) = get_file_mtime(entry.path()) {
-			if let Ok(should_skip) = should_skip_file(store, &file_path, actual_mtime, force_reindex).await {
+			if let Ok(should_skip) =
+				should_skip_file(store, &file_path, actual_mtime, force_reindex).await
+			{
 				if should_skip {
 					// File hasn't changed, skip processing entirely
 					continue;
@@ -1370,8 +1481,9 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config, git
 						&file_path,
 						&mut document_blocks_batch,
 						config,
-						state.clone()
-					).await?;
+						state.clone(),
+					)
+					.await?;
 					file_processed = true;
 				} else {
 					// Handle code files - index as semantic code blocks only
@@ -1388,7 +1500,8 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config, git
 						&mut code_blocks_batch,
 						&mut text_blocks_batch, // Will remain empty for code files
 						&mut all_code_blocks,
-					).await?;
+					)
+					.await?;
 					file_processed = true;
 				}
 
@@ -1432,8 +1545,9 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config, git
 							&file_path,
 							&mut text_blocks_batch,
 							config,
-							state.clone()
-						).await?;
+							state.clone(),
+						)
+						.await?;
 
 						// Store file modification time after successful processing
 						if let Ok(actual_mtime) = get_file_mtime(entry.path()) {
@@ -1480,7 +1594,9 @@ pub async fn index_files(store: &Store, state: SharedState, config: &Config, git
 		let graph_builder = graphrag::GraphBuilder::new(config.clone()).await?;
 
 		// Process code blocks to build the graph
-		graph_builder.process_code_blocks(&all_code_blocks, Some(state.clone())).await?;
+		graph_builder
+			.process_code_blocks(&all_code_blocks, Some(state.clone()))
+			.await?;
 
 		// Update final state
 		{
@@ -1566,7 +1682,10 @@ pub async fn handle_file_change(store: &Store, file_path: &str, config: &Config)
 		// Create a matcher that respects both .gitignore and .noindex rules
 		if let Ok(matcher) = NoindexWalker::create_matcher(&current_dir) {
 			// Check if the file should be ignored
-			if matcher.matched(&absolute_path, absolute_path.is_dir()).is_ignore() {
+			if matcher
+				.matched(&absolute_path, absolute_path.is_dir())
+				.is_ignore()
+			{
 				// File is in ignore patterns, so don't index it
 				return Ok(());
 			}
@@ -1576,7 +1695,8 @@ pub async fn handle_file_change(store: &Store, file_path: &str, config: &Config)
 		if let Some(language) = detect_language(&absolute_path) {
 			if let Ok(contents) = fs::read_to_string(&absolute_path) {
 				// Ensure we use relative path for storage
-				let relative_file_path = PathUtils::to_relative_string(&absolute_path, &current_dir);
+				let relative_file_path =
+					PathUtils::to_relative_string(&absolute_path, &current_dir);
 
 				if language == "markdown" {
 					// Handle markdown files specially
@@ -1587,11 +1707,13 @@ pub async fn handle_file_change(store: &Store, file_path: &str, config: &Config)
 						&relative_file_path,
 						&mut document_blocks_batch,
 						config,
-						state.clone()
-					).await?;
+						state.clone(),
+					)
+					.await?;
 
 					if !document_blocks_batch.is_empty() {
-						process_document_blocks_batch(store, &document_blocks_batch, config).await?;
+						process_document_blocks_batch(store, &document_blocks_batch, config)
+							.await?;
 					}
 				} else {
 					// Handle code files
@@ -1612,7 +1734,8 @@ pub async fn handle_file_change(store: &Store, file_path: &str, config: &Config)
 						&mut code_blocks_batch,
 						&mut text_blocks_batch,
 						&mut all_code_blocks,
-					).await?;
+					)
+					.await?;
 
 					if !code_blocks_batch.is_empty() {
 						process_code_blocks_batch(store, &code_blocks_batch, config).await?;
@@ -1622,7 +1745,9 @@ pub async fn handle_file_change(store: &Store, file_path: &str, config: &Config)
 					// Update GraphRAG if enabled and we have new blocks
 					if config.graphrag.enabled && !all_code_blocks.is_empty() {
 						let graph_builder = graphrag::GraphBuilder::new(config.clone()).await?;
-						graph_builder.process_code_blocks(&all_code_blocks, Some(state.clone())).await?;
+						graph_builder
+							.process_code_blocks(&all_code_blocks, Some(state.clone()))
+							.await?;
 					}
 				}
 
@@ -1636,7 +1761,8 @@ pub async fn handle_file_change(store: &Store, file_path: &str, config: &Config)
 				if let Ok(contents) = fs::read_to_string(&absolute_path) {
 					if is_text_file(&contents) {
 						// Ensure we use relative path for storage
-						let relative_file_path = PathUtils::to_relative_string(&absolute_path, &current_dir);
+						let relative_file_path =
+							PathUtils::to_relative_string(&absolute_path, &current_dir);
 
 						let mut text_blocks_batch = Vec::new();
 						process_text_file(
@@ -1645,8 +1771,9 @@ pub async fn handle_file_change(store: &Store, file_path: &str, config: &Config)
 							&relative_file_path,
 							&mut text_blocks_batch,
 							config,
-							state.clone()
-						).await?;
+							state.clone(),
+						)
+						.await?;
 
 						if !text_blocks_batch.is_empty() {
 							process_text_blocks_batch(store, &text_blocks_batch, config).await?;
@@ -1688,16 +1815,23 @@ async fn process_file(
 	// Get the language implementation
 	let lang_impl = match languages::get_language(language) {
 		Some(impl_) => impl_,
-		None => return Ok(()),  // Skip unsupported languages
+		None => return Ok(()), // Skip unsupported languages
 	};
 
 	// Set the parser language
 	parser.set_language(&lang_impl.get_ts_language())?;
 
-	let tree = parser.parse(contents, None).unwrap_or_else(|| parser.parse("", None).unwrap());
+	let tree = parser
+		.parse(contents, None)
+		.unwrap_or_else(|| parser.parse("", None).unwrap());
 	let mut code_regions = Vec::new();
 
-	extract_meaningful_regions(tree.root_node(), contents, lang_impl.as_ref(), &mut code_regions);
+	extract_meaningful_regions(
+		tree.root_node(),
+		contents,
+		lang_impl.as_ref(),
+		&mut code_regions,
+	);
 
 	// Track the number of blocks we added to all_code_blocks for GraphRAG
 	let mut graphrag_blocks_added = 0;
@@ -1707,7 +1841,11 @@ async fn process_file(
 		let content_hash = calculate_unique_content_hash(&region.content, file_path);
 
 		// Skip the check if force_reindex is true
-		let exists = !force_reindex && ctx.store.content_exists(&content_hash, "code_blocks").await?;
+		let exists = !force_reindex
+			&& ctx
+				.store
+				.content_exists(&content_hash, "code_blocks")
+				.await?;
 		if !exists {
 			let code_block = CodeBlock {
 				path: file_path.to_string(),
@@ -1717,7 +1855,7 @@ async fn process_file(
 				symbols: region.symbols.clone(),
 				start_line: region.start_line,
 				end_line: region.end_line,
-				distance: None,  // No relevance score when indexing
+				distance: None, // No relevance score when indexing
 			};
 
 			// Add to batch for embedding
@@ -1757,13 +1895,13 @@ struct CodeRegion {
 	symbols: Vec<String>,
 	start_line: usize,
 	end_line: usize,
-	node_kind: String,      // Store the original tree-sitter node kind
-	node_id: usize,         // Store a unique node identifier for grouping
+	node_kind: String, // Store the original tree-sitter node kind
+	node_id: usize,    // Store a unique node identifier for grouping
 }
 
 // Configuration for single-line block merging
 const MAX_LINES_PER_BLOCK: usize = 15; // Maximum lines in a merged block
-const MIN_LINES_TO_MERGE: usize = 2;   // Minimum consecutive single-lines to merge
+const MIN_LINES_TO_MERGE: usize = 2; // Minimum consecutive single-lines to merge
 
 /// Recursively extracts meaningful regions based on node kinds.
 /// Includes smart merging of single-line declarations.
@@ -1777,7 +1915,13 @@ fn extract_meaningful_regions(
 	let mut candidate_regions = Vec::new();
 
 	// First pass: collect all meaningful regions without merging
-	collect_meaningful_regions_recursive(node, contents, lang_impl, &meaningful_kinds, &mut candidate_regions);
+	collect_meaningful_regions_recursive(
+		node,
+		contents,
+		lang_impl,
+		&meaningful_kinds,
+		&mut candidate_regions,
+	);
 
 	// Second pass: apply smart merging logic
 	apply_smart_merging(candidate_regions, regions, lang_impl);
@@ -1822,14 +1966,26 @@ fn collect_meaningful_regions_recursive(
 	let mut cursor = node.walk();
 	if cursor.goto_first_child() {
 		loop {
-			collect_meaningful_regions_recursive(cursor.node(), contents, lang_impl, meaningful_kinds, regions);
-			if !cursor.goto_next_sibling() { break; }
+			collect_meaningful_regions_recursive(
+				cursor.node(),
+				contents,
+				lang_impl,
+				meaningful_kinds,
+				regions,
+			);
+			if !cursor.goto_next_sibling() {
+				break;
+			}
 		}
 	}
 }
 
 /// Applies smart merging logic to consolidate single-line declarations
-fn apply_smart_merging(candidate_regions: Vec<CodeRegion>, final_regions: &mut Vec<CodeRegion>, lang_impl: &dyn languages::Language) {
+fn apply_smart_merging(
+	candidate_regions: Vec<CodeRegion>,
+	final_regions: &mut Vec<CodeRegion>,
+	lang_impl: &dyn languages::Language,
+) {
 	if candidate_regions.is_empty() {
 		return;
 	}
@@ -1846,8 +2002,12 @@ fn apply_smart_merging(candidate_regions: Vec<CodeRegion>, final_regions: &mut V
 
 			while j < candidate_regions.len() {
 				let next = &candidate_regions[j];
-				if is_single_line_declaration(next) &&
-				are_consecutive_or_related(consecutive_single_lines.last().unwrap(), next, lang_impl) {
+				if is_single_line_declaration(next)
+					&& are_consecutive_or_related(
+						consecutive_single_lines.last().unwrap(),
+						next,
+						lang_impl,
+					) {
 					consecutive_single_lines.push(next);
 					j += 1;
 				} else {
@@ -1882,7 +2042,11 @@ fn is_single_line_declaration(region: &CodeRegion) -> bool {
 }
 
 /// Checks if two single-line regions are consecutive or thematically related
-fn are_consecutive_or_related(first: &CodeRegion, second: &CodeRegion, lang_impl: &dyn languages::Language) -> bool {
+fn are_consecutive_or_related(
+	first: &CodeRegion,
+	second: &CodeRegion,
+	lang_impl: &dyn languages::Language,
+) -> bool {
 	// Consider consecutive if they're within a few lines of each other
 	let line_gap = second.start_line.saturating_sub(first.end_line);
 
@@ -1900,7 +2064,11 @@ fn are_consecutive_or_related(first: &CodeRegion, second: &CodeRegion, lang_impl
 }
 
 /// Checks if two regions contain thematically related content using language-specific logic
-fn are_thematically_related(first: &CodeRegion, second: &CodeRegion, lang_impl: &dyn languages::Language) -> bool {
+fn are_thematically_related(
+	first: &CodeRegion,
+	second: &CodeRegion,
+	lang_impl: &dyn languages::Language,
+) -> bool {
 	// Direct node kind match
 	if first.node_kind == second.node_kind {
 		return true;
@@ -1911,7 +2079,11 @@ fn are_thematically_related(first: &CodeRegion, second: &CodeRegion, lang_impl: 
 }
 
 /// Merges consecutive single-line blocks into optimally-sized chunks
-fn merge_single_line_blocks(single_lines: Vec<&CodeRegion>, final_regions: &mut Vec<CodeRegion>, lang_impl: &dyn languages::Language) {
+fn merge_single_line_blocks(
+	single_lines: Vec<&CodeRegion>,
+	final_regions: &mut Vec<CodeRegion>,
+	lang_impl: &dyn languages::Language,
+) {
 	if single_lines.is_empty() {
 		return;
 	}
@@ -1937,7 +2109,11 @@ fn merge_single_line_blocks(single_lines: Vec<&CodeRegion>, final_regions: &mut 
 }
 
 /// Creates merged blocks from a thematically grouped set of single-line regions
-fn create_merged_blocks_from_group(group: Vec<&CodeRegion>, final_regions: &mut Vec<CodeRegion>, lang_impl: &dyn languages::Language) {
+fn create_merged_blocks_from_group(
+	group: Vec<&CodeRegion>,
+	final_regions: &mut Vec<CodeRegion>,
+	lang_impl: &dyn languages::Language,
+) {
 	if group.is_empty() {
 		return;
 	}
@@ -1971,7 +2147,8 @@ fn create_merged_blocks_from_group(group: Vec<&CodeRegion>, final_regions: &mut 
 
 		// Add a descriptive comment to the merged block using language-specific description
 		let block_type = determine_block_type(chunk[0], lang_impl);
-		let block_description = format!("// Merged {} ({} declarations)\n", block_type, chunk.len());
+		let block_description =
+			format!("// Merged {} ({} declarations)\n", block_type, chunk.len());
 		let final_content = block_description + &combined_content;
 
 		final_regions.push(CodeRegion {
@@ -1986,7 +2163,10 @@ fn create_merged_blocks_from_group(group: Vec<&CodeRegion>, final_regions: &mut 
 }
 
 /// Determines the type of block for descriptive purposes using language-specific logic
-fn determine_block_type(sample_region: &CodeRegion, lang_impl: &dyn languages::Language) -> &'static str {
+fn determine_block_type(
+	sample_region: &CodeRegion,
+	lang_impl: &dyn languages::Language,
+) -> &'static str {
 	lang_impl.get_node_type_description(&sample_region.node_kind)
 }
 
@@ -1998,7 +2178,11 @@ fn combine_with_preceding_comments(node: Node, contents: &str) -> (String, usize
 		let mut cursor = parent.walk();
 		let mut preceding = Vec::new();
 		for child in parent.children(&mut cursor) {
-			if child.id() == node.id() { break; } else { preceding.push(child); }
+			if child.id() == node.id() {
+				break;
+			} else {
+				preceding.push(child);
+			}
 		}
 		if let Some(last) = preceding.last() {
 			let kind = last.kind();
@@ -2013,21 +2197,33 @@ fn combine_with_preceding_comments(node: Node, contents: &str) -> (String, usize
 	(snippet, combined_start)
 }
 
-async fn process_code_blocks_batch(store: &Store, blocks: &[CodeBlock], config: &Config) -> Result<()> {
+async fn process_code_blocks_batch(
+	store: &Store,
+	blocks: &[CodeBlock],
+	config: &Config,
+) -> Result<()> {
 	let contents: Vec<String> = blocks.iter().map(|b| b.content.clone()).collect();
 	let embeddings = crate::embedding::generate_embeddings_batch(contents, true, config).await?;
 	store.store_code_blocks(blocks, embeddings).await?;
 	Ok(())
 }
 
-async fn process_text_blocks_batch(store: &Store, blocks: &[TextBlock], config: &Config) -> Result<()> {
+async fn process_text_blocks_batch(
+	store: &Store,
+	blocks: &[TextBlock],
+	config: &Config,
+) -> Result<()> {
 	let contents: Vec<String> = blocks.iter().map(|b| b.content.clone()).collect();
 	let embeddings = crate::embedding::generate_embeddings_batch(contents, false, config).await?;
 	store.store_text_blocks(blocks, embeddings).await?;
 	Ok(())
 }
 
-async fn process_document_blocks_batch(store: &Store, blocks: &[DocumentBlock], config: &Config) -> Result<()> {
+async fn process_document_blocks_batch(
+	store: &Store,
+	blocks: &[DocumentBlock],
+	config: &Config,
+) -> Result<()> {
 	let contents: Vec<String> = blocks.iter().map(|b| b.content.clone()).collect();
 	let embeddings = crate::embedding::generate_embeddings_batch(contents, false, config).await?;
 	store.store_document_blocks(blocks, embeddings).await?;
@@ -2035,8 +2231,8 @@ async fn process_document_blocks_batch(store: &Store, blocks: &[DocumentBlock], 
 }
 
 // Constants for text chunking
-const DEFAULT_CHUNK_SIZE: usize = 2000;  // characters (increased from 1000)
-const DEFAULT_OVERLAP: usize = 200;      // characters
+const DEFAULT_CHUNK_SIZE: usize = 2000; // characters (increased from 1000)
+const DEFAULT_OVERLAP: usize = 200; // characters
 
 // Whitelist of file extensions that we allow for text indexing
 const ALLOWED_TEXT_EXTENSIONS: &[&str] = &[
@@ -2066,9 +2262,13 @@ fn is_allowed_text_extension(path: &std::path::Path) -> bool {
 	if let Some(file_name) = path.file_name() {
 		if let Some(name_str) = file_name.to_str() {
 			let name_lower = name_str.to_lowercase();
-			return matches!(name_lower.as_str(),
-				"readme" | "license" | "changelog" | "authors" | "contributors" |
-				"makefile" | "dockerfile" | "gitignore" | ".gitignore"
+			return matches!(
+				name_lower.as_str(),
+				"readme"
+					| "license" | "changelog"
+					| "authors" | "contributors"
+					| "makefile" | "dockerfile"
+					| "gitignore" | ".gitignore"
 			);
 		}
 	}
@@ -2084,7 +2284,8 @@ fn is_text_file(contents: &str) -> bool {
 		return false;
 	}
 
-	let printable_chars = contents.chars()
+	let printable_chars = contents
+		.chars()
 		.filter(|c| c.is_ascii_graphic() || c.is_ascii_whitespace())
 		.count();
 
@@ -2140,7 +2341,8 @@ async fn process_text_file(
 
 	for (chunk_idx, chunk) in chunks.iter().enumerate() {
 		// Use chunk index in hash for uniqueness but keep path clean
-		let chunk_hash = calculate_unique_content_hash(chunk, &format!("{}#{}", file_path, chunk_idx));
+		let chunk_hash =
+			calculate_unique_content_hash(chunk, &format!("{}#{}", file_path, chunk_idx));
 
 		// Skip the check if force_reindex is true
 		let exists = !force_reindex && store.content_exists(&chunk_hash, "text_blocks").await?;
@@ -2183,7 +2385,10 @@ async fn process_markdown_file(
 
 	for doc_block in document_blocks {
 		// Check if this document block already exists (unless force reindex)
-		let exists = !force_reindex && store.content_exists(&doc_block.hash, "document_blocks").await?;
+		let exists = !force_reindex
+			&& store
+				.content_exists(&doc_block.hash, "document_blocks")
+				.await?;
 		if !exists {
 			document_blocks_batch.push(doc_block);
 		}
@@ -2212,22 +2417,31 @@ async fn process_file_differential(
 	// Get the language implementation
 	let lang_impl = match languages::get_language(language) {
 		Some(impl_) => impl_,
-		None => return Ok(()),  // Skip unsupported languages
+		None => return Ok(()), // Skip unsupported languages
 	};
 
 	// Set the parser language
 	parser.set_language(&lang_impl.get_ts_language())?;
 
-	let tree = parser.parse(contents, None).unwrap_or_else(|| parser.parse("", None).unwrap());
+	let tree = parser
+		.parse(contents, None)
+		.unwrap_or_else(|| parser.parse("", None).unwrap());
 	let mut code_regions = Vec::new();
 
-	extract_meaningful_regions(tree.root_node(), contents, lang_impl.as_ref(), &mut code_regions);
+	extract_meaningful_regions(
+		tree.root_node(),
+		contents,
+		lang_impl.as_ref(),
+		&mut code_regions,
+	);
 
 	// If not force reindexing, get existing hashes for this file to compare
 	let existing_hashes = if force_reindex {
 		Vec::new()
 	} else {
-		ctx.store.get_file_blocks_metadata(file_path, "code_blocks").await?
+		ctx.store
+			.get_file_blocks_metadata(file_path, "code_blocks")
+			.await?
 	};
 
 	// Create set of new hashes for this file
@@ -2240,7 +2454,11 @@ async fn process_file_differential(
 		new_hashes.insert(content_hash.clone());
 
 		// Skip the check if force_reindex is true
-		let exists = !force_reindex && ctx.store.content_exists(&content_hash, "code_blocks").await?;
+		let exists = !force_reindex
+			&& ctx
+				.store
+				.content_exists(&content_hash, "code_blocks")
+				.await?;
 		if !exists {
 			let code_block = CodeBlock {
 				path: file_path.to_string(),
@@ -2250,7 +2468,7 @@ async fn process_file_differential(
 				symbols: region.symbols.clone(),
 				start_line: region.start_line,
 				end_line: region.end_line,
-				distance: None,  // No relevance score when indexing
+				distance: None, // No relevance score when indexing
 			};
 
 			// Add to batch for embedding
@@ -2279,7 +2497,9 @@ async fn process_file_differential(
 			.collect();
 
 		if !hashes_to_remove.is_empty() {
-			ctx.store.remove_blocks_by_hashes(&hashes_to_remove, "code_blocks").await?;
+			ctx.store
+				.remove_blocks_by_hashes(&hashes_to_remove, "code_blocks")
+				.await?;
 		}
 	}
 
@@ -2309,7 +2529,9 @@ async fn process_text_file_differential(
 		Vec::new()
 	} else {
 		// Get blocks for this file path (the chunks will have same path now)
-		store.get_file_blocks_metadata(file_path, "text_blocks").await?
+		store
+			.get_file_blocks_metadata(file_path, "text_blocks")
+			.await?
 	};
 
 	// Split content into chunks
@@ -2318,7 +2540,8 @@ async fn process_text_file_differential(
 
 	for (chunk_idx, chunk) in chunks.iter().enumerate() {
 		// Use chunk index in hash for uniqueness but keep path clean
-		let chunk_hash = calculate_unique_content_hash(chunk, &format!("{}#{}", file_path, chunk_idx));
+		let chunk_hash =
+			calculate_unique_content_hash(chunk, &format!("{}#{}", file_path, chunk_idx));
 		new_hashes.insert(chunk_hash.clone());
 
 		// Skip the check if force_reindex is true
@@ -2350,7 +2573,9 @@ async fn process_text_file_differential(
 			.collect();
 
 		if !hashes_to_remove.is_empty() {
-			store.remove_blocks_by_hashes(&hashes_to_remove, "text_blocks").await?;
+			store
+				.remove_blocks_by_hashes(&hashes_to_remove, "text_blocks")
+				.await?;
 		}
 	}
 
@@ -2373,7 +2598,9 @@ async fn process_markdown_file_differential(
 	let existing_hashes = if force_reindex {
 		Vec::new()
 	} else {
-		store.get_file_blocks_metadata(file_path, "document_blocks").await?
+		store
+			.get_file_blocks_metadata(file_path, "document_blocks")
+			.await?
 	};
 
 	// Parse markdown content into document blocks
@@ -2384,7 +2611,10 @@ async fn process_markdown_file_differential(
 		new_hashes.insert(doc_block.hash.clone());
 
 		// Check if this document block already exists (unless force reindex)
-		let exists = !force_reindex && store.content_exists(&doc_block.hash, "document_blocks").await?;
+		let exists = !force_reindex
+			&& store
+				.content_exists(&doc_block.hash, "document_blocks")
+				.await?;
 		if !exists {
 			document_blocks_batch.push(doc_block);
 		}
@@ -2398,7 +2628,9 @@ async fn process_markdown_file_differential(
 			.collect();
 
 		if !hashes_to_remove.is_empty() {
-			store.remove_blocks_by_hashes(&hashes_to_remove, "document_blocks").await?;
+			store
+				.remove_blocks_by_hashes(&hashes_to_remove, "document_blocks")
+				.await?;
 		}
 	}
 

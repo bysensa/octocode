@@ -14,8 +14,8 @@
 
 //! Ruby language implementation for the indexer
 
-use tree_sitter::Node;
 use crate::indexer::languages::Language;
+use tree_sitter::Node;
 
 pub struct Ruby {}
 
@@ -29,11 +29,7 @@ impl Language for Ruby {
 	}
 
 	fn get_meaningful_kinds(&self) -> Vec<&'static str> {
-		vec![
-			"method",
-			"class",
-			"module",
-		]
+		vec!["method", "class", "module"]
 	}
 
 	fn extract_symbols(&self, node: Node, contents: &str) -> Vec<String> {
@@ -60,7 +56,7 @@ impl Language for Ruby {
 						}
 					}
 				}
-			},
+			}
 			_ => self.extract_identifiers(node, contents, &mut symbols),
 		}
 
@@ -88,7 +84,9 @@ impl Language for Ruby {
 		if cursor.goto_first_child() {
 			loop {
 				self.extract_identifiers(cursor.node(), contents, symbols);
-				if !cursor.goto_next_sibling() { break; }
+				if !cursor.goto_next_sibling() {
+					break;
+				}
 			}
 		}
 	}
@@ -152,7 +150,7 @@ impl Ruby {
 									symbols.push(name.to_string());
 								}
 							}
-							break;  // Only take the left side (the variable name)
+							break; // Only take the left side (the variable name)
 						}
 					}
 				} else {
@@ -160,7 +158,9 @@ impl Ruby {
 					self.extract_ruby_variables(child, contents, symbols);
 				}
 
-				if !cursor.goto_next_sibling() { break; }
+				if !cursor.goto_next_sibling() {
+					break;
+				}
 			}
 		}
 	}

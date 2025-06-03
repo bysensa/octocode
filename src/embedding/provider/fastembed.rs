@@ -36,7 +36,7 @@
 #[cfg(feature = "fastembed")]
 use anyhow::{Context, Result};
 #[cfg(feature = "fastembed")]
-use fastembed::{TextEmbedding, InitOptions, EmbeddingModel};
+use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 #[cfg(feature = "fastembed")]
 use std::sync::Arc;
 
@@ -63,7 +63,7 @@ impl FastEmbedProviderImpl {
 				.with_show_download_progress(true)
 				.with_cache_dir(cache_dir),
 		)
-			.context("Failed to initialize FastEmbed model")?;
+		.context("Failed to initialize FastEmbed model")?;
 
 		Ok(Self {
 			model: Arc::new(model),
@@ -86,7 +86,8 @@ impl EmbeddingProvider for FastEmbedProviderImpl {
 			}
 
 			Ok(embedding[0].clone())
-		}).await??;
+		})
+		.await??;
 
 		Ok(embedding)
 	}
@@ -99,7 +100,8 @@ impl EmbeddingProvider for FastEmbedProviderImpl {
 			let embeddings = model.embed(text_refs, None)?;
 
 			Ok(embeddings)
-		}).await??;
+		})
+		.await??;
 
 		Ok(embeddings)
 	}
@@ -116,7 +118,9 @@ impl FastEmbedProvider {
 		match model {
 			"sentence-transformers/all-MiniLM-L6-v2" => EmbeddingModel::AllMiniLML6V2,
 			"sentence-transformers/all-MiniLM-L6-v2-quantized" => EmbeddingModel::AllMiniLML6V2Q,
-			"sentence-transformers/all-MiniLM-L12-v2" | "all-MiniLM-L12-v2" => EmbeddingModel::AllMiniLML12V2,
+			"sentence-transformers/all-MiniLM-L12-v2" | "all-MiniLM-L12-v2" => {
+				EmbeddingModel::AllMiniLML12V2
+			}
 			"sentence-transformers/all-MiniLM-L12-v2-quantized" => EmbeddingModel::AllMiniLML12V2Q,
 			"BAAI/bge-base-en-v1.5" => EmbeddingModel::BGEBaseENV15,
 			"BAAI/bge-base-en-v1.5-quantized" => EmbeddingModel::BGEBaseENV15Q,
@@ -127,15 +131,27 @@ impl FastEmbedProvider {
 			"nomic-ai/nomic-embed-text-v1" => EmbeddingModel::NomicEmbedTextV1,
 			"nomic-ai/nomic-embed-text-v1.5" => EmbeddingModel::NomicEmbedTextV15,
 			"nomic-ai/nomic-embed-text-v1.5-quantized" => EmbeddingModel::NomicEmbedTextV15Q,
-			"sentence-transformers/paraphrase-MiniLM-L6-v2" => EmbeddingModel::ParaphraseMLMiniLML12V2,
-			"sentence-transformers/paraphrase-MiniLM-L6-v2-quantized" => EmbeddingModel::ParaphraseMLMiniLML12V2Q,
-			"sentence-transformers/paraphrase-mpnet-base-v2" => EmbeddingModel::ParaphraseMLMpnetBaseV2,
+			"sentence-transformers/paraphrase-MiniLM-L6-v2" => {
+				EmbeddingModel::ParaphraseMLMiniLML12V2
+			}
+			"sentence-transformers/paraphrase-MiniLM-L6-v2-quantized" => {
+				EmbeddingModel::ParaphraseMLMiniLML12V2Q
+			}
+			"sentence-transformers/paraphrase-mpnet-base-v2" => {
+				EmbeddingModel::ParaphraseMLMpnetBaseV2
+			}
 			"BAAI/bge-small-zh-v1.5" => EmbeddingModel::BGESmallZHV15,
 			"BAAI/bge-large-zh-v1.5" => EmbeddingModel::BGELargeZHV15,
 			"lightonai/modernbert-embed-large" => EmbeddingModel::ModernBertEmbedLarge,
-			"intfloat/multilingual-e5-small" | "multilingual-e5-small" => EmbeddingModel::MultilingualE5Small,
-			"intfloat/multilingual-e5-base" | "multilingual-e5-base" => EmbeddingModel::MultilingualE5Base,
-			"intfloat/multilingual-e5-large" | "multilingual-e5-large" => EmbeddingModel::MultilingualE5Large,
+			"intfloat/multilingual-e5-small" | "multilingual-e5-small" => {
+				EmbeddingModel::MultilingualE5Small
+			}
+			"intfloat/multilingual-e5-base" | "multilingual-e5-base" => {
+				EmbeddingModel::MultilingualE5Base
+			}
+			"intfloat/multilingual-e5-large" | "multilingual-e5-large" => {
+				EmbeddingModel::MultilingualE5Large
+			}
 			"mixedbread-ai/mxbai-embed-large-v1" => EmbeddingModel::MxbaiEmbedLargeV1,
 			"mixedbread-ai/mxbai-embed-large-v1-quantized" => EmbeddingModel::MxbaiEmbedLargeV1Q,
 			"Alibaba-NLP/gte-base-en-v1.5" => EmbeddingModel::GTEBaseENV15,
@@ -159,7 +175,9 @@ pub struct FastEmbedProviderImpl;
 #[cfg(not(feature = "fastembed"))]
 impl FastEmbedProviderImpl {
 	pub fn new(_model_name: &str) -> Result<Self> {
-		Err(anyhow::anyhow!("FastEmbed support is not compiled in. Please rebuild with --features fastembed"))
+		Err(anyhow::anyhow!(
+			"FastEmbed support is not compiled in. Please rebuild with --features fastembed"
+		))
 	}
 }
 
@@ -167,11 +185,15 @@ impl FastEmbedProviderImpl {
 #[async_trait::async_trait]
 impl super::super::EmbeddingProvider for FastEmbedProviderImpl {
 	async fn generate_embedding(&self, _text: &str) -> Result<Vec<f32>> {
-		Err(anyhow::anyhow!("FastEmbed support is not compiled in. Please rebuild with --features fastembed"))
+		Err(anyhow::anyhow!(
+			"FastEmbed support is not compiled in. Please rebuild with --features fastembed"
+		))
 	}
 
 	async fn generate_embeddings_batch(&self, _texts: Vec<String>) -> Result<Vec<Vec<f32>>> {
-		Err(anyhow::anyhow!("FastEmbed support is not compiled in. Please rebuild with --features fastembed"))
+		Err(anyhow::anyhow!(
+			"FastEmbed support is not compiled in. Please rebuild with --features fastembed"
+		))
 	}
 }
 

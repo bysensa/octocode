@@ -13,18 +13,22 @@
 // limitations under the License.
 
 pub mod provider;
-pub mod types;
 #[cfg(test)]
 mod tests;
+pub mod types;
 
-use anyhow::Result;
 use crate::config::Config;
+use anyhow::Result;
 
+pub use provider::{create_embedding_provider_from_parts, EmbeddingProvider};
 pub use types::*;
-pub use provider::{EmbeddingProvider, create_embedding_provider_from_parts};
 
 /// Generate embeddings based on configured provider (supports provider:model format)
-pub async fn generate_embeddings(contents: &str, is_code: bool, config: &Config) -> Result<Vec<f32>> {
+pub async fn generate_embeddings(
+	contents: &str,
+	is_code: bool,
+	config: &Config,
+) -> Result<Vec<f32>> {
 	// Get the model string from config
 	let model_string = if is_code {
 		&config.embedding.code_model
@@ -40,7 +44,11 @@ pub async fn generate_embeddings(contents: &str, is_code: bool, config: &Config)
 }
 
 /// Generate batch embeddings based on configured provider (supports provider:model format)
-pub async fn generate_embeddings_batch(texts: Vec<String>, is_code: bool, config: &Config) -> Result<Vec<Vec<f32>>> {
+pub async fn generate_embeddings_batch(
+	texts: Vec<String>,
+	is_code: bool,
+	config: &Config,
+) -> Result<Vec<Vec<f32>>> {
 	// Get the model string from config
 	let model_string = if is_code {
 		&config.embedding.code_model

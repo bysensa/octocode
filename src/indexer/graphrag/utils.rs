@@ -51,8 +51,14 @@ pub fn detect_project_root() -> Result<PathBuf> {
 
 	// Look for common project root indicators
 	let indicators = [
-		"Cargo.toml", "package.json", ".git", "pyproject.toml",
-		"go.mod", "pom.xml", "build.gradle", "composer.json"
+		"Cargo.toml",
+		"package.json",
+		".git",
+		"pyproject.toml",
+		"go.mod",
+		"pom.xml",
+		"build.gradle",
+		"composer.json",
 	];
 
 	loop {
@@ -75,9 +81,13 @@ pub fn detect_project_root() -> Result<PathBuf> {
 // Convert absolute path to relative path from project root
 pub fn to_relative_path(absolute_path: &str, project_root: &Path) -> Result<String> {
 	let abs_path = PathBuf::from(absolute_path);
-	let relative = abs_path.strip_prefix(project_root)
-		.map_err(|_| anyhow::anyhow!("Path {} is not within project root {}",
-			absolute_path, project_root.display()))?;
+	let relative = abs_path.strip_prefix(project_root).map_err(|_| {
+		anyhow::anyhow!(
+			"Path {} is not within project root {}",
+			absolute_path,
+			project_root.display()
+		)
+	})?;
 
 	Ok(relative.to_string_lossy().to_string())
 }
@@ -101,7 +111,8 @@ pub fn graphrag_nodes_to_markdown(nodes: &[CodeNode]) -> String {
 	markdown.push_str(&format!("# Found {} GraphRAG nodes\n\n", nodes.len()));
 
 	// Group nodes by file path for better organization
-	let mut nodes_by_file: std::collections::HashMap<String, Vec<&CodeNode>> = std::collections::HashMap::new();
+	let mut nodes_by_file: std::collections::HashMap<String, Vec<&CodeNode>> =
+		std::collections::HashMap::new();
 
 	for node in nodes {
 		nodes_by_file
@@ -151,10 +162,12 @@ pub fn symbols_match(import: &str, export: &str) -> bool {
 	}
 
 	// Clean symbol names (remove prefixes/suffixes)
-	let clean_import = import.trim_start_matches("import_")
+	let clean_import = import
+		.trim_start_matches("import_")
 		.trim_start_matches("use_")
 		.trim_start_matches("from_");
-	let clean_export = export.trim_start_matches("export_")
+	let clean_export = export
+		.trim_start_matches("export_")
 		.trim_start_matches("pub_")
 		.trim_start_matches("public_");
 

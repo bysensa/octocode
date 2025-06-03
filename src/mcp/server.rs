@@ -20,10 +20,10 @@ use tokio::process::Command;
 use tokio::sync::mpsc;
 
 use crate::config::Config;
-use crate::mcp::types::{JsonRpcRequest, JsonRpcResponse, JsonRpcError};
-use crate::mcp::semantic_code::SemanticCodeProvider;
 use crate::mcp::graphrag::GraphRagProvider;
 use crate::mcp::memory::MemoryProvider;
+use crate::mcp::semantic_code::SemanticCodeProvider;
+use crate::mcp::types::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
 
 /// MCP Server implementation with modular tool providers
 pub struct McpServer {
@@ -36,8 +36,13 @@ pub struct McpServer {
 }
 
 impl McpServer {
-	pub async fn new(config: Config, debug: bool, working_directory: std::path::PathBuf) -> Result<Self> {
-		let semantic_code = SemanticCodeProvider::new(config.clone(), working_directory.clone(), debug);
+	pub async fn new(
+		config: Config,
+		debug: bool,
+		working_directory: std::path::PathBuf,
+	) -> Result<Self> {
+		let semantic_code =
+			SemanticCodeProvider::new(config.clone(), working_directory.clone(), debug);
 		let graphrag = GraphRagProvider::new(config.clone(), working_directory.clone(), debug);
 		let memory = MemoryProvider::new(&config, working_directory.clone(), debug).await;
 
@@ -289,13 +294,16 @@ impl McpServer {
 			},
 			Err(e) => {
 				let error_message = e.to_string();
-				let error_code = if error_message.contains("Missing") || error_message.contains("Invalid") {
-					-32602 // Invalid params
-				} else if error_message.contains("not enabled") || error_message.contains("not available") {
-					-32601 // Method not found (feature not available)
-				} else {
-					-32603 // Internal error
-				};
+				let error_code =
+					if error_message.contains("Missing") || error_message.contains("Invalid") {
+						-32602 // Invalid params
+					} else if error_message.contains("not enabled")
+						|| error_message.contains("not available")
+					{
+						-32601 // Method not found (feature not available)
+					} else {
+						-32603 // Internal error
+					};
 
 				JsonRpcResponse {
 					jsonrpc: "2.0".to_string(),
@@ -336,16 +344,19 @@ async fn run_watcher(tx: mpsc::Sender<()>, working_dir: std::path::PathBuf) -> R
 
 	let (debouncer_tx, mut debouncer_rx) = mpsc::channel(100);
 
-	let mut debouncer = new_debouncer(Duration::from_millis(500), move |res: Result<Vec<DebouncedEvent>, notify::Error>| {
-		match res {
+	let mut debouncer = new_debouncer(
+		Duration::from_millis(500),
+		move |res: Result<Vec<DebouncedEvent>, notify::Error>| match res {
 			Ok(_events) => {
 				let _ = debouncer_tx.try_send(());
 			}
 			Err(e) => eprintln!("Watcher error: {:?}", e),
-		}
-	})?;
+		},
+	)?;
 
-	debouncer.watcher().watch(&working_dir, RecursiveMode::Recursive)?;
+	debouncer
+		.watcher()
+		.watch(&working_dir, RecursiveMode::Recursive)?;
 
 	while (debouncer_rx.recv().await).is_some() {
 		let _ = tx.send(()).await;

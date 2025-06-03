@@ -38,25 +38,25 @@ pub struct CodeNode {
 // Function-level information for better granularity
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionInfo {
-	pub name: String,         // Function name
-	pub signature: String,    // Function signature
-	pub start_line: u32,      // Starting line number
-	pub end_line: u32,        // Ending line number
-	pub calls: Vec<String>,   // Functions this function calls
-	pub called_by: Vec<String>, // Functions that call this function
-	pub parameters: Vec<String>, // Function parameters
+	pub name: String,                // Function name
+	pub signature: String,           // Function signature
+	pub start_line: u32,             // Starting line number
+	pub end_line: u32,               // Ending line number
+	pub calls: Vec<String>,          // Functions this function calls
+	pub called_by: Vec<String>,      // Functions that call this function
+	pub parameters: Vec<String>,     // Function parameters
 	pub return_type: Option<String>, // Return type if available
 }
 
 // A relationship between code nodes - simplified and more efficient
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodeRelationship {
-	pub source: String,      // Source node ID (relative path)
-	pub target: String,      // Target node ID (relative path)
+	pub source: String,        // Source node ID (relative path)
+	pub target: String,        // Target node ID (relative path)
 	pub relation_type: String, // Type: imports, calls, extends, implements, etc.
-	pub description: String, // Brief description
-	pub confidence: f32,     // Confidence score (0.0-1.0)
-	pub weight: f32,         // Relationship strength/frequency
+	pub description: String,   // Brief description
+	pub confidence: f32,       // Confidence score (0.0-1.0)
+	pub weight: f32,           // Relationship strength/frequency
 }
 
 // The full code graph
