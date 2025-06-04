@@ -203,7 +203,7 @@ impl MemoryStore {
 			.await?
 			.iter()
 			.any(|idx| idx.columns == vec!["embedding"]);
-		if !has_index && row_count > 10 {
+		if !has_index && row_count > 256 {
 			table
 				.create_index(&["embedding"], Index::Auto)
 				.execute()
