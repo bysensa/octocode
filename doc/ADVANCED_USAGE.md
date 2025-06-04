@@ -108,11 +108,12 @@ octocode review --json
 
 ### Key Features
 
-- **Automatic File Watching**: Reindexes code when files change
+- **Intelligent File Watching**: Reindexes code when files change with smart debouncing and ignore pattern support
 - **Memory Persistence**: Stores insights across sessions
 - **Multi-tool Integration**: Combines search and memory capabilities
-- **Debug Mode**: Enhanced logging for troubleshooting
+- **Debug Mode**: Enhanced logging for troubleshooting and performance monitoring
 - **Git Context**: Memory entries automatically tagged with commit info
+- **Process Management**: Prevents multiple concurrent indexing operations for optimal performance
 
 ## Advanced Search Techniques
 
@@ -285,8 +286,14 @@ octocode view "src/**/*.rs" --md        # Specific files in markdown
 # Watch for changes and auto-reindex
 octocode watch
 
-# Watch with custom debounce time (seconds)
+# Watch with custom debounce time (1-30 seconds, default: 2)
 octocode watch --debounce 5
+
+# Watch with custom additional delay (0-5000ms, default: 1000ms)
+octocode watch --additional-delay 2000
+
+# Combine both timing options
+octocode watch --debounce 3 --additional-delay 1500
 
 # Watch in quiet mode (less output)
 octocode watch --quiet
@@ -295,11 +302,41 @@ octocode watch --quiet
 octocode watch --no-git
 ```
 
+### Enhanced File Filtering
+
+The watch mode now properly respects ignore patterns from:
+- `.gitignore` - Standard Git ignore patterns
+- `.noindex` - Custom ignore patterns for indexing
+
+**Supported ignore patterns:**
+- Exact matches: `file.txt`
+- Directory patterns: `directory/`
+- Wildcard patterns: `*.log`, `temp*`
+- File extensions: `*.tmp`
+
+**Default ignored paths:**
+- `.octocode/`, `target/`, `.git/`
+- `node_modules/`, `.vscode/`, `.idea/`
+- `.DS_Store`, `Thumbs.db`, `.tmp`, `.temp`
+
+### Performance Optimizations
+
+The watch mode includes several performance improvements:
+- **Debouncing**: Prevents rapid re-indexing on multiple file changes
+- **Smart filtering**: Early filtering of irrelevant file events
+- **Process management**: Prevents multiple concurrent indexing operations
+
 ### Integration with Development Workflow
 
 ```bash
-# Start watching in background
-octocode watch --quiet &
+# Start watching in background with optimal settings
+octocode watch --quiet --debounce 2 --additional-delay 1000 &
+
+# For development with frequent changes (faster response)
+octocode watch --debounce 1 --additional-delay 500
+
+# For large projects (conservative settings)
+octocode watch --debounce 5 --additional-delay 2000
 
 # Continue development...
 # Files are automatically reindexed as you work
@@ -365,9 +402,15 @@ octocode index --reindex
 # Start MCP server with debug logging
 octocode mcp --debug
 
-# Check server status
+# Check server status and file watcher behavior
 octocode mcp --debug --path /path/to/project
 ```
+
+**Debug output includes:**
+- File watcher startup and ignore pattern loading
+- Debouncing events and timing information
+- Process spawning and completion status
+- Indexing performance metrics
 
 ### Common Issues and Solutions
 

@@ -14,16 +14,36 @@
 
 use anyhow::Result;
 use serde_json::json;
-use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::Command;
 use tokio::sync::mpsc;
+use tokio::time::{sleep, Duration, Instant};
 
 use crate::config::Config;
+use crate::indexer;
 use crate::mcp::graphrag::GraphRagProvider;
 use crate::mcp::memory::MemoryProvider;
 use crate::mcp::semantic_code::SemanticCodeProvider;
 use crate::mcp::types::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
+use crate::state;
+use crate::store::Store;
+use crate::watcher_config::{
+	IgnorePatterns, DEFAULT_ADDITIONAL_DELAY_MS, MCP_DEFAULT_DEBOUNCE_MS, MIN_DEBOUNCE_MS,
+};
+
+// Configurable debounce settings (code-only configuration for now)
+//
+// You can modify these constants to tune the MCP server behavior:
+// - MCP_DEBOUNCE_MS: How long to wait after the last file change before triggering reindex
+// - MCP_MAX_PENDING_EVENTS: Maximum number of file events to queue (prevents memory issues)
+// - MCP_INDEX_TIMEOUT_MS: Maximum time to wait for indexing to complete before timing out
+// - MCP_ENABLE_VERBOSE_EVENTS: Whether to log individual file events (useful for debugging)
+//
+const MCP_DEBOUNCE_MS: u64 = MCP_DEFAULT_DEBOUNCE_MS; // 2000ms = 2 seconds
+const MCP_MAX_PENDING_EVENTS: usize = 100;
+const MCP_INDEX_TIMEOUT_MS: u64 = 300_000; // 5 minutes
+const MCP_ENABLE_VERBOSE_EVENTS: bool = false; // Set to true for detailed event logging
 
 /// MCP Server implementation with modular tool providers
 pub struct McpServer {
@@ -33,6 +53,11 @@ pub struct McpServer {
 	debug: bool,
 	working_directory: std::path::PathBuf,
 	watcher_handle: Option<tokio::task::JoinHandle<()>>,
+	index_handle: Option<tokio::task::JoinHandle<()>>,
+	indexing_in_progress: Arc<AtomicBool>,
+	store: Store,
+	config: Config,
+	index_rx: Option<mpsc::Receiver<()>>,
 }
 
 impl McpServer {
@@ -41,6 +66,10 @@ impl McpServer {
 		debug: bool,
 		working_directory: std::path::PathBuf,
 	) -> Result<Self> {
+		// Initialize the store for the MCP server
+		let store = Store::new().await?;
+		store.initialize_collections().await?;
+
 		let semantic_code =
 			SemanticCodeProvider::new(config.clone(), working_directory.clone(), debug);
 		let graphrag = GraphRagProvider::new(config.clone(), working_directory.clone(), debug);
@@ -53,6 +82,11 @@ impl McpServer {
 			debug,
 			working_directory,
 			watcher_handle: None,
+			index_handle: None,
+			indexing_in_progress: Arc::new(AtomicBool::new(false)),
+			store,
+			config,
+			index_rx: None,
 		})
 	}
 
@@ -62,6 +96,10 @@ impl McpServer {
 
 		if self.debug {
 			eprintln!("MCP Server started with debug mode");
+			eprintln!(
+				"Watch configuration: debounce={}ms, timeout={}ms, max_events={}",
+				MCP_DEBOUNCE_MS, MCP_INDEX_TIMEOUT_MS, MCP_MAX_PENDING_EVENTS
+			);
 		}
 
 		let stdin = tokio::io::stdin();
@@ -70,53 +108,176 @@ impl McpServer {
 		let mut writer = stdout;
 
 		let mut line = String::new();
+		let mut index_rx = self.index_rx.take().unwrap();
 
 		loop {
 			line.clear();
-			match reader.read_line(&mut line).await {
-				Ok(0) => break, // EOF
-				Ok(_) => {
-					if let Some(response) = self.handle_request(&line).await {
-						let response_json = serde_json::to_string(&response)?;
-						writer.write_all(response_json.as_bytes()).await?;
-						writer.write_all(b"\n").await?;
-						writer.flush().await?;
+
+			tokio::select! {
+				// Handle stdin input (MCP requests)
+				result = reader.read_line(&mut line) => {
+					match result {
+						Ok(0) => break, // EOF
+						Ok(_) => {
+							if let Some(response) = self.handle_request(&line).await {
+								let response_json = serde_json::to_string(&response)?;
+								writer.write_all(response_json.as_bytes()).await?;
+								writer.write_all(b"\n").await?;
+								writer.flush().await?;
+							}
+						}
+						Err(e) => {
+							if self.debug {
+								eprintln!("Error reading from stdin: {}", e);
+							}
+							break;
+						}
 					}
 				}
-				Err(e) => {
+
+				// Handle indexing requests with timeout protection
+				Some(_) = index_rx.recv() => {
 					if self.debug {
-						eprintln!("Error reading from stdin: {}", e);
+						eprintln!("Processing index request...");
 					}
-					break;
+
+					// Additional delay to ensure all file operations are complete
+					sleep(Duration::from_millis(DEFAULT_ADDITIONAL_DELAY_MS)).await;
+
+					// Perform direct indexing with timeout protection
+					let indexing_result = tokio::time::timeout(
+						Duration::from_millis(MCP_INDEX_TIMEOUT_MS),
+						self.perform_direct_indexing()
+					).await;
+
+					match indexing_result {
+						Ok(Ok(())) => {
+							if self.debug {
+								eprintln!("Reindex completed successfully");
+							}
+						}
+						Ok(Err(e)) => {
+							if self.debug {
+								eprintln!("Reindex error: {}", e);
+							}
+						}
+						Err(_) => {
+							if self.debug {
+								eprintln!("Reindex timed out after {}ms", MCP_INDEX_TIMEOUT_MS);
+							}
+						}
+					}
+
+					// Always reset the indexing flag, even on error/timeout
+					self.indexing_in_progress.store(false, Ordering::SeqCst);
 				}
 			}
+		}
+
+		// Cleanup: abort background tasks
+		if let Some(handle) = self.watcher_handle.take() {
+			handle.abort();
+		}
+		if let Some(handle) = self.index_handle.take() {
+			handle.abort();
+		}
+
+		if self.debug {
+			eprintln!("MCP Server stopped");
 		}
 
 		Ok(())
 	}
 
 	async fn start_watcher(&mut self) -> Result<()> {
-		let (tx, mut rx) = mpsc::channel(100);
+		let (file_tx, file_rx) = mpsc::channel(MCP_MAX_PENDING_EVENTS);
+		let (index_tx, index_rx) = mpsc::channel(10);
 		let working_dir = self.working_directory.clone();
+		let debug = self.debug;
 
-		// Start watcher in background
+		// Start file watcher in background
 		let watcher_handle = tokio::spawn(async move {
-			if let Err(e) = run_watcher(tx, working_dir).await {
-				eprintln!("Watcher error: {}", e);
-			}
-		});
-
-		// Handle watcher events
-		let _index_handle = tokio::spawn(async move {
-			while let Some(_event) = rx.recv().await {
-				// Trigger reindex when files change
-				if let Err(e) = trigger_reindex().await {
-					eprintln!("Reindex error: {}", e);
+			if let Err(e) = run_watcher(file_tx, working_dir, debug).await {
+				if debug {
+					eprintln!("Watcher error: {}", e);
 				}
 			}
 		});
 
+		// Start improved debouncing handler that properly accumulates events
+		let indexing_in_progress = self.indexing_in_progress.clone();
+		let debug_mode = self.debug;
+		let index_handle = tokio::spawn(async move {
+			let mut file_rx = file_rx;
+			let mut last_event_time = None::<Instant>;
+			let mut pending_events = 0u32;
+
+			loop {
+				// Wait for either a file event or timeout
+				let timeout_duration = Duration::from_millis(MCP_DEBOUNCE_MS);
+
+				tokio::select! {
+					// New file event received
+					event_result = file_rx.recv() => {
+						match event_result {
+							Some(_) => {
+								pending_events += 1;
+								last_event_time = Some(Instant::now());
+
+								if debug_mode {
+									eprintln!("File change detected (total pending: {})", pending_events);
+								}
+							}
+							None => {
+								if debug_mode {
+									eprintln!("File watcher channel closed, stopping debouncer");
+								}
+								break;
+							}
+						}
+					}
+
+					// Debounce timeout - check if we should trigger indexing
+					_ = sleep(timeout_duration), if last_event_time.is_some() => {
+						if let Some(last_time) = last_event_time {
+							// Check if enough time has passed since the last event
+							if last_time.elapsed() >= timeout_duration && pending_events > 0 {
+								// Try to acquire indexing lock
+								if indexing_in_progress
+									.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+									.is_ok()
+								{
+									if debug_mode {
+										eprintln!("Debounce period completed, requesting reindex for {} events...", pending_events);
+									}
+
+									// Send indexing request to main loop
+									if let Err(_) = index_tx.send(()).await {
+										if debug_mode {
+											eprintln!("Failed to send index request - server may be shutting down");
+										}
+										indexing_in_progress.store(false, Ordering::SeqCst);
+										break;
+									}
+
+									// Reset counters
+									pending_events = 0;
+									last_event_time = None;
+								} else if debug_mode {
+									eprintln!("Indexing already in progress, will retry after current indexing completes");
+									// Don't reset counters, will retry later
+								}
+							}
+						}
+					}
+				}
+			}
+		});
+
+		// Store the index receiver for handling in the main loop
+		self.index_rx = Some(index_rx);
 		self.watcher_handle = Some(watcher_handle);
+		self.index_handle = Some(index_handle);
 		Ok(())
 	}
 
@@ -164,6 +325,34 @@ impl McpServer {
 		};
 
 		Some(response)
+	}
+
+	async fn perform_direct_indexing(&self) -> Result<()> {
+		if self.debug {
+			eprintln!("Starting direct reindex...");
+		}
+
+		// Create shared state for indexing (same as watch command)
+		let state = state::create_shared_state();
+		state.write().current_directory = self.working_directory.clone();
+
+		// Get git root for optimization (same as watch command)
+		let git_repo_root = indexer::git::find_git_root(&self.working_directory);
+
+		// Perform the indexing directly (same as watch command in quiet mode)
+		indexer::index_files(
+			&self.store,
+			state.clone(),
+			&self.config,
+			git_repo_root.as_deref(),
+		)
+		.await?;
+
+		if self.debug {
+			eprintln!("Direct reindex completed successfully");
+		}
+
+		Ok(())
 	}
 
 	async fn handle_initialize(&self, request: &JsonRpcRequest) -> JsonRpcResponse {
@@ -336,21 +525,63 @@ impl McpServer {
 	}
 }
 
+impl Drop for McpServer {
+	fn drop(&mut self) {
+		// Ensure background tasks are cleaned up
+		if let Some(handle) = self.watcher_handle.take() {
+			handle.abort();
+		}
+		if let Some(handle) = self.index_handle.take() {
+			handle.abort();
+		}
+	}
+}
+
 // Helper functions
-async fn run_watcher(tx: mpsc::Sender<()>, working_dir: std::path::PathBuf) -> Result<()> {
+async fn run_watcher(
+	tx: mpsc::Sender<()>,
+	working_dir: std::path::PathBuf,
+	debug: bool,
+) -> Result<()> {
 	use notify::RecursiveMode;
 	use notify_debouncer_mini::{new_debouncer, DebouncedEvent};
-	use std::time::Duration;
 
-	let (debouncer_tx, mut debouncer_rx) = mpsc::channel(100);
+	let (debouncer_tx, mut debouncer_rx) = mpsc::channel(MCP_MAX_PENDING_EVENTS);
 
+	// Create ignore patterns manager
+	let ignore_patterns = IgnorePatterns::new(working_dir.clone());
+
+	// Use minimal debounce for the file watcher itself - we handle the real debouncing in the event handler
 	let mut debouncer = new_debouncer(
-		Duration::from_millis(500),
+		Duration::from_millis(MIN_DEBOUNCE_MS),
 		move |res: Result<Vec<DebouncedEvent>, notify::Error>| match res {
-			Ok(_events) => {
-				let _ = debouncer_tx.try_send(());
+			Ok(events) => {
+				// Filter out events from irrelevant paths using ignore patterns
+				let relevant_events: Vec<_> = events
+					.iter()
+					.filter(|event| !ignore_patterns.should_ignore_path(&event.path))
+					.collect();
+
+				if !relevant_events.is_empty() {
+					if debug && MCP_ENABLE_VERBOSE_EVENTS {
+						eprintln!(
+							"File watcher detected {} relevant events",
+							relevant_events.len()
+						);
+						for event in &relevant_events {
+							eprintln!("  - {:?}: {:?}", event.kind, event.path);
+						}
+					}
+
+					// Send notification for each relevant event batch
+					let _ = debouncer_tx.try_send(());
+				}
 			}
-			Err(e) => eprintln!("Watcher error: {:?}", e),
+			Err(e) => {
+				if debug {
+					eprintln!("File watcher error: {:?}", e);
+				}
+			}
 		},
 	)?;
 
@@ -358,25 +589,28 @@ async fn run_watcher(tx: mpsc::Sender<()>, working_dir: std::path::PathBuf) -> R
 		.watcher()
 		.watch(&working_dir, RecursiveMode::Recursive)?;
 
-	while (debouncer_rx.recv().await).is_some() {
-		let _ = tx.send(()).await;
+	if debug {
+		eprintln!("File watcher started for: {}", working_dir.display());
+		eprintln!("Loaded ignore patterns from .gitignore and .noindex files");
+		eprintln!(
+			"Using debounce settings: {}ms debounce, {}ms additional delay",
+			MCP_DEBOUNCE_MS, DEFAULT_ADDITIONAL_DELAY_MS
+		);
 	}
 
-	Ok(())
-}
+	// Forward events from debouncer to the main event handler
+	while let Some(_) = debouncer_rx.recv().await {
+		if tx.send(()).await.is_err() {
+			if debug {
+				eprintln!("Event channel closed, stopping file watcher");
+			}
+			break;
+		}
+	}
 
-async fn trigger_reindex() -> Result<()> {
-	// Run indexing in background process to avoid blocking MCP server
-	let mut child = Command::new(std::env::current_exe()?)
-		.args(["index"])
-		.stdout(Stdio::null())
-		.stderr(Stdio::null())
-		.spawn()?;
-
-	// Don't wait for completion, let it run in background
-	tokio::spawn(async move {
-		let _ = child.wait().await;
-	});
+	if debug {
+		eprintln!("File watcher stopped");
+	}
 
 	Ok(())
 }

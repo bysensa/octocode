@@ -36,9 +36,10 @@ Octocode is built with a modular architecture that separates concerns and enable
 
 ### 6. MCP Server
 - **Model Context Protocol** server implementation
-- **Real-time file watching** and auto-reindexing
+- **Intelligent file watching** with debouncing and ignore pattern support
+- **Process management** to prevent concurrent indexing operations
 - **Tool integration** for AI assistants
-- **Debug mode** with enhanced logging
+- **Debug mode** with enhanced logging and performance monitoring
 
 ### 7. Memory System
 - **Persistent storage** for insights and context

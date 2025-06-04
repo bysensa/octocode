@@ -18,6 +18,10 @@ use octocode::config::Config;
 use octocode::indexer;
 use octocode::state;
 use octocode::store::Store;
+use octocode::watcher_config::{
+	IgnorePatterns, DEFAULT_ADDITIONAL_DELAY_MS, MAX_ADDITIONAL_DELAY_MS,
+	WATCH_DEFAULT_DEBOUNCE_SECS, WATCH_MAX_DEBOUNCE_SECS, WATCH_MIN_DEBOUNCE_SECS,
+};
 
 use super::index::IndexArgs;
 
@@ -27,9 +31,13 @@ pub struct WatchArgs {
 	#[arg(long, short)]
 	pub quiet: bool,
 
-	/// Change debounce time in seconds
+	/// Change debounce time in seconds (min: 1, max: 30, default: 2)
 	#[arg(long, short)]
 	pub debounce: Option<u64>,
+
+	/// Additional delay after debounce in milliseconds (default: 1000, max: 5000)
+	#[arg(long)]
+	pub additional_delay: Option<u64>,
 
 	/// Skip git repository requirement and git-based optimizations
 	#[arg(long)]
@@ -43,11 +51,25 @@ pub async fn execute(
 ) -> Result<(), anyhow::Error> {
 	let current_dir = std::env::current_dir()?;
 
+	// Get the debounce time from args or use default, with bounds checking
+	let debounce_secs = args
+		.debounce
+		.unwrap_or(WATCH_DEFAULT_DEBOUNCE_SECS)
+		.clamp(WATCH_MIN_DEBOUNCE_SECS, WATCH_MAX_DEBOUNCE_SECS);
+	let additional_delay_ms = args
+		.additional_delay
+		.unwrap_or(DEFAULT_ADDITIONAL_DELAY_MS)
+		.clamp(0, MAX_ADDITIONAL_DELAY_MS);
+
 	// Only show verbose output if not in quiet mode
 	if !args.quiet {
 		println!(
 			"Starting watch mode for current directory: {}",
 			current_dir.display()
+		);
+		println!(
+			"Configuration: debounce={}s, additional_delay={}ms",
+			debounce_secs, additional_delay_ms
 		);
 		println!("Initial indexing...");
 	}
@@ -79,6 +101,7 @@ pub async fn execute(
 	}
 
 	if !args.quiet {
+		println!("Loaded ignore patterns from .gitignore and .noindex files");
 		println!("Watching for changes (press Ctrl+C to stop)...");
 	}
 
@@ -89,11 +112,11 @@ pub async fn execute(
 
 	let (tx, rx) = channel();
 
-	// Get the debounce time from args or use default
-	let debounce_secs = args.debounce.unwrap_or(2);
-
 	// Copy quiet flag to capture in closure
 	let quiet_mode = args.quiet;
+
+	// Create ignore patterns manager
+	let ignore_patterns = IgnorePatterns::new(current_dir.clone());
 
 	// Create a debounced watcher to call our tx sender when files change
 	let mut debouncer = new_debouncer(
@@ -101,15 +124,10 @@ pub async fn execute(
 		move |res: Result<Vec<DebouncedEvent>, notify::Error>| {
 			match res {
 				Ok(events) => {
-					// Filter out events from .octocode directory to prevent reindexing loops
+					// Filter out events from irrelevant paths using ignore patterns
 					let relevant_events = events
 						.iter()
-						.filter(|event| {
-							let path = event.path.to_string_lossy();
-							!path.contains(".octocode")
-								&& !path.contains("target/")
-								&& !path.contains(".git/")
-						})
+						.filter(|event| !ignore_patterns.should_ignore_path(&event.path))
 						.count();
 
 					if relevant_events > 0 {
@@ -152,8 +170,11 @@ pub async fn execute(
 					state_guard.indexing_complete = false;
 				}
 
-				// Reindex the codebase
-				tokio::time::sleep(tokio::time::Duration::from_secs(1)).await; // Give a bit of time for all file changes to complete
+				// Additional delay to ensure all file operations are complete
+				if additional_delay_ms > 0 {
+					tokio::time::sleep(tokio::time::Duration::from_millis(additional_delay_ms))
+						.await;
+				}
 
 				if !args.quiet {
 					// Use regular indexing with progress in non-quiet mode
