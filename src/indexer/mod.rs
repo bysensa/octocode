@@ -28,6 +28,9 @@ pub use search::*;
 
 use crate::config::Config;
 use crate::embedding::calculate_unique_content_hash;
+use crate::mcp::logging::{
+	log_file_processing_error, log_indexing_progress, log_performance_metrics,
+};
 use crate::state;
 use crate::state::SharedState;
 use crate::store::{CodeBlock, DocumentBlock, Store, TextBlock};
@@ -721,6 +724,15 @@ pub async fn index_files(
 
 	let mut embedding_calls = 0;
 
+	// Log indexing start
+	log_indexing_progress(
+		"indexing_start",
+		0,
+		0,
+		Some(&current_dir.display().to_string()),
+		0,
+	);
+
 	// Initialize GraphRAG state if enabled
 	{
 		let mut state_guard = state.write();
@@ -830,6 +842,9 @@ pub async fn index_files(
 			state_guard.status_message = "Checking for deleted and ignored files...".to_string();
 		}
 
+		// Log cleanup phase start
+		log_indexing_progress("cleanup", 0, 0, None, 0);
+
 		// Get all indexed file paths from the database
 		let indexed_files = store.get_all_indexed_file_paths().await?;
 
@@ -919,6 +934,9 @@ pub async fn index_files(
 	// Use NoindexWalker to respect both .gitignore and .noindex files
 	let walker = NoindexWalker::create_walker(&current_dir).build();
 
+	// Log file processing phase start
+	log_indexing_progress("file_processing", 0, total_files, None, 0);
+
 	for result in walker {
 		let entry = match result {
 			Ok(entry) => entry,
@@ -955,67 +973,86 @@ pub async fn index_files(
 		}
 
 		if let Some(language) = detect_language(entry.path()) {
-			if let Ok(contents) = fs::read_to_string(entry.path()) {
-				// Store the file modification time after successful processing
-				let file_processed;
+			match fs::read_to_string(entry.path()) {
+				Ok(contents) => {
+					// Store the file modification time after successful processing
+					let file_processed;
 
-				if language == "markdown" {
-					// Handle markdown files specially - index as document blocks
-					process_markdown_file_differential(
-						store,
-						&contents,
-						&file_path,
-						&mut document_blocks_batch,
-						config,
-						state.clone(),
-					)
-					.await?;
-					file_processed = true;
-				} else {
-					// Handle code files - index as semantic code blocks only
-					let ctx = ProcessFileContext {
-						store,
-						config,
-						state: state.clone(),
-					};
-					process_file_differential(
-						&ctx,
-						&contents,
-						&file_path,
-						language,
-						&mut code_blocks_batch,
-						&mut text_blocks_batch, // Will remain empty for code files
-						&mut all_code_blocks,
-					)
-					.await?;
-					file_processed = true;
-				}
+					if language == "markdown" {
+						// Handle markdown files specially - index as document blocks
+						process_markdown_file_differential(
+							store,
+							&contents,
+							&file_path,
+							&mut document_blocks_batch,
+							config,
+							state.clone(),
+						)
+						.await?;
+						file_processed = true;
+					} else {
+						// Handle code files - index as semantic code blocks only
+						let ctx = ProcessFileContext {
+							store,
+							config,
+							state: state.clone(),
+						};
+						process_file_differential(
+							&ctx,
+							&contents,
+							&file_path,
+							language,
+							&mut code_blocks_batch,
+							&mut text_blocks_batch, // Will remain empty for code files
+							&mut all_code_blocks,
+						)
+						.await?;
+						file_processed = true;
+					}
 
-				// Store file modification time after successful processing
-				if file_processed {
-					if let Ok(actual_mtime) = get_file_mtime(entry.path()) {
-						let _ = store.store_file_metadata(&file_path, actual_mtime).await;
+					// Store file modification time after successful processing
+					if file_processed {
+						if let Ok(actual_mtime) = get_file_mtime(entry.path()) {
+							let _ = store.store_file_metadata(&file_path, actual_mtime).await;
+						}
+					}
+
+					state.write().indexed_files += 1;
+
+					// Log progress periodically for code files
+					let current_files = state.read().indexed_files;
+					if current_files % 50 == 0 || current_files == total_files {
+						log_indexing_progress(
+							"file_processing",
+							current_files,
+							total_files,
+							Some(&file_path),
+							embedding_calls,
+						);
+					}
+
+					// Process batches when they reach the batch size
+					if code_blocks_batch.len() >= config.index.embeddings_batch_size {
+						embedding_calls += code_blocks_batch.len();
+						process_code_blocks_batch(store, &code_blocks_batch, config).await?;
+						code_blocks_batch.clear();
+					}
+					// Only process text_blocks_batch if we have any (from unsupported files)
+					if text_blocks_batch.len() >= config.index.embeddings_batch_size {
+						embedding_calls += text_blocks_batch.len();
+						process_text_blocks_batch(store, &text_blocks_batch, config).await?;
+						text_blocks_batch.clear();
+					}
+					if document_blocks_batch.len() >= config.index.embeddings_batch_size {
+						embedding_calls += document_blocks_batch.len();
+						process_document_blocks_batch(store, &document_blocks_batch, config)
+							.await?;
+						document_blocks_batch.clear();
 					}
 				}
-
-				state.write().indexed_files += 1;
-
-				// Process batches when they reach the batch size
-				if code_blocks_batch.len() >= config.index.embeddings_batch_size {
-					embedding_calls += code_blocks_batch.len();
-					process_code_blocks_batch(store, &code_blocks_batch, config).await?;
-					code_blocks_batch.clear();
-				}
-				// Only process text_blocks_batch if we have any (from unsupported files)
-				if text_blocks_batch.len() >= config.index.embeddings_batch_size {
-					embedding_calls += text_blocks_batch.len();
-					process_text_blocks_batch(store, &text_blocks_batch, config).await?;
-					text_blocks_batch.clear();
-				}
-				if document_blocks_batch.len() >= config.index.embeddings_batch_size {
-					embedding_calls += document_blocks_batch.len();
-					process_document_blocks_batch(store, &document_blocks_batch, config).await?;
-					document_blocks_batch.clear();
+				Err(e) => {
+					// Log file reading error
+					log_file_processing_error(&file_path, "read_file", &e);
 				}
 			}
 		} else {
@@ -1041,6 +1078,18 @@ pub async fn index_files(
 						}
 
 						state.write().indexed_files += 1;
+
+						// Log progress periodically for text files
+						let current_files = state.read().indexed_files;
+						if current_files % 50 == 0 || current_files == total_files {
+							log_indexing_progress(
+								"file_processing",
+								current_files,
+								total_files,
+								Some(&file_path),
+								embedding_calls,
+							);
+						}
 
 						// Process batch when it reaches the batch size
 						if text_blocks_batch.len() >= config.index.embeddings_batch_size {
@@ -1076,6 +1125,15 @@ pub async fn index_files(
 			state_guard.status_message = "Building GraphRAG knowledge graph...".to_string();
 		}
 
+		// Log GraphRAG phase start
+		log_indexing_progress(
+			"graphrag_build",
+			state.read().indexed_files,
+			total_files,
+			None,
+			embedding_calls,
+		);
+
 		// Initialize GraphBuilder
 		let graph_builder = graphrag::GraphBuilder::new(config.clone()).await?;
 
@@ -1096,6 +1154,16 @@ pub async fn index_files(
 		state_guard.indexing_complete = true;
 		state_guard.embedding_calls = embedding_calls;
 	}
+
+	// Log indexing completion
+	let final_files = state.read().indexed_files;
+	log_indexing_progress(
+		"indexing_complete",
+		final_files,
+		total_files,
+		None,
+		embedding_calls,
+	);
 
 	// Store current git commit hash for future optimization
 	if let Some(git_root) = git_repo_root {
@@ -1688,9 +1756,14 @@ async fn process_code_blocks_batch(
 	blocks: &[CodeBlock],
 	config: &Config,
 ) -> Result<()> {
+	let start_time = std::time::Instant::now();
 	let contents: Vec<String> = blocks.iter().map(|b| b.content.clone()).collect();
 	let embeddings = crate::embedding::generate_embeddings_batch(contents, true, config).await?;
 	store.store_code_blocks(blocks, embeddings).await?;
+
+	let duration_ms = start_time.elapsed().as_millis() as u64;
+	log_performance_metrics("code_blocks_batch", duration_ms, blocks.len(), None);
+
 	Ok(())
 }
 
@@ -1699,9 +1772,14 @@ async fn process_text_blocks_batch(
 	blocks: &[TextBlock],
 	config: &Config,
 ) -> Result<()> {
+	let start_time = std::time::Instant::now();
 	let contents: Vec<String> = blocks.iter().map(|b| b.content.clone()).collect();
 	let embeddings = crate::embedding::generate_embeddings_batch(contents, false, config).await?;
 	store.store_text_blocks(blocks, embeddings).await?;
+
+	let duration_ms = start_time.elapsed().as_millis() as u64;
+	log_performance_metrics("text_blocks_batch", duration_ms, blocks.len(), None);
+
 	Ok(())
 }
 
@@ -1710,9 +1788,14 @@ async fn process_document_blocks_batch(
 	blocks: &[DocumentBlock],
 	config: &Config,
 ) -> Result<()> {
+	let start_time = std::time::Instant::now();
 	let contents: Vec<String> = blocks.iter().map(|b| b.content.clone()).collect();
 	let embeddings = crate::embedding::generate_embeddings_batch(contents, false, config).await?;
 	store.store_document_blocks(blocks, embeddings).await?;
+
+	let duration_ms = start_time.elapsed().as_millis() as u64;
+	log_performance_metrics("document_blocks_batch", duration_ms, blocks.len(), None);
+
 	Ok(())
 }
 

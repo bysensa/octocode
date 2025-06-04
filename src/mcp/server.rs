@@ -263,7 +263,10 @@ impl McpServer {
 										eprintln!("Debounce period completed, requesting reindex for {} events...", pending_events);
 									}
 
-									// Send indexing request to main loop
+									// Log the debounce trigger
+								log_watcher_event("debounce_trigger", None, pending_events as usize);
+
+								// Send indexing request to main loop
 									if (index_tx.send(()).await).is_err() {
 										if debug_mode {
 											eprintln!("Failed to send index request - server may be shutting down");
