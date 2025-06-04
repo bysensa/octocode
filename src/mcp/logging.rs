@@ -1,4 +1,3 @@
-use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use tracing::{debug, error, info, trace, warn};
@@ -9,22 +8,9 @@ static MCP_LOG_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 /// Initialize logging for MCP server with file rotation
 pub fn init_mcp_logging(base_dir: PathBuf, debug_mode: bool) -> Result<(), anyhow::Error> {
-	// Create a unique log directory based on project path
-	let project_hash = {
-		let mut hasher = Sha256::new();
-		hasher.update(base_dir.to_string_lossy().as_bytes());
-		format!("{:x}", hasher.finalize())[..12].to_string()
-	};
-
-	// Get project name for better identification
-	let project_name = base_dir
-		.file_name()
-		.and_then(|n| n.to_str())
-		.unwrap_or("unknown");
-
-	// Ensure .octocode/logs/project_name_hash directory exists
-	let log_dir_name = format!("{}_{}", project_name, project_hash);
-	let log_dir = base_dir.join(".octocode").join("logs").join(log_dir_name);
+	// Use the system-wide storage directory for logs
+	let project_storage = crate::storage::get_project_storage_path(&base_dir)?;
+	let log_dir = project_storage.join("logs");
 	std::fs::create_dir_all(&log_dir)?;
 
 	// Store log directory for potential future use
@@ -33,7 +19,7 @@ pub fn init_mcp_logging(base_dir: PathBuf, debug_mode: bool) -> Result<(), anyho
 		.map_err(|_| anyhow::anyhow!("Failed to set log directory"))?;
 
 	// Cross-platform way to create a "latest" indicator
-	let latest_file = base_dir.join(".octocode").join("logs").join("latest.txt");
+	let latest_file = project_storage.join("latest_log.txt");
 	std::fs::write(&latest_file, log_dir.to_string_lossy().as_bytes()).unwrap_or_else(|e| {
 		eprintln!("Warning: Could not create latest log indicator: {}", e);
 	});
@@ -88,7 +74,6 @@ pub fn init_mcp_logging(base_dir: PathBuf, debug_mode: bool) -> Result<(), anyho
 
 	info!(
 		project_path = %base_dir.display(),
-		project_name = project_name,
 		log_directory = %log_dir.display(),
 		debug_mode = debug_mode,
 		"MCP Server logging initialized"
@@ -348,50 +333,66 @@ pub fn get_log_directory() -> Option<PathBuf> {
 
 /// Get all log directories for MCP server
 pub fn get_all_log_directories(base_dir: &std::path::Path) -> Result<Vec<PathBuf>, std::io::Error> {
-	let logs_dir = base_dir.join(".octocode").join("logs");
+	let project_storage = crate::storage::get_project_storage_path(base_dir)
+		.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+	let logs_dir = project_storage.join("logs");
 
 	if !logs_dir.exists() {
 		return Ok(Vec::new());
 	}
 
-	// Read all subdirectories in the logs directory
-	let mut directories = Vec::new();
-	for entry in std::fs::read_dir(logs_dir)? {
-		let entry = entry?;
-		let path = entry.path();
-
-		if path.is_dir() {
-			if let Some(name) = path.file_name() {
-				let name_str = name.to_string_lossy();
-				// Skip hidden directories and files
-				if !name_str.starts_with('.') && !name_str.ends_with(".txt") {
-					directories.push(path);
-				}
-			}
-		}
-	}
-
-	// Sort by modification time (newest first)
-	directories.sort_by(|a, b| {
-		let a_time = a
-			.metadata()
-			.and_then(|m| m.modified())
-			.unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-		let b_time = b
-			.metadata()
-			.and_then(|m| m.modified())
-			.unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-		b_time.cmp(&a_time)
-	});
-
-	Ok(directories)
+	// For the new structure, we just return the single logs directory
+	// since each project has its own storage directory
+	Ok(vec![logs_dir])
 }
 
 /// Print log directory information
 pub fn print_log_directories(base_dir: &Path) -> Result<(), std::io::Error> {
-	println!("MCP Server Log Directories:");
-	for (index, log_dir) in get_all_log_directories(base_dir)?.iter().enumerate() {
-		println!("{}: {}", index + 1, log_dir.display());
+	let project_storage = crate::storage::get_project_storage_path(base_dir)
+		.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+	let logs_dir = project_storage.join("logs");
+
+	println!("MCP Server Log Directory:");
+	if logs_dir.exists() {
+		println!("  {}", logs_dir.display());
+
+		// Show log files in the directory
+		let mut log_files: Vec<_> = std::fs::read_dir(&logs_dir)?
+			.filter_map(|entry| {
+				let path = entry.ok()?.path();
+				if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("log") {
+					Some(path)
+				} else {
+					None
+				}
+			})
+			.collect();
+
+		if !log_files.is_empty() {
+			log_files.sort_by(|a, b| {
+				let a_time = a
+					.metadata()
+					.and_then(|m| m.modified())
+					.unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+				let b_time = b
+					.metadata()
+					.and_then(|m| m.modified())
+					.unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+				b_time.cmp(&a_time)
+			});
+
+			println!("  Log files:");
+			for log_file in log_files {
+				println!(
+					"    - {}",
+					log_file.file_name().unwrap_or_default().to_string_lossy()
+				);
+			}
+		} else {
+			println!("    (no log files)");
+		}
+	} else {
+		println!("  (directory does not exist)");
 	}
 	Ok(())
 }
