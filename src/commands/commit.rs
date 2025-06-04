@@ -46,7 +46,7 @@ pub async fn execute(config: &Config, args: &CommitArgs) -> Result<()> {
 	if args.all {
 		println!("📂 Adding all changes...");
 		let output = Command::new("git")
-			.args(&["add", "."])
+			.args(["add", "."])
 			.current_dir(&current_dir)
 			.output()?;
 
@@ -60,7 +60,7 @@ pub async fn execute(config: &Config, args: &CommitArgs) -> Result<()> {
 
 	// Check if there are staged changes
 	let output = Command::new("git")
-		.args(&["diff", "--cached", "--name-only"])
+		.args(["diff", "--cached", "--name-only"])
 		.current_dir(&current_dir)
 		.output()?;
 
@@ -110,7 +110,7 @@ pub async fn execute(config: &Config, args: &CommitArgs) -> Result<()> {
 	// Perform the commit
 	println!("💾 Committing changes...");
 	let output = Command::new("git")
-		.args(&["commit", "-m", &commit_message])
+		.args(["commit", "-m", &commit_message])
 		.current_dir(&current_dir)
 		.output()?;
 
@@ -125,7 +125,7 @@ pub async fn execute(config: &Config, args: &CommitArgs) -> Result<()> {
 
 	// Show commit info
 	let output = Command::new("git")
-		.args(&["log", "--oneline", "-1"])
+		.args(["log", "--oneline", "-1"])
 		.current_dir(&current_dir)
 		.output()?;
 
@@ -144,7 +144,7 @@ async fn generate_commit_message(
 ) -> Result<String> {
 	// Get the diff of staged changes
 	let output = Command::new("git")
-		.args(&["diff", "--cached"])
+		.args(["diff", "--cached"])
 		.current_dir(repo_path)
 		.output()?;
 
@@ -286,7 +286,7 @@ async fn call_llm_for_commit_message(prompt: &str, config: &Config) -> Result<St
 	});
 
 	let response = client
-		.post(&format!(
+		.post(format!(
 			"{}/chat/completions",
 			config.openrouter.base_url.trim_end_matches('/')
 		))

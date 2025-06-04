@@ -202,7 +202,7 @@ pub struct FastEmbedProvider;
 
 #[cfg(not(feature = "fastembed"))]
 impl FastEmbedProvider {
-	pub fn map_model_to_fastembed(_model: &str) -> () {
+	pub fn map_model_to_fastembed(_model: &str) {
 		// Return unit type when feature is disabled
 	}
 }

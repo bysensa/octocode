@@ -177,8 +177,7 @@ impl IgnorePatterns {
 		}
 
 		// Handle patterns that match file extensions
-		if pattern.starts_with("*.") {
-			let ext = &pattern[2..];
+		if let Some(ext) = pattern.strip_prefix("*.") {
 			if path.ends_with(&format!(".{}", ext)) {
 				return true;
 			}

@@ -23,6 +23,10 @@ use tokio::time::{sleep, Duration, Instant};
 use crate::config::Config;
 use crate::indexer;
 use crate::mcp::graphrag::GraphRagProvider;
+use crate::mcp::logging::{
+	init_mcp_logging, log_critical_error, log_indexing_operation, log_mcp_request,
+	log_mcp_response, log_watcher_event,
+};
 use crate::mcp::memory::MemoryProvider;
 use crate::mcp::semantic_code::SemanticCodeProvider;
 use crate::mcp::types::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
@@ -52,6 +56,7 @@ pub struct McpServer {
 	memory: Option<MemoryProvider>,
 	debug: bool,
 	working_directory: std::path::PathBuf,
+	no_git: bool,
 	watcher_handle: Option<tokio::task::JoinHandle<()>>,
 	index_handle: Option<tokio::task::JoinHandle<()>>,
 	indexing_in_progress: Arc<AtomicBool>,
@@ -65,10 +70,14 @@ impl McpServer {
 		config: Config,
 		debug: bool,
 		working_directory: std::path::PathBuf,
+		no_git: bool,
 	) -> Result<Self> {
 		// Initialize the store for the MCP server
 		let store = Store::new().await?;
 		store.initialize_collections().await?;
+
+		// Initialize logging
+		init_mcp_logging(working_directory.clone(), debug)?;
 
 		let semantic_code =
 			SemanticCodeProvider::new(config.clone(), working_directory.clone(), debug);
@@ -81,6 +90,7 @@ impl McpServer {
 			memory,
 			debug,
 			working_directory,
+			no_git,
 			watcher_handle: None,
 			index_handle: None,
 			indexing_in_progress: Arc::new(AtomicBool::new(false)),
@@ -91,7 +101,7 @@ impl McpServer {
 	}
 
 	pub async fn run(&mut self) -> Result<()> {
-		// Start the file watcher
+		// Start the file watcher as a completely independent background task
 		self.start_watcher().await?;
 
 		if self.debug {
@@ -102,19 +112,23 @@ impl McpServer {
 			);
 		}
 
+		// Get the index receiver for handling indexing requests
+		let mut index_rx = self.index_rx.take().unwrap();
+
+		// Handle MCP protocol communication (stdin/stdout)
+		// This runs independently of file watching and indexing
 		let stdin = tokio::io::stdin();
 		let stdout = tokio::io::stdout();
 		let mut reader = BufReader::new(stdin);
 		let mut writer = stdout;
 
 		let mut line = String::new();
-		let mut index_rx = self.index_rx.take().unwrap();
 
 		loop {
 			line.clear();
 
 			tokio::select! {
-				// Handle stdin input (MCP requests)
+				// Handle MCP protocol messages from stdin
 				result = reader.read_line(&mut line) => {
 					match result {
 						Ok(0) => break, // EOF
@@ -135,7 +149,7 @@ impl McpServer {
 					}
 				}
 
-				// Handle indexing requests with timeout protection
+				// Handle indexing requests from file watcher (runs independently)
 				Some(_) = index_rx.recv() => {
 					if self.debug {
 						eprintln!("Processing index request...");
@@ -147,7 +161,7 @@ impl McpServer {
 					// Perform direct indexing with timeout protection
 					let indexing_result = tokio::time::timeout(
 						Duration::from_millis(MCP_INDEX_TIMEOUT_MS),
-						self.perform_direct_indexing()
+						perform_indexing(&self.store, &self.config, &self.working_directory, self.no_git)
 					).await;
 
 					match indexing_result {
@@ -220,14 +234,12 @@ impl McpServer {
 					// New file event received
 					event_result = file_rx.recv() => {
 						match event_result {
-							Some(_) => {
-								pending_events += 1;
-								last_event_time = Some(Instant::now());
+						Some(_) => {
+							pending_events += 1;
+							last_event_time = Some(Instant::now());
 
-								if debug_mode {
-									eprintln!("File change detected (total pending: {})", pending_events);
-								}
-							}
+							log_watcher_event("file_change", None, pending_events as usize);
+						}
 							None => {
 								if debug_mode {
 									eprintln!("File watcher channel closed, stopping debouncer");
@@ -252,7 +264,7 @@ impl McpServer {
 									}
 
 									// Send indexing request to main loop
-									if let Err(_) = index_tx.send(()).await {
+									if (index_tx.send(()).await).is_err() {
 										if debug_mode {
 											eprintln!("Failed to send index request - server may be shutting down");
 										}
@@ -287,13 +299,17 @@ impl McpServer {
 			return None;
 		}
 
-		if self.debug {
-			eprintln!("Received request: {}", line);
-		}
+		// Parse request first to get proper method and ID
+		let parsed_request: Result<JsonRpcRequest, _> = serde_json::from_str(line);
 
-		let request: JsonRpcRequest = match serde_json::from_str(line) {
-			Ok(req) => req,
+		let request: JsonRpcRequest = match parsed_request {
+			Ok(req) => {
+				// Log the request with proper method and ID
+				log_mcp_request(&req.method, req.params.as_ref(), req.id.as_ref());
+				req
+			}
 			Err(e) => {
+				log_critical_error("Request parsing", &e);
 				return Some(JsonRpcResponse {
 					jsonrpc: "2.0".to_string(),
 					id: None,
@@ -307,6 +323,9 @@ impl McpServer {
 			}
 		};
 
+		let start_time = std::time::Instant::now();
+
+		let request_id = request.id.clone();
 		let response = match request.method.as_str() {
 			"initialize" => self.handle_initialize(&request).await,
 			"tools/list" => self.handle_tools_list(&request).await,
@@ -324,35 +343,16 @@ impl McpServer {
 			},
 		};
 
+		// Log the response with timing
+		let duration_ms = start_time.elapsed().as_millis() as u64;
+		log_mcp_response(
+			&request.method,
+			response.error.is_none(),
+			request_id.as_ref(),
+			Some(duration_ms),
+		);
+
 		Some(response)
-	}
-
-	async fn perform_direct_indexing(&self) -> Result<()> {
-		if self.debug {
-			eprintln!("Starting direct reindex...");
-		}
-
-		// Create shared state for indexing (same as watch command)
-		let state = state::create_shared_state();
-		state.write().current_directory = self.working_directory.clone();
-
-		// Get git root for optimization (same as watch command)
-		let git_repo_root = indexer::git::find_git_root(&self.working_directory);
-
-		// Perform the indexing directly (same as watch command in quiet mode)
-		indexer::index_files(
-			&self.store,
-			state.clone(),
-			&self.config,
-			git_repo_root.as_deref(),
-		)
-		.await?;
-
-		if self.debug {
-			eprintln!("Direct reindex completed successfully");
-		}
-
-		Ok(())
 	}
 
 	async fn handle_initialize(&self, request: &JsonRpcRequest) -> JsonRpcResponse {
@@ -538,6 +538,44 @@ impl Drop for McpServer {
 }
 
 // Helper functions
+async fn perform_indexing(
+	store: &Store,
+	config: &Config,
+	working_directory: &std::path::Path,
+	no_git: bool,
+) -> Result<()> {
+	let start_time = std::time::Instant::now();
+	log_indexing_operation("direct_reindex_start", None, None, true);
+
+	// Create shared state for indexing (same as watch command)
+	let state = state::create_shared_state();
+	state.write().current_directory = working_directory.to_path_buf();
+
+	// Get git root for optimization (same as watch command)
+	let git_repo_root = if !no_git {
+		indexer::git::find_git_root(working_directory)
+	} else {
+		None
+	};
+
+	// Perform the indexing directly (same as watch command in quiet mode)
+	let indexing_result =
+		indexer::index_files(store, state.clone(), config, git_repo_root.as_deref()).await;
+
+	let duration_ms = start_time.elapsed().as_millis() as u64;
+
+	match indexing_result {
+		Ok(()) => {
+			log_indexing_operation("direct_reindex_complete", None, Some(duration_ms), true);
+			Ok(())
+		}
+		Err(e) => {
+			log_indexing_operation("direct_reindex_complete", None, Some(duration_ms), false);
+			log_critical_error("Direct indexing", e.as_ref());
+			Err(e)
+		}
+	}
+}
 async fn run_watcher(
 	tx: mpsc::Sender<()>,
 	working_dir: std::path::PathBuf,
@@ -563,6 +601,9 @@ async fn run_watcher(
 					.collect();
 
 				if !relevant_events.is_empty() {
+					// Log file watcher events using our structured logging
+					log_watcher_event("file_change_batch", None, relevant_events.len());
+
 					if debug && MCP_ENABLE_VERBOSE_EVENTS {
 						eprintln!(
 							"File watcher detected {} relevant events",
@@ -599,7 +640,7 @@ async fn run_watcher(
 	}
 
 	// Forward events from debouncer to the main event handler
-	while let Some(_) = debouncer_rx.recv().await {
+	while (debouncer_rx.recv().await).is_some() {
 		if tx.send(()).await.is_err() {
 			if debug {
 				eprintln!("Event channel closed, stopping file watcher");

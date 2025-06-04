@@ -50,7 +50,7 @@ pub async fn execute(config: &Config, args: &ReviewArgs) -> Result<()> {
 	if args.all {
 		println!("📂 Adding all changes for review...");
 		let output = Command::new("git")
-			.args(&["add", "."])
+			.args(["add", "."])
 			.current_dir(&current_dir)
 			.output()?;
 
@@ -64,7 +64,7 @@ pub async fn execute(config: &Config, args: &ReviewArgs) -> Result<()> {
 
 	// Check if there are staged changes
 	let output = Command::new("git")
-		.args(&["diff", "--cached", "--name-only"])
+		.args(["diff", "--cached", "--name-only"])
 		.current_dir(&current_dir)
 		.output()?;
 
@@ -130,7 +130,7 @@ async fn perform_code_review(
 ) -> Result<ReviewResult> {
 	// Get the diff of staged changes
 	let output = Command::new("git")
-		.args(&["diff", "--cached"])
+		.args(["diff", "--cached"])
 		.current_dir(repo_path)
 		.output()?;
 
@@ -149,7 +149,7 @@ async fn perform_code_review(
 
 	// Get file statistics
 	let stats_output = Command::new("git")
-		.args(&["diff", "--cached", "--stat"])
+		.args(["diff", "--cached", "--stat"])
 		.current_dir(repo_path)
 		.output()?;
 
@@ -161,7 +161,7 @@ async fn perform_code_review(
 
 	// Get list of changed files
 	let files_output = Command::new("git")
-		.args(&["diff", "--cached", "--name-only"])
+		.args(["diff", "--cached", "--name-only"])
 		.current_dir(repo_path)
 		.output()?;
 
@@ -446,7 +446,7 @@ async fn call_llm_for_review(prompt: &str, config: &Config) -> Result<String> {
 	});
 
 	let response = client
-		.post(&format!(
+		.post(format!(
 			"{}/chat/completions",
 			config.openrouter.base_url.trim_end_matches('/')
 		))

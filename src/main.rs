@@ -74,6 +74,9 @@ enum Commands {
 	/// Format code according to .editorconfig rules
 	Format(commands::FormatArgs),
 
+	/// View MCP server logs
+	Logs(commands::LogsArgs),
+
 	/// Generate shell completion scripts
 	Completion {
 		/// The shell to generate completion for
@@ -119,6 +122,11 @@ async fn main() -> Result<(), anyhow::Error> {
 		return commands::memory::execute(&config, memory_args).await;
 	}
 
+	// Handle the Logs command separately (doesn't need store)
+	if let Commands::Logs(logs_args) = &args.command {
+		return commands::logs::execute(logs_args).await;
+	}
+
 	// Handle the Completion command separately (doesn't need store)
 	if let Commands::Completion { shell } = &args.command {
 		let mut app = OctocodeArgs::command();
@@ -155,6 +163,7 @@ async fn main() -> Result<(), anyhow::Error> {
 		Commands::Commit(_) => unreachable!(), // Already handled above
 		Commands::Review(_) => unreachable!(), // Already handled above
 		Commands::Format(_) => unreachable!(), // Already handled above
+		Commands::Logs(_) => unreachable!(),   // Already handled above
 		Commands::Memory(_) => unreachable!(), // Already handled above
 		Commands::Completion { .. } => unreachable!(), // Already handled above
 	}

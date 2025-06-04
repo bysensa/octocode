@@ -27,6 +27,10 @@ pub struct McpArgs {
 	/// Path to the directory to serve (defaults to current directory)
 	#[arg(long, default_value = ".")]
 	pub path: String,
+
+	/// Skip git repository requirement and git-based optimizations
+	#[arg(long)]
+	pub no_git: bool,
 }
 
 pub async fn run(args: McpArgs) -> Result<()> {
@@ -52,6 +56,6 @@ pub async fn run(args: McpArgs) -> Result<()> {
 		);
 	}
 
-	let mut server = McpServer::new(config, args.debug, working_directory).await?;
+	let mut server = McpServer::new(config, args.debug, working_directory, args.no_git).await?;
 	server.run().await
 }

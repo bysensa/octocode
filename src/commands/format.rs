@@ -481,9 +481,7 @@ fn format_file(file_path: &Path, apply: bool, verbose: bool) -> Result<usize> {
 
 	// 5. Handle final newline
 	if let Ok(final_newline) = properties.get::<ec4rs::property::FinalNewline>() {
-		let insert_final_newline = match final_newline {
-			ec4rs::property::FinalNewline::Value(val) => val,
-		};
+		let ec4rs::property::FinalNewline::Value(insert_final_newline) = final_newline;
 		let processed_content = handle_final_newline(&new_content, insert_final_newline);
 		if processed_content != new_content {
 			new_content = processed_content;
@@ -712,12 +710,10 @@ fn handle_final_newline(content: &str, insert_final_newline: bool) -> String {
 		} else {
 			content.to_string()
 		}
+	} else if ends_with_newline {
+		content.trim_end_matches(&['\n', '\r'][..]).to_string()
 	} else {
-		if ends_with_newline {
-			content.trim_end_matches(&['\n', '\r'][..]).to_string()
-		} else {
-			content.to_string()
-		}
+		content.to_string()
 	}
 }
 

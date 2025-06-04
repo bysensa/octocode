@@ -694,8 +694,8 @@ pub async fn execute(config: &Config, args: &MemoryArgs) -> Result<()> {
 
 		MemoryCommand::ClearAll { yes } => {
 			if !yes {
-				print!(
-					"⚠️  WARNING: This will delete ALL memories and relationships permanently!\n"
+				println!(
+					"⚠️  WARNING: This will delete ALL memories and relationships permanently!"
 				);
 				print!("Are you absolutely sure you want to clear ALL memory data? (y/N): ");
 				io::stdout().flush()?;

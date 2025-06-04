@@ -73,6 +73,9 @@ tokenizers = { version = "0.20.3", optional = true }
 hf-hub = { version = "0.3.2", features = ["tokio"], optional = true }
 # EditorConfig parsing and formatting
 ec4rs = "1.2.0"
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
+tracing-appender = "0.2.3"
 
 [profile.dev]
 opt-level = 1          # Basic optimizations without slowing compilation too much

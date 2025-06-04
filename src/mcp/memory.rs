@@ -217,10 +217,10 @@ impl MemoryProvider {
 			0x1F1E6..=0x1F1FF | // Regional indicators
 			0x2600..=0x26FF   | // Misc symbols
 			0x2700..=0x27BF   | // Dingbats
-			
+
 			// Allow variation selectors and zero-width joiner
 			0xFE0F | 0x200D    |
-			
+
 			// Some additional safe Unicode ranges
 			0x0080..=0x00FF   | // Latin-1 Supplement
 			0x0100..=0x017F   | // Latin Extended-A
@@ -277,7 +277,7 @@ impl MemoryProvider {
 
 		let tags = arguments.get("tags").and_then(|v| v.as_array()).map(|arr| {
 			arr.iter()
-				.filter_map(|v| v.as_str().map(|s| Self::sanitize_content(s)))
+				.filter_map(|v| v.as_str().map(Self::sanitize_content))
 				.collect::<Vec<String>>()
 		});
 

@@ -182,7 +182,7 @@ pub mod git {
 	/// Get current git commit hash
 	pub fn get_current_commit_hash(repo_path: &Path) -> Result<String> {
 		let output = Command::new("git")
-			.args(&["rev-parse", "HEAD"])
+			.args(["rev-parse", "HEAD"])
 			.current_dir(repo_path)
 			.output()?;
 
@@ -205,7 +205,7 @@ pub mod git {
 
 		// Get committed changes since the specified commit
 		let output = Command::new("git")
-			.args(&["diff", "--name-only", &format!("{}..HEAD", since_commit)])
+			.args(["diff", "--name-only", &format!("{}..HEAD", since_commit)])
 			.current_dir(repo_path)
 			.output()?;
 
@@ -220,7 +220,7 @@ pub mod git {
 
 		// Get unstaged changes
 		let output = Command::new("git")
-			.args(&["diff", "--name-only"])
+			.args(["diff", "--name-only"])
 			.current_dir(repo_path)
 			.output()?;
 
@@ -235,7 +235,7 @@ pub mod git {
 
 		// Get staged changes
 		let output = Command::new("git")
-			.args(&["diff", "--cached", "--name-only"])
+			.args(["diff", "--cached", "--name-only"])
 			.current_dir(repo_path)
 			.output()?;
 
@@ -250,7 +250,7 @@ pub mod git {
 
 		// Get untracked files
 		let output = Command::new("git")
-			.args(&["ls-files", "--others", "--exclude-standard"])
+			.args(["ls-files", "--others", "--exclude-standard"])
 			.current_dir(repo_path)
 			.output()?;
 
@@ -272,7 +272,7 @@ pub mod git {
 
 		// Get unstaged changes
 		let output = Command::new("git")
-			.args(&["diff", "--name-only"])
+			.args(["diff", "--name-only"])
 			.current_dir(repo_path)
 			.output()?;
 
@@ -287,7 +287,7 @@ pub mod git {
 
 		// Get staged changes
 		let output = Command::new("git")
-			.args(&["diff", "--cached", "--name-only"])
+			.args(["diff", "--cached", "--name-only"])
 			.current_dir(repo_path)
 			.output()?;
 
@@ -302,7 +302,7 @@ pub mod git {
 
 		// Get untracked files
 		let output = Command::new("git")
-			.args(&["ls-files", "--others", "--exclude-standard"])
+			.args(["ls-files", "--others", "--exclude-standard"])
 			.current_dir(repo_path)
 			.output()?;
 
@@ -706,7 +706,6 @@ fn map_node_kind_to_simple(kind: &str) -> String {
 
 /// Render signatures and search results as markdown output (more efficient for AI tools)
 // Rendering functions have been moved to src/indexer/render_utils.rs
-
 // Main function to index files with optional git optimization
 pub async fn index_files(
 	store: &Store,
@@ -895,12 +894,12 @@ pub async fn index_files(
 		let mut count = 0;
 		for changed_file in changed_files {
 			let absolute_path = current_dir.join(changed_file);
-			if absolute_path.exists() && absolute_path.is_file() {
-				if detect_language(&absolute_path).is_some()
-					|| is_allowed_text_extension(&absolute_path)
-				{
-					count += 1;
-				}
+			if absolute_path.exists()
+				&& absolute_path.is_file()
+				&& (detect_language(&absolute_path).is_some()
+					|| is_allowed_text_extension(&absolute_path))
+			{
+				count += 1;
 			}
 		}
 		count
@@ -1817,11 +1816,9 @@ fn chunk_text(content: &str, chunk_size: usize, overlap: usize) -> Vec<TextChunk
 	// These are the character indices where each line begins.
 	let mut line_starts: Vec<usize> = vec![0]; // Line 0 starts at character 0
 	for (i, &char_val) in chars.iter().enumerate() {
-		if char_val == '\n' {
-			if i + 1 < content_len {
-				// If there's a character after '\n', it starts a new line
-				line_starts.push(i + 1);
-			}
+		if char_val == '\n' && i + 1 < content_len {
+			// If there's a character after '\n', it starts a new line
+			line_starts.push(i + 1);
 		}
 	}
 

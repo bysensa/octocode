@@ -22,6 +22,7 @@
 //! The server automatically enables available tools based on configuration.
 
 pub mod graphrag;
+pub mod logging;
 pub mod memory;
 pub mod semantic_code;
 pub mod server;
