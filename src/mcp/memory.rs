@@ -195,34 +195,43 @@ impl MemoryProvider {
 	/// Sanitize text content to remove Unicode emojis and other problematic characters
 	/// that could cause string slicing panics in consuming systems
 	fn sanitize_content(text: &str) -> String {
+		// Preserve emojis, but remove control characters and other problematic Unicode symbols
 		text.chars()
-			.filter(|c| {
-				// Keep only ASCII printable characters, basic Unicode letters/numbers, and safe punctuation
-				c.is_ascii() || (c.is_alphanumeric() && !Self::is_emoji(*c))
+			.filter(|&c| {
+				// Keep printable characters, including emojis
+				!c.is_control() && (c.is_ascii_graphic() || Self::is_safe_unicode(c))
 			})
 			.collect()
 	}
 
-	/// Check if a character is an emoji or other problematic Unicode symbol
-	fn is_emoji(c: char) -> bool {
-		matches!(c as u32,
+	/// Check if a character is a safe Unicode character (including emojis)
+	fn is_safe_unicode(c: char) -> bool {
+		// Allow a broader range of Unicode characters, including emojis
+		let code = c as u32;
+		// Emoji ranges and other safe Unicode ranges
+		matches!(code,
 			// Emoji ranges
 			0x1F600..=0x1F64F | // Emoticons
 			0x1F300..=0x1F5FF | // Misc Symbols and Pictographs
 			0x1F680..=0x1F6FF | // Transport and Map
 			0x1F1E6..=0x1F1FF | // Regional indicators
-			0x2600..=0x26FF   | // Misc symbols (covers all the specific ranges below)
+			0x2600..=0x26FF   | // Misc symbols
 			0x2700..=0x27BF   | // Dingbats
-			0xFE0F | 0x200D    | // Variation selectors and zero-width joiner
-			0x2194..=0x2199   | // Arrows
-			0x2B05..=0x2B07   | // Arrows
-			0x2934..=0x2935   | // Arrows
-			0x3030 | 0x303D   | // Wavy dash, part alternation mark
-			0x3297 | 0x3299   | // Japanese symbols
-			0x2139 | 0x2328   | // Information, keyboard
-			0x23CF | 0x23E9..=0x23F3 | // Play button, etc.
-			0x25AA..=0x25AB | 0x25B6 | 0x25C0 | // Geometric shapes
-			0x25FB..=0x25FE   // White/black squares
+			
+			// Allow variation selectors and zero-width joiner
+			0xFE0F | 0x200D    |
+			
+			// Some additional safe Unicode ranges
+			0x0080..=0x00FF   | // Latin-1 Supplement
+			0x0100..=0x017F   | // Latin Extended-A
+			0x0180..=0x024F   | // Latin Extended-B
+			0x0370..=0x03FF   | // Greek and Coptic
+			0x0400..=0x04FF   | // Cyrillic
+			0x0530..=0x058F   | // Armenian
+			0x0590..=0x05FF   | // Hebrew
+			0x0600..=0x06FF   | // Arabic
+			0x0900..=0x097F   | // Devanagari
+			0x4E00..=0x9FFF     // CJK Unified Ideographs
 		)
 	}
 
@@ -317,7 +326,8 @@ impl MemoryProvider {
 		});
 
 		// Ensure proper JSON encoding to avoid string slicing issues
-		Ok(serde_json::to_string(&response)?)
+		// Use to_string_pretty for better error handling with Unicode
+		Ok(serde_json::to_string_pretty(&response)?)
 	}
 
 	/// Execute the remember tool
@@ -455,7 +465,7 @@ impl MemoryProvider {
 		});
 
 		// Return properly encoded JSON to avoid string slicing issues
-		Ok(serde_json::to_string(&response)?)
+		Ok(serde_json::to_string_pretty(&response)?)
 	}
 
 	/// Execute the forget tool
