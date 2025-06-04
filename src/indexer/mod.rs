@@ -20,6 +20,7 @@ pub mod graphrag; // GraphRAG generation for code relationships (modular impleme
 pub mod languages; // Language-specific processors
 pub mod search; // Search functionality // Task-focused graph extraction and optimization
 
+pub mod render_utils;
 pub use graph_optimization::*;
 pub use graphrag::*;
 pub use languages::*;
@@ -30,6 +31,7 @@ use crate::embedding::calculate_unique_content_hash;
 use crate::state;
 use crate::state::SharedState;
 use crate::store::{CodeBlock, DocumentBlock, Store, TextBlock};
+pub use render_utils::*;
 use std::fs;
 // We're using ignore::WalkBuilder instead of walkdir::WalkDir
 use anyhow::Result;
@@ -589,8 +591,12 @@ fn node_text(node: Node, contents: &str) -> String {
 		text.to_string()
 	} else {
 		// Fall back to byte range if UTF-8 conversion fails
-		if node.start_byte() < node.end_byte() && node.end_byte() <= contents.len() {
-			contents[node.start_byte()..node.end_byte()].to_string()
+		let start_byte = node.start_byte();
+		let end_byte = node.end_byte();
+		let content_bytes = contents.as_bytes();
+
+		if start_byte < end_byte && end_byte <= content_bytes.len() {
+			String::from_utf8_lossy(&content_bytes[start_byte..end_byte]).to_string()
 		} else {
 			String::new()
 		}
@@ -699,525 +705,7 @@ fn map_node_kind_to_simple(kind: &str) -> String {
 }
 
 /// Render signatures and search results as markdown output (more efficient for AI tools)
-pub fn render_to_markdown<T: std::fmt::Display>(_title: &str, content: T) -> String {
-	format!("{}", content)
-}
-
-/// Smart content truncation that preserves beginning and end when content is too long
-/// Returns (truncated_content, was_truncated)
-pub fn truncate_content_smartly(content: &str, max_characters: usize) -> (String, bool) {
-	// If max_characters is 0, return full content (disabled)
-	if max_characters == 0 {
-		return (content.to_string(), false);
-	}
-
-	// If content fits within limit, return as-is
-	if content.len() <= max_characters {
-		return (content.to_string(), false);
-	}
-
-	let lines: Vec<&str> = content.lines().collect();
-
-	// If it's just one long line, truncate it differently
-	if lines.len() == 1 {
-		let chars: Vec<char> = content.chars().collect();
-		if chars.len() <= max_characters {
-			return (content.to_string(), false);
-		}
-
-		// For single long line, show first and last parts
-		let show_start = max_characters / 3;
-		let show_end = max_characters / 3;
-		let start_part: String = chars.iter().take(show_start).collect();
-		let end_part: String = chars.iter().skip(chars.len() - show_end).collect();
-
-		let truncated = format!(
-			"{}\n[... {} characters omitted ...]\n{}",
-			start_part.trim_end(),
-			chars.len() - show_start - show_end,
-			end_part.trim_start()
-		);
-		return (truncated, true);
-	}
-
-	// For multi-line content, work with lines
-	let mut current_length = 0;
-	let mut start_lines = Vec::new();
-	let mut end_lines = Vec::new();
-
-	// Reserve space for the middle message
-	let middle_message_size = 50; // Approximate size of "[... X lines omitted ...]"
-	let target_size = max_characters.saturating_sub(middle_message_size);
-	let start_target = target_size / 2;
-	let end_target = target_size / 2;
-
-	// Collect start lines
-	for line in &lines {
-		let line_len = line.len() + 1; // +1 for newline
-		if current_length + line_len <= start_target {
-			start_lines.push(*line);
-			current_length += line_len;
-		} else {
-			break;
-		}
-	}
-
-	// Collect end lines (working backwards)
-	current_length = 0;
-	for line in lines.iter().rev() {
-		let line_len = line.len() + 1; // +1 for newline
-		if current_length + line_len <= end_target {
-			end_lines.insert(0, *line);
-			current_length += line_len;
-		} else {
-			break;
-		}
-	}
-
-	// Ensure we don't overlap
-	let start_count = start_lines.len();
-	let end_count = end_lines.len();
-	let total_lines = lines.len();
-
-	if start_count + end_count >= total_lines {
-		// If we would show most lines anyway, just show all
-		return (content.to_string(), false);
-	}
-
-	let omitted_lines = total_lines - start_count - end_count;
-
-	// Build the truncated content
-	let mut result = String::new();
-
-	// Add start lines
-	for line in &start_lines {
-		result.push_str(line);
-		result.push('\n');
-	}
-
-	// Add truncation message
-	if omitted_lines > 0 {
-		result.push_str(&format!("[... {} more lines ...]\n", omitted_lines));
-	}
-
-	// Add end lines
-	for line in &end_lines {
-		result.push_str(line);
-		result.push('\n');
-	}
-
-	// Remove trailing newline
-	if result.ends_with('\n') {
-		result.pop();
-	}
-
-	(result, true)
-}
-
-/// Render signatures as markdown string
-pub fn signatures_to_markdown(signatures: &[FileSignature]) -> String {
-	let mut markdown = String::new();
-
-	if signatures.is_empty() {
-		markdown.push_str("No signatures found.");
-		return markdown;
-	}
-
-	markdown.push_str(&format!(
-		"# Found signatures in {} files\n\n",
-		signatures.len()
-	));
-
-	for file in signatures {
-		markdown.push_str(&format!("## File: {}\n", file.path));
-		markdown.push_str(&format!("**Language:** {}\n\n", file.language));
-
-		// Show file comment if available
-		if let Some(comment) = &file.file_comment {
-			markdown.push_str("### File description\n");
-			markdown.push_str(&format!("> {}\n\n", comment.replace("\n", "\n> ")));
-		}
-
-		if file.signatures.is_empty() {
-			markdown.push_str("*No signatures found in this file.*\n\n");
-		} else {
-			for signature in &file.signatures {
-				// Display line range if it spans multiple lines, otherwise just the start line
-				let line_display = if signature.start_line == signature.end_line {
-					format!("{}", signature.start_line + 1)
-				} else {
-					format!("{}-{}", signature.start_line + 1, signature.end_line + 1)
-				};
-
-				markdown.push_str(&format!(
-					"### {} `{}` (line {})\n",
-					signature.kind, signature.name, line_display
-				));
-
-				// Show description if available
-				if let Some(desc) = &signature.description {
-					markdown.push_str(&format!("> {}\n\n", desc.replace("\n", "\n> ")));
-				}
-
-				// Format the signature for display
-				markdown.push_str("```");
-
-				// Add language identifier for syntax highlighting when possible
-				if !file.language.is_empty() && file.language != "text" {
-					markdown.push_str(&file.language);
-				}
-				markdown.push('\n');
-
-				let lines = signature.signature.lines().collect::<Vec<_>>();
-				if lines.len() > 5 {
-					// Show first 5 lines only to conserve tokens
-					for line in lines.iter().take(5) {
-						markdown.push_str(line.as_ref());
-						markdown.push('\n');
-					}
-					// If signature is too long, note how many lines are omitted
-					markdown.push_str(&format!("// ... {} more lines\n", lines.len() - 5));
-				} else {
-					for line in &lines {
-						markdown.push_str(line.as_ref());
-						markdown.push('\n');
-					}
-				}
-				markdown.push_str("```\n\n");
-			}
-		}
-
-		// Add spacing between files
-		markdown.push_str("---\n\n");
-	}
-
-	markdown
-}
-
-/// Render code blocks (search results) as markdown string
-pub fn code_blocks_to_markdown(blocks: &[CodeBlock]) -> String {
-	code_blocks_to_markdown_with_config(blocks, &Config::default())
-}
-
-/// Render code blocks (search results) as markdown string with configuration
-pub fn code_blocks_to_markdown_with_config(blocks: &[CodeBlock], config: &Config) -> String {
-	let mut markdown = String::new();
-
-	if blocks.is_empty() {
-		markdown.push_str("No code blocks found for the query.");
-		return markdown;
-	}
-
-	markdown.push_str(&format!("# Found {} code blocks\n\n", blocks.len()));
-
-	// Group blocks by file path for better organization
-	let mut blocks_by_file: std::collections::HashMap<String, Vec<&CodeBlock>> =
-		std::collections::HashMap::new();
-
-	for block in blocks {
-		blocks_by_file
-			.entry(block.path.clone())
-			.or_default()
-			.push(block);
-	}
-
-	// Print results organized by file
-	for (file_path, file_blocks) in blocks_by_file.iter() {
-		markdown.push_str(&format!("## File: {}\n\n", file_path));
-
-		for (idx, block) in file_blocks.iter().enumerate() {
-			markdown.push_str(&format!("### Block {} of {}\n", idx + 1, file_blocks.len()));
-			markdown.push_str(&format!("**Language:** {}  ", block.language));
-			markdown.push_str(&format!(
-				"**Lines:** {}-{}  ",
-				block.start_line, block.end_line
-			));
-
-			// Show similarity score if available
-			if let Some(distance) = block.distance {
-				markdown.push_str(&format!("**Similarity:** {:.4}  ", 1.0 - distance));
-			}
-			markdown.push('\n');
-
-			if !block.symbols.is_empty() {
-				markdown.push_str("**Symbols:**  \n");
-				// Deduplicate symbols in display
-				let mut display_symbols = block.symbols.clone();
-				display_symbols.sort();
-				display_symbols.dedup();
-
-				for symbol in display_symbols {
-					// Only show non-type symbols to users
-					if !symbol.contains("_") {
-						markdown.push_str(&format!("- `{}`  \n", symbol));
-					}
-				}
-			}
-
-			markdown.push_str("```");
-			// Add language for syntax highlighting
-			if !block.language.is_empty() && block.language != "text" {
-				markdown.push_str(&block.language);
-			}
-			markdown.push('\n');
-
-			// Use smart truncation based on configuration
-			let max_chars = config.search.search_block_max_characters;
-			let (content, was_truncated) = truncate_content_smartly(&block.content, max_chars);
-
-			markdown.push_str(&content);
-			if !content.ends_with('\n') {
-				markdown.push('\n');
-			}
-
-			// Add note if content was truncated
-			if was_truncated {
-				markdown.push_str(&format!(
-					"// Content truncated (limit: {} chars)\n",
-					max_chars
-				));
-			}
-
-			markdown.push_str("```\n\n");
-		}
-
-		markdown.push_str("---\n\n");
-	}
-
-	markdown
-}
-
-/// Render text blocks (text search results) as markdown string
-pub fn text_blocks_to_markdown(blocks: &[TextBlock]) -> String {
-	text_blocks_to_markdown_with_config(blocks, &Config::default())
-}
-
-/// Render text blocks (text search results) as markdown string with configuration
-pub fn text_blocks_to_markdown_with_config(blocks: &[TextBlock], config: &Config) -> String {
-	let mut markdown = String::new();
-
-	if blocks.is_empty() {
-		markdown.push_str("No text blocks found for the query.");
-		return markdown;
-	}
-
-	markdown.push_str(&format!("# Found {} text blocks\n\n", blocks.len()));
-
-	// Group blocks by file path for better organization
-	let mut blocks_by_file: std::collections::HashMap<String, Vec<&TextBlock>> =
-		std::collections::HashMap::new();
-
-	for block in blocks {
-		blocks_by_file
-			.entry(block.path.clone())
-			.or_default()
-			.push(block);
-	}
-
-	// Print results organized by file
-	for (file_path, file_blocks) in blocks_by_file.iter() {
-		markdown.push_str(&format!("## File: {}\n\n", file_path));
-
-		for (idx, block) in file_blocks.iter().enumerate() {
-			markdown.push_str(&format!("### Block {} of {}\n", idx + 1, file_blocks.len()));
-			markdown.push_str(&format!("**Language:** {}  ", block.language));
-			markdown.push_str(&format!(
-				"**Lines:** {}-{}  ",
-				block.start_line, block.end_line
-			));
-
-			// Show relevance score if available
-			if let Some(distance) = block.distance {
-				markdown.push_str(&format!("**Relevance:** {:.4}  ", 1.0 - distance));
-			}
-			markdown.push_str("\n\n");
-
-			// Use smart truncation based on configuration
-			let max_chars = config.search.search_block_max_characters;
-			let (content, was_truncated) = truncate_content_smartly(&block.content, max_chars);
-
-			markdown.push_str(&content);
-			if !content.ends_with('\n') {
-				markdown.push('\n');
-			}
-
-			// Add note if content was truncated
-			if was_truncated {
-				markdown.push_str(&format!(
-					"\n*Content truncated (limit: {} chars)*\n",
-					max_chars
-				));
-			}
-
-			markdown.push('\n');
-		}
-
-		markdown.push_str("---\n\n");
-	}
-
-	markdown
-}
-
-/// Render document blocks (documentation search results) as markdown string
-pub fn document_blocks_to_markdown(blocks: &[DocumentBlock]) -> String {
-	document_blocks_to_markdown_with_config(blocks, &Config::default())
-}
-
-/// Render document blocks (documentation search results) as markdown string with configuration
-pub fn document_blocks_to_markdown_with_config(
-	blocks: &[DocumentBlock],
-	config: &Config,
-) -> String {
-	let mut markdown = String::new();
-
-	if blocks.is_empty() {
-		markdown.push_str("No documentation found for the query.");
-		return markdown;
-	}
-
-	markdown.push_str(&format!(
-		"# Found {} documentation sections\n\n",
-		blocks.len()
-	));
-
-	// Group blocks by file path for better organization
-	let mut blocks_by_file: std::collections::HashMap<String, Vec<&DocumentBlock>> =
-		std::collections::HashMap::new();
-
-	for block in blocks {
-		blocks_by_file
-			.entry(block.path.clone())
-			.or_default()
-			.push(block);
-	}
-
-	// Print results organized by file
-	for (file_path, file_blocks) in blocks_by_file.iter() {
-		markdown.push_str(&format!("## File: {}\n\n", file_path));
-
-		for (idx, block) in file_blocks.iter().enumerate() {
-			markdown.push_str(&format!(
-				"### {} (Section {} of {})\n",
-				block.title,
-				idx + 1,
-				file_blocks.len()
-			));
-			markdown.push_str(&format!("**Level:** {}  ", block.level));
-			markdown.push_str(&format!(
-				"**Lines:** {}-{}  ",
-				block.start_line, block.end_line
-			));
-
-			// Show relevance score if available
-			if let Some(distance) = block.distance {
-				markdown.push_str(&format!("**Relevance:** {:.4}  ", 1.0 - distance));
-			}
-			markdown.push_str("\n\n");
-
-			// Use smart truncation based on configuration
-			let max_chars = config.search.search_block_max_characters;
-			let (content, was_truncated) = truncate_content_smartly(&block.content, max_chars);
-
-			markdown.push_str(&content);
-			if !content.ends_with('\n') {
-				markdown.push('\n');
-			}
-
-			// Add note if content was truncated
-			if was_truncated {
-				markdown.push_str(&format!(
-					"\n*Content truncated (limit: {} chars)*\n",
-					max_chars
-				));
-			}
-
-			markdown.push('\n');
-		}
-
-		markdown.push_str("---\n\n");
-	}
-
-	markdown
-}
-
-/// Render signatures as text output
-pub fn render_signatures_text(signatures: &[FileSignature]) {
-	if signatures.is_empty() {
-		println!("No signatures found.");
-		return;
-	}
-
-	println!("Found signatures in {} files:\n", signatures.len());
-
-	for file in signatures {
-		println!("╔══════════════════ File: {} ══════════════════", file.path);
-		println!("║ Language: {}", file.language);
-
-		// Show file comment if available
-		if let Some(comment) = &file.file_comment {
-			println!("║");
-			println!("║ File description:");
-			for line in comment.lines() {
-				println!("║   {}", line);
-			}
-		}
-
-		if file.signatures.is_empty() {
-			println!("║");
-			println!("║ No signatures found in this file.");
-		} else {
-			for signature in &file.signatures {
-				println!("║");
-
-				// Display line range if it spans multiple lines, otherwise just the start line
-				let line_display = if signature.start_line == signature.end_line {
-					format!("{}", signature.start_line + 1)
-				} else {
-					format!("{}-{}", signature.start_line + 1, signature.end_line + 1)
-				};
-
-				println!(
-					"║ {} `{}` (line {})",
-					signature.kind, signature.name, line_display
-				);
-
-				// Show description if available
-				if let Some(desc) = &signature.description {
-					println!("║ Description:");
-					for line in desc.lines() {
-						println!("║   {}", line);
-					}
-				}
-
-				// Format the signature for display
-				println!("║ Signature:");
-				let lines = signature.signature.lines().collect::<Vec<_>>();
-				if lines.len() > 1 {
-					println!("║ ┌────────────────────────────────────");
-					for line in lines.iter().take(5) {
-						println!("║ │ {}", line);
-					}
-					// If signature is too long, truncate it
-					if lines.len() > 5 {
-						println!("║ │ ... ({} more lines)", lines.len() - 5);
-					}
-					println!("║ └────────────────────────────────────");
-				} else if !lines.is_empty() {
-					println!("║   {}", lines[0]);
-				}
-			}
-		}
-
-		println!("╚════════════════════════════════════════\n");
-	}
-}
-
-/// Render signatures as JSON
-pub fn render_signatures_json(signatures: &[FileSignature]) -> Result<()> {
-	let json = serde_json::to_string_pretty(signatures)?;
-	println!("{}", json);
-	Ok(())
-}
+// Rendering functions have been moved to src/indexer/render_utils.rs
 
 // Main function to index files with optional git optimization
 pub async fn index_files(
@@ -1232,7 +720,6 @@ pub async fn index_files(
 	let mut document_blocks_batch = Vec::new();
 	let mut all_code_blocks = Vec::new(); // Store all code blocks for GraphRAG
 
-	const BATCH_SIZE: usize = 10;
 	let mut embedding_calls = 0;
 
 	// Initialize GraphRAG state if enabled
@@ -1515,18 +1002,18 @@ pub async fn index_files(
 				state.write().indexed_files += 1;
 
 				// Process batches when they reach the batch size
-				if code_blocks_batch.len() >= BATCH_SIZE {
+				if code_blocks_batch.len() >= config.index.embeddings_batch_size {
 					embedding_calls += code_blocks_batch.len();
 					process_code_blocks_batch(store, &code_blocks_batch, config).await?;
 					code_blocks_batch.clear();
 				}
 				// Only process text_blocks_batch if we have any (from unsupported files)
-				if text_blocks_batch.len() >= BATCH_SIZE {
+				if text_blocks_batch.len() >= config.index.embeddings_batch_size {
 					embedding_calls += text_blocks_batch.len();
 					process_text_blocks_batch(store, &text_blocks_batch, config).await?;
 					text_blocks_batch.clear();
 				}
-				if document_blocks_batch.len() >= BATCH_SIZE {
+				if document_blocks_batch.len() >= config.index.embeddings_batch_size {
 					embedding_calls += document_blocks_batch.len();
 					process_document_blocks_batch(store, &document_blocks_batch, config).await?;
 					document_blocks_batch.clear();
@@ -1557,7 +1044,7 @@ pub async fn index_files(
 						state.write().indexed_files += 1;
 
 						// Process batch when it reaches the batch size
-						if text_blocks_batch.len() >= BATCH_SIZE {
+						if text_blocks_batch.len() >= config.index.embeddings_batch_size {
 							embedding_calls += text_blocks_batch.len();
 							process_text_blocks_batch(store, &text_blocks_batch, config).await?;
 							text_blocks_batch.clear();
@@ -2278,45 +1765,125 @@ fn is_allowed_text_extension(path: &std::path::Path) -> bool {
 
 /// Check if a file contains readable text
 fn is_text_file(contents: &str) -> bool {
-	// Simple heuristic: check if most characters are printable
-	let total_chars = contents.len();
-	if total_chars == 0 {
+	if contents.is_empty() {
 		return false;
 	}
 
-	let printable_chars = contents
+	// Check for NULL bytes - strong indicator of binary
+	if contents.chars().any(|c| c == '\0') {
+		return false;
+	}
+
+	// If no NULL bytes, check printable character ratio (more Unicode friendly)
+	// We use chars().count() for a more accurate count of Unicode characters.
+	let total_chars = contents.chars().count();
+	if total_chars == 0 {
+		// Should be caught by contents.is_empty() but good for safety
+		return false;
+	}
+
+	// Consider characters as "printable-looking" if they are not control characters,
+	// or if they are whitespace (which includes \n, \t, etc.).
+	// char::is_control() identifies control characters.
+	// char::is_whitespace() is Unicode-aware.
+	let printable_looking_chars = contents
 		.chars()
-		.filter(|c| c.is_ascii_graphic() || c.is_ascii_whitespace())
+		.filter(|&c| !c.is_control() || c.is_whitespace())
 		.count();
 
-	// If more than 80% of characters are printable, consider it a text file
-	let printable_ratio = printable_chars as f64 / total_chars as f64;
+	let printable_ratio = printable_looking_chars as f64 / total_chars as f64;
+
+	// We can keep the 0.8 threshold, or slightly adjust if needed after testing.
+	// This check is now more lenient towards Unicode text.
 	printable_ratio > 0.8
 }
 
-/// Split text into chunks with overlap
-fn chunk_text(content: &str, chunk_size: usize, overlap: usize) -> Vec<String> {
+struct TextChunkWithLines {
+	content: String,
+	start_line: usize, // 0-indexed
+	end_line: usize,   // 0-indexed, inclusive
+}
+
+fn chunk_text(content: &str, chunk_size: usize, overlap: usize) -> Vec<TextChunkWithLines> {
 	let mut chunks = Vec::new();
 	let chars: Vec<char> = content.chars().collect();
+	let content_len = chars.len();
 
-	if chars.len() <= chunk_size {
-		chunks.push(content.to_string());
+	if content_len == 0 {
 		return chunks;
 	}
 
-	let mut start = 0;
-	while start < chars.len() {
-		let end = std::cmp::min(start + chunk_size, chars.len());
-		let chunk: String = chars[start..end].iter().collect();
-		chunks.push(chunk);
-
-		if end >= chars.len() {
-			break;
+	// Pre-calculate line start character offsets (0-indexed)
+	// These are the character indices where each line begins.
+	let mut line_starts: Vec<usize> = vec![0]; // Line 0 starts at character 0
+	for (i, &char_val) in chars.iter().enumerate() {
+		if char_val == '\n' {
+			if i + 1 < content_len {
+				// If there's a character after '\n', it starts a new line
+				line_starts.push(i + 1);
+			}
 		}
-
-		start = end - overlap.min(chunk_size / 2);
 	}
 
+	let mut current_char_offset = 0;
+	let mut previous_iteration_offset = usize::MAX; // Used to detect stuck loops
+
+	while current_char_offset < content_len {
+		// Safety break for stuck loops
+		if current_char_offset == previous_iteration_offset {
+			// This should not be reached if advancement logic is perfect, but acts as a safeguard.
+			// eprintln!("Warning: chunk_text detected no progress, forcing advance. Offset: {}", current_char_offset);
+			current_char_offset += 1;
+			if current_char_offset >= content_len {
+				break;
+			}
+		}
+		previous_iteration_offset = current_char_offset;
+
+		let end_char_offset = std::cmp::min(current_char_offset + chunk_size, content_len);
+
+		let chunk_str: String = chars[current_char_offset..end_char_offset].iter().collect();
+
+		// Determine start_line for the current chunk (0-indexed)
+		// partition_point returns the index of the first element `el` for which `predicate(el)` is false.
+		// We want the count of lines that start *at or before* current_char_offset.
+		let start_line_idx = line_starts
+			.partition_point(|&line_start_char_idx| line_start_char_idx <= current_char_offset);
+		let start_line = start_line_idx.saturating_sub(1); // Convert count to 0-indexed line number
+
+		// Determine end_line for the current chunk (0-indexed, inclusive)
+		// The character at end_char_offset - 1 is the last char in the chunk.
+		let last_char_in_chunk_offset = if end_char_offset > current_char_offset {
+			// Ensure not an empty chunk
+			end_char_offset - 1
+		} else {
+			current_char_offset
+		};
+
+		let end_line_idx = line_starts.partition_point(|&line_start_char_idx| {
+			line_start_char_idx <= last_char_in_chunk_offset
+		});
+		let end_line = end_line_idx.saturating_sub(1);
+
+		chunks.push(TextChunkWithLines {
+			content: chunk_str,
+			start_line,
+			end_line: std::cmp::max(start_line, end_line), // Ensure end_line >= start_line
+		});
+
+		if end_char_offset >= content_len {
+			break; // Reached the end of content
+		}
+
+		// Advance current_char_offset for the next chunk
+		let mut next_start_offset = end_char_offset.saturating_sub(overlap);
+
+		// Ensure progress: next_start_offset must be greater than current_char_offset if we are not at the end.
+		if next_start_offset <= current_char_offset {
+			next_start_offset = current_char_offset + 1;
+		}
+		current_char_offset = next_start_offset;
+	}
 	chunks
 }
 
@@ -2339,26 +1906,22 @@ async fn process_text_file(
 	// Split content into chunks
 	let chunks = chunk_text(contents, DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP);
 
-	for (chunk_idx, chunk) in chunks.iter().enumerate() {
+	for (chunk_idx, chunk_with_lines) in chunks.iter().enumerate() {
 		// Use chunk index in hash for uniqueness but keep path clean
-		let chunk_hash =
-			calculate_unique_content_hash(chunk, &format!("{}#{}", file_path, chunk_idx));
+		let chunk_hash = calculate_unique_content_hash(
+			&chunk_with_lines.content,
+			&format!("{}#{}", file_path, chunk_idx),
+		);
 
 		// Skip the check if force_reindex is true
 		let exists = !force_reindex && store.content_exists(&chunk_hash, "text_blocks").await?;
 		if !exists {
-			// Calculate approximate line numbers for the chunk
-			let lines_before_chunk: usize = contents[..contents.find(chunk).unwrap_or(0)]
-				.lines()
-				.count();
-			let chunk_line_count = chunk.lines().count();
-
 			text_blocks_batch.push(TextBlock {
-				path: file_path.to_string(), // Store clean path without chunk number
+				path: file_path.to_string(),
 				language: "text".to_string(),
-				content: chunk.clone(),
-				start_line: lines_before_chunk,
-				end_line: lines_before_chunk + chunk_line_count,
+				content: chunk_with_lines.content.clone(),
+				start_line: chunk_with_lines.start_line, // Use directly from TextChunkWithLines
+				end_line: chunk_with_lines.end_line,     // Use directly from TextChunkWithLines
 				hash: chunk_hash,
 				distance: None,
 			});
@@ -2538,27 +2101,23 @@ async fn process_text_file_differential(
 	let chunks = chunk_text(contents, DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP);
 	let mut new_hashes = std::collections::HashSet::new();
 
-	for (chunk_idx, chunk) in chunks.iter().enumerate() {
+	for (chunk_idx, chunk_with_lines) in chunks.iter().enumerate() {
 		// Use chunk index in hash for uniqueness but keep path clean
-		let chunk_hash =
-			calculate_unique_content_hash(chunk, &format!("{}#{}", file_path, chunk_idx));
+		let chunk_hash = calculate_unique_content_hash(
+			&chunk_with_lines.content,
+			&format!("{}#{}", file_path, chunk_idx),
+		);
 		new_hashes.insert(chunk_hash.clone());
 
 		// Skip the check if force_reindex is true
 		let exists = !force_reindex && store.content_exists(&chunk_hash, "text_blocks").await?;
 		if !exists {
-			// Calculate approximate line numbers for the chunk
-			let lines_before_chunk: usize = contents[..contents.find(chunk).unwrap_or(0)]
-				.lines()
-				.count();
-			let chunk_line_count = chunk.lines().count();
-
 			text_blocks_batch.push(TextBlock {
-				path: file_path.to_string(), // Store clean path without chunk number
+				path: file_path.to_string(),
 				language: "text".to_string(),
-				content: chunk.clone(),
-				start_line: lines_before_chunk,
-				end_line: lines_before_chunk + chunk_line_count,
+				content: chunk_with_lines.content.clone(),
+				start_line: chunk_with_lines.start_line, // Use directly from TextChunkWithLines
+				end_line: chunk_with_lines.end_line,     // Use directly from TextChunkWithLines
 				hash: chunk_hash,
 				distance: None,
 			});
