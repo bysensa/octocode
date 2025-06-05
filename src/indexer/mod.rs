@@ -708,6 +708,23 @@ fn map_node_kind_to_simple(kind: &str) -> String {
 	}
 }
 
+/// Helper function to perform intelligent flushing based on configuration
+/// Returns true if a flush was performed
+async fn flush_if_needed(
+	store: &Store,
+	batches_processed: &mut usize,
+	config: &Config,
+	force: bool,
+) -> Result<bool> {
+	if force || *batches_processed >= config.index.flush_frequency {
+		store.flush().await?;
+		*batches_processed = 0; // Reset counter
+		Ok(true)
+	} else {
+		Ok(false)
+	}
+}
+
 /// Render signatures and search results as markdown output (more efficient for AI tools)
 // Rendering functions have been moved to src/indexer/render_utils.rs
 // Main function to index files with optional git optimization
@@ -724,6 +741,7 @@ pub async fn index_files(
 	let mut all_code_blocks = Vec::new(); // Store all code blocks for GraphRAG
 
 	let mut embedding_calls = 0;
+	let mut batches_processed = 0; // Track batches for intelligent flushing
 
 	// Log indexing start
 	log_indexing_progress(
@@ -1037,18 +1055,27 @@ pub async fn index_files(
 						embedding_calls += code_blocks_batch.len();
 						process_code_blocks_batch(store, &code_blocks_batch, config).await?;
 						code_blocks_batch.clear();
+						batches_processed += 1;
+						// Intelligent flush based on configuration
+						flush_if_needed(store, &mut batches_processed, config, false).await?;
 					}
 					// Only process text_blocks_batch if we have any (from unsupported files)
 					if should_process_batch(&text_blocks_batch, |b| &b.content, config) {
 						embedding_calls += text_blocks_batch.len();
 						process_text_blocks_batch(store, &text_blocks_batch, config).await?;
 						text_blocks_batch.clear();
+						batches_processed += 1;
+						// Intelligent flush based on configuration
+						flush_if_needed(store, &mut batches_processed, config, false).await?;
 					}
 					if should_process_batch(&document_blocks_batch, |b| &b.content, config) {
 						embedding_calls += document_blocks_batch.len();
 						process_document_blocks_batch(store, &document_blocks_batch, config)
 							.await?;
 						document_blocks_batch.clear();
+						batches_processed += 1;
+						// Intelligent flush based on configuration
+						flush_if_needed(store, &mut batches_processed, config, false).await?;
 					}
 				}
 				Err(e) => {
@@ -1097,6 +1124,9 @@ pub async fn index_files(
 							embedding_calls += text_blocks_batch.len();
 							process_text_blocks_batch(store, &text_blocks_batch, config).await?;
 							text_blocks_batch.clear();
+							batches_processed += 1;
+							// Intelligent flush based on configuration
+							flush_if_needed(store, &mut batches_processed, config, false).await?;
 						}
 					}
 				}
@@ -1108,16 +1138,22 @@ pub async fn index_files(
 	if !code_blocks_batch.is_empty() {
 		process_code_blocks_batch(store, &code_blocks_batch, config).await?;
 		embedding_calls += code_blocks_batch.len();
+		batches_processed += 1;
 	}
 	// Only process text_blocks_batch if we have any (from unsupported files)
 	if !text_blocks_batch.is_empty() {
 		process_text_blocks_batch(store, &text_blocks_batch, config).await?;
 		embedding_calls += text_blocks_batch.len();
+		batches_processed += 1;
 	}
 	if !document_blocks_batch.is_empty() {
 		process_document_blocks_batch(store, &document_blocks_batch, config).await?;
 		embedding_calls += document_blocks_batch.len();
+		batches_processed += 1;
 	}
+
+	// Force flush any remaining data after processing all batches
+	flush_if_needed(store, &mut batches_processed, config, true).await?;
 
 	// Build GraphRAG from all collected code blocks if enabled and if we found any blocks
 	if config.graphrag.enabled && !all_code_blocks.is_empty() {

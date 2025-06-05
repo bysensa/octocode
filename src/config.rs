@@ -95,6 +95,10 @@ fn default_embeddings_max_tokens_per_batch() -> usize {
 	100000
 }
 
+fn default_flush_frequency() -> usize {
+	1 // Flush after every batch by default for better data persistence
+}
+
 // Embedding configuration defaults
 fn default_embedding_config() -> EmbeddingConfig {
 	EmbeddingConfig {
@@ -170,6 +174,13 @@ pub struct IndexConfig {
 	#[serde(default = "default_embeddings_max_tokens_per_batch")]
 	pub embeddings_max_tokens_per_batch: usize,
 
+	/// How often to flush data to storage during indexing (in batches).
+	/// 1 = flush after every batch (safest, slower)
+	/// 5 = flush every 5 batches (faster, less safe)
+	/// Default: 1 for maximum data safety
+	#[serde(default = "default_flush_frequency")]
+	pub flush_frequency: usize,
+
 	#[serde(default = "default_graphrag_enabled")]
 	pub graphrag_enabled: bool,
 
@@ -195,6 +206,7 @@ impl Default for IndexConfig {
 			chunk_overlap: default_chunk_overlap(),
 			embeddings_batch_size: default_embeddings_batch_size(),
 			embeddings_max_tokens_per_batch: default_embeddings_max_tokens_per_batch(),
+			flush_frequency: default_flush_frequency(),
 			graphrag_enabled: default_graphrag_enabled(),
 			llm_enabled: default_graphrag_enabled(),
 			require_git: default_require_git(),
