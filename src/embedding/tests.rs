@@ -19,7 +19,10 @@
 mod embedding_tests {
 	use crate::config::Config;
 	use crate::embedding::types::{parse_provider_model, EmbeddingConfig};
-	use crate::embedding::{create_embedding_provider_from_parts, EmbeddingProviderType, count_tokens, split_texts_into_token_limited_batches};
+	use crate::embedding::{
+		count_tokens, create_embedding_provider_from_parts, split_texts_into_token_limited_batches,
+		EmbeddingProviderType,
+	};
 
 	#[test]
 	fn test_sentence_transformer_provider_creation() {
@@ -131,15 +134,18 @@ mod embedding_tests {
 		let text = "Hello world!";
 		let token_count = count_tokens(text);
 		assert!(token_count > 0, "Should count tokens for basic text");
-		
+
 		// Test empty string
 		let empty_count = count_tokens("");
 		assert_eq!(empty_count, 0, "Empty string should have 0 tokens");
-		
+
 		// Test longer text
 		let long_text = "This is a longer text that should have more tokens than the simple hello world example.";
 		let long_count = count_tokens(long_text);
-		assert!(long_count > token_count, "Longer text should have more tokens");
+		assert!(
+			long_count > token_count,
+			"Longer text should have more tokens"
+		);
 	}
 
 	#[test]
@@ -154,25 +160,46 @@ mod embedding_tests {
 
 		// Test with small token limit to force splitting
 		let batches = split_texts_into_token_limited_batches(texts.clone(), 10, 20);
-		
+
 		// Should create multiple batches due to token limit
-		assert!(batches.len() > 1, "Should create multiple batches with small token limit");
-		
+		assert!(
+			batches.len() > 1,
+			"Should create multiple batches with small token limit"
+		);
+
 		// Verify all texts are included
 		let total_texts: usize = batches.iter().map(|b| b.len()).sum();
-		assert_eq!(total_texts, texts.len(), "All texts should be included in batches");
-		
+		assert_eq!(
+			total_texts,
+			texts.len(),
+			"All texts should be included in batches"
+		);
+
 		// Test with large limits (should create single batch)
 		let single_batch = split_texts_into_token_limited_batches(texts.clone(), 100, 10000);
-		assert_eq!(single_batch.len(), 1, "Should create single batch with large limits");
-		assert_eq!(single_batch[0].len(), texts.len(), "Single batch should contain all texts");
+		assert_eq!(
+			single_batch.len(),
+			1,
+			"Should create single batch with large limits"
+		);
+		assert_eq!(
+			single_batch[0].len(),
+			texts.len(),
+			"Single batch should contain all texts"
+		);
 	}
 
 	#[test]
 	fn test_config_has_token_limit() {
 		let config = Config::default();
-		assert!(config.index.embeddings_max_tokens_per_batch > 0, "Should have positive token limit");
-		assert_eq!(config.index.embeddings_max_tokens_per_batch, 100000, "Should have default token limit of 100000");
+		assert!(
+			config.index.embeddings_max_tokens_per_batch > 0,
+			"Should have positive token limit"
+		);
+		assert_eq!(
+			config.index.embeddings_max_tokens_per_batch, 100000,
+			"Should have default token limit of 100000"
+		);
 	}
 
 	// Note: This test would require network access and is more of an integration test

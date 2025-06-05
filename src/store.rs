@@ -1899,16 +1899,16 @@ impl Store {
 		// Open and flush each table by performing operations that force persistence
 		for table_name in table_names {
 			let table = self.db.open_table(&table_name).execute().await?;
-			
+
 			// Perform operations to ensure any pending writes are flushed:
 			// 1. Count rows to force read access and ensure consistency
 			let row_count = table.count_rows(None).await?;
-			
+
 			// 2. For tables with data, also check schema to ensure metadata is flushed
 			if row_count > 0 {
 				let _ = table.schema().await?;
 			}
-			
+
 			// Log flush activity in debug mode for troubleshooting
 			if cfg!(debug_assertions) {
 				println!("Flushed table '{}' with {} rows", table_name, row_count);

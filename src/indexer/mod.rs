@@ -1837,25 +1837,22 @@ async fn process_document_blocks_batch(
 }
 
 /// Check if a batch should be processed based on size and token limits
-fn should_process_batch<T>(
-	batch: &[T],
-	get_content: impl Fn(&T) -> &str,
-	config: &Config,
-) -> bool {
+fn should_process_batch<T>(batch: &[T], get_content: impl Fn(&T) -> &str, config: &Config) -> bool {
 	if batch.is_empty() {
 		return false;
 	}
-	
+
 	// Check size limit
 	if batch.len() >= config.index.embeddings_batch_size {
 		return true;
 	}
-	
+
 	// Check token limit
-	let total_tokens: usize = batch.iter()
+	let total_tokens: usize = batch
+		.iter()
 		.map(|item| count_tokens(get_content(item)))
 		.sum();
-	
+
 	total_tokens >= config.index.embeddings_max_tokens_per_batch
 }
 

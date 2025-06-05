@@ -62,16 +62,17 @@ pub fn split_texts_into_token_limited_batches(
 
 	for text in texts {
 		let text_tokens = count_tokens(&text);
-		
+
 		// If adding this text would exceed either limit, start a new batch
-		if !current_batch.is_empty() && 
-		   (current_batch.len() >= max_batch_size || 
-		    current_token_count + text_tokens > max_tokens_per_batch) {
+		if !current_batch.is_empty()
+			&& (current_batch.len() >= max_batch_size
+				|| current_token_count + text_tokens > max_tokens_per_batch)
+		{
 			batches.push(current_batch);
 			current_batch = Vec::new();
 			current_token_count = 0;
 		}
-		
+
 		current_batch.push(text);
 		current_token_count += text_tokens;
 	}
@@ -102,7 +103,7 @@ pub async fn generate_embeddings_batch(
 	let (provider, model) = parse_provider_model(model_string);
 
 	let provider_impl = create_embedding_provider_from_parts(&provider, &model)?;
-	
+
 	// Split texts into token-limited batches
 	let batches = split_texts_into_token_limited_batches(
 		texts,
@@ -111,7 +112,7 @@ pub async fn generate_embeddings_batch(
 	);
 
 	let mut all_embeddings = Vec::new();
-	
+
 	// Process each batch
 	for batch in batches {
 		let batch_embeddings = provider_impl.generate_embeddings_batch(batch).await?;
