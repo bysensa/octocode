@@ -120,11 +120,12 @@ impl Language for Svelte {
 
 	fn extract_identifiers(&self, node: Node, contents: &str, symbols: &mut Vec<String>) {
 		let kind = node.kind();
-		
+
 		// Extract meaningful identifiers, avoiding noise
-		if (kind.contains("identifier") || kind.contains("name")) 
-			&& !kind.contains("property") 
-			&& kind != "tag_name" {
+		if (kind.contains("identifier") || kind.contains("name"))
+			&& !kind.contains("property")
+			&& kind != "tag_name"
+		{
 			if let Ok(text) = node.utf8_text(contents.as_bytes()) {
 				let text = text.trim();
 				if !text.is_empty() && !symbols.contains(&text.to_string()) {
@@ -159,7 +160,7 @@ impl Language for Svelte {
 			// Functions and methods
 			&[
 				"function_declaration",
-				"method_definition", 
+				"method_definition",
 				"arrow_function",
 			] as &[&str],
 			// Variable declarations
@@ -325,11 +326,28 @@ impl Svelte {
 	fn is_html_tag(&self, text: &str) -> bool {
 		matches!(
 			text.to_lowercase().as_str(),
-			"div" | "span" | "p" | "a" | "img" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
-			| "ul" | "ol" | "li" | "table" | "tr" | "td" | "th" | "thead" | "tbody" | "tfoot"
-			| "form" | "input" | "button" | "select" | "option" | "textarea" | "label"
-			| "header" | "footer" | "nav" | "main" | "section" | "article" | "aside"
-			| "html" | "head" | "body" | "title" | "meta" | "link" | "script" | "style"
+			"div"
+				| "span" | "p"
+				| "a" | "img"
+				| "h1" | "h2"
+				| "h3" | "h4"
+				| "h5" | "h6"
+				| "ul" | "ol"
+				| "li" | "table"
+				| "tr" | "td"
+				| "th" | "thead"
+				| "tbody" | "tfoot"
+				| "form" | "input"
+				| "button" | "select"
+				| "option" | "textarea"
+				| "label" | "header"
+				| "footer" | "nav"
+				| "main" | "section"
+				| "article" | "aside"
+				| "html" | "head"
+				| "body" | "title"
+				| "meta" | "link"
+				| "script" | "style"
 		)
 	}
 
@@ -337,10 +355,21 @@ impl Svelte {
 	fn is_html_attribute(&self, text: &str) -> bool {
 		matches!(
 			text.to_lowercase().as_str(),
-			"id" | "class" | "style" | "src" | "href" | "alt" | "title" | "type" | "name" 
-			| "value" | "placeholder" | "disabled" | "readonly" | "required" | "checked"
-			| "selected" | "multiple" | "size" | "maxlength" | "minlength" | "pattern"
-			| "width" | "height" | "data" | "aria" | "role" | "tabindex"
+			"id" | "class"
+				| "style" | "src"
+				| "href" | "alt"
+				| "title" | "type"
+				| "name" | "value"
+				| "placeholder"
+				| "disabled" | "readonly"
+				| "required" | "checked"
+				| "selected" | "multiple"
+				| "size" | "maxlength"
+				| "minlength"
+				| "pattern" | "width"
+				| "height" | "data"
+				| "aria" | "role"
+				| "tabindex"
 		)
 	}
 }
