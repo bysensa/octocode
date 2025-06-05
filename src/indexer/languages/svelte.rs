@@ -88,7 +88,7 @@ impl Language for Svelte {
 			}
 			"reactive_statement" | "reactive_declaration" => {
 				// Extract reactive variable names (Svelte $: syntax)
-				self.extract_reactive_symbols(node, contents, &mut symbols);
+				Self::extract_reactive_symbols(node, contents, &mut symbols);
 			}
 			"class_declaration" => {
 				// Extract class name
@@ -227,7 +227,7 @@ impl Svelte {
 	}
 
 	/// Extract symbols from reactive statements (Svelte $: syntax)
-	fn extract_reactive_symbols(&self, node: Node, contents: &str, symbols: &mut Vec<String>) {
+	fn extract_reactive_symbols(node: Node, contents: &str, symbols: &mut Vec<String>) {
 		// Look for identifiers in reactive statements
 		for child in node.children(&mut node.walk()) {
 			if child.kind() == "identifier" {
@@ -239,7 +239,7 @@ impl Svelte {
 				}
 			} else {
 				// Recursively search in child nodes
-				self.extract_reactive_symbols(child, contents, symbols);
+				Self::extract_reactive_symbols(child, contents, symbols);
 			}
 		}
 	}
