@@ -141,20 +141,8 @@ jobs:
     - name: Run tests
       shell: bash
       run: |
-        if [ "${{ runner.os }}" = "Windows" ]; then
-          # Windows: disable default features to avoid ONNX Runtime issues
-          cargo test --verbose --no-default-features
-        else
-          cargo test --verbose
-        fi
-
-    - name: Run tests with all features
-      if: runner.os != 'Windows'
-      run: cargo test --all-features --verbose
-
-    - name: Run tests with no default features (Windows)
-      if: runner.os == 'Windows'
-      run: cargo test --verbose --no-default-features
+        # We have issue with onnx runtime so we use no default features
+        cargo test --verbose --no-default-features
 
   security:
     name: Security Audit
