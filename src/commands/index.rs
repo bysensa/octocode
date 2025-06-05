@@ -249,17 +249,15 @@ pub async fn display_indexing_progress(state: Arc<RwLock<state::IndexState>>) {
 				final_indexed, final_total
 			);
 		}
+	} else if final_skipped > 0 {
+		println!(
+			"✓ Indexing complete! {} of {} files processed ({} new, {} unchanged), GraphRAG: {} blocks",
+			final_indexed + final_skipped, final_total, final_indexed, final_skipped, final_graphrag_blocks
+		);
 	} else {
-		if final_skipped > 0 {
-			println!(
-				"✓ Indexing complete! {} of {} files processed ({} new, {} unchanged), GraphRAG: {} blocks",
-				final_indexed + final_skipped, final_total, final_indexed, final_skipped, final_graphrag_blocks
-			);
-		} else {
-			println!(
-				"✓ Indexing complete! {} of {} files processed, GraphRAG: {} blocks",
-				final_indexed, final_total, final_graphrag_blocks
-			);
-		}
+		println!(
+			"✓ Indexing complete! {} of {} files processed, GraphRAG: {} blocks",
+			final_indexed, final_total, final_graphrag_blocks
+		);
 	}
 }
