@@ -60,13 +60,13 @@ impl MemoryProvider {
 					"properties": {
 						"title": {
 							"type": "string",
-							"description": "Short, descriptive title for the memory",
+							"description": "Short, descriptive title for the memory (avoid control characters and escape sequences)",
 							"minLength": 5,
 							"maxLength": 200
 						},
 						"content": {
 							"type": "string",
-							"description": "Detailed content to remember – explanations, code snippets, insights, decisions, etc.",
+							"description": "Detailed content to remember – explanations, code snippets, insights, decisions, etc. (avoid control characters and escape sequences)",
 							"minLength": 10,
 							"maxLength": 10000
 						},
@@ -112,7 +112,7 @@ impl MemoryProvider {
 					"properties": {
 						"query": {
 							"type": "string",
-							"description": "What you want to remember or search for in stored memories",
+							"description": "What you want to remember or search for in stored memories (avoid control characters and escape sequences)",
 							"minLength": 3,
 							"maxLength": 500
 						},

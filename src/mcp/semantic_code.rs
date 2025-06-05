@@ -46,7 +46,7 @@ impl SemanticCodeProvider {
 				"properties": {
 					"query": {
 						"type": "string",
-						"description": "Natural language search query describing what you're looking for. Examples: 'authentication functions', 'error handling code', 'database connection setup', 'API endpoints for user management', 'configuration parsing logic'",
+						"description": "Natural language search query describing what you're looking for (avoid control characters and escape sequences). Examples: 'authentication functions', 'error handling code', 'database connection setup', 'API endpoints for user management', 'configuration parsing logic'",
 						"minLength": 3,
 						"maxLength": 500
 					},

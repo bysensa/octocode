@@ -49,7 +49,7 @@ impl GraphRagProvider {
 				"properties": {
 					"query": {
 						"type": "string",
-						"description": "Complex query about code relationships, architecture, or cross-cutting concerns. Examples: 'How does user authentication flow through the system?', 'What components depend on the database layer?', 'Show me the data flow for order processing', 'Find all error handling patterns across modules'",
+						"description": "Complex query about code relationships, architecture, or cross-cutting concerns (avoid control characters and escape sequences). Examples: 'How does user authentication flow through the system?', 'What components depend on the database layer?', 'Show me the data flow for order processing', 'Find all error handling patterns across modules'",
 						"minLength": 10,
 						"maxLength": 1000
 					}
