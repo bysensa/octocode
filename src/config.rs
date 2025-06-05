@@ -88,7 +88,7 @@ fn default_graphrag_enabled() -> bool {
 }
 
 fn default_embeddings_batch_size() -> usize {
-	128 // Increased from 32 to 128 files per batch for better performance
+	16 // 16 files per batch - table.add() every 16 files for better persistence
 }
 
 fn default_embeddings_max_tokens_per_batch() -> usize {
@@ -96,7 +96,7 @@ fn default_embeddings_max_tokens_per_batch() -> usize {
 }
 
 fn default_flush_frequency() -> usize {
-	3 // Flush every 3 batches instead of every batch for better performance
+	2 // Flush every 2 batches = every 32 files for coordinated persistence
 }
 
 // Embedding configuration defaults
