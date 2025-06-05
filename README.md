@@ -43,6 +43,10 @@ Octocode is a powerful code indexer and semantic search engine that builds intel
 - Rich tool ecosystem for code analysis
 
 ### ⚡ **Performance & Flexibility**
+- **Optimized indexing**: Batch metadata loading eliminates database query storms
+- **Smart batching**: 16 files per batch with token-aware API optimization
+- **Frequent persistence**: Data saved every 16 files (max 16 files at risk)
+- **Fast file traversal**: Single-pass progressive counting and processing
 - Local embedding models (FastEmbed, SentenceTransformer)
 - Cloud providers (Jina AI, Voyage AI, Google)
 - Lance columnar database for fast vector search

@@ -62,9 +62,6 @@ enum Commands {
 	/// Clear all database tables (useful for debugging)
 	Clear,
 
-	/// Debug commands for troubleshooting
-	Debug(commands::DebugArgs),
-
 	/// Generate and create git commit with AI assistance
 	Commit(commands::CommitArgs),
 
@@ -155,9 +152,6 @@ async fn main() -> Result<(), anyhow::Error> {
 			commands::graphrag::execute(&store, graphrag_args, &config).await?
 		}
 		Commands::Clear => commands::clear::execute(&store).await?,
-		Commands::Debug(debug_args) => {
-			commands::debug::execute(&store, &config, debug_args).await?
-		}
 		Commands::Config(_) => unreachable!(), // Already handled above
 		Commands::Mcp(_) => unreachable!(),    // Already handled above
 		Commands::Commit(_) => unreachable!(), // Already handled above

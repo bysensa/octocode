@@ -2394,12 +2394,14 @@ impl Store {
 	}
 
 	// Debug function to list all files currently in the database
-	pub async fn debug_list_all_files(&self) -> Result<()> {
+	// List all indexed files (moved from debug command)
+	pub async fn list_indexed_files(&self) -> Result<()> {
 		let table_names = self.db.table_names().execute().await?;
+		let mut total_files = 0;
 
 		for table_name in &["code_blocks", "text_blocks", "document_blocks"] {
 			if table_names.contains(&table_name.to_string()) {
-				println!("\n=== Files in {} table ===", table_name);
+				println!("\n📁 Files in {} table:", table_name);
 				let table = self.db.open_table(*table_name).execute().await?;
 				let mut results = table
 					.query()
@@ -2431,17 +2433,19 @@ impl Store {
 				if !unique_paths.is_empty() {
 					let count = unique_paths.len();
 					for path in unique_paths {
-						println!("  - {}", path);
+						println!("  📄 {}", path);
 					}
-					println!("Total unique files: {}", count);
+					println!("   └─ {} unique files", count);
+					total_files += count;
 				} else {
-					println!("  (no files)");
+					println!("   └─ (no files)");
 				}
 			} else {
-				println!("\n=== Table {} does not exist ===", table_name);
+				println!("\n❌ Table {} does not exist", table_name);
 			}
 		}
-		println!();
+
+		println!("\n📊 Total indexed files: {}", total_files);
 		Ok(())
 	}
 }

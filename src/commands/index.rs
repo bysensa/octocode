@@ -27,6 +27,10 @@ pub struct IndexArgs {
 	/// Skip git repository requirement and git-based optimizations
 	#[arg(long)]
 	pub no_git: bool,
+
+	/// List all files currently indexed in the database
+	#[arg(long)]
+	pub list_files: bool,
 }
 
 pub async fn execute(
@@ -34,6 +38,13 @@ pub async fn execute(
 	config: &Config,
 	args: &IndexArgs,
 ) -> Result<(), anyhow::Error> {
+	// Handle list-files option first
+	if args.list_files {
+		println!("Listing all files currently indexed in the database...");
+		store.list_indexed_files().await?;
+		return Ok(());
+	}
+
 	let current_dir = std::env::current_dir()?;
 
 	// Git repository validation and optimization

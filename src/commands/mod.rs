@@ -15,7 +15,6 @@
 pub mod clear;
 pub mod commit;
 pub mod config;
-pub mod debug;
 pub mod format;
 pub mod graphrag;
 pub mod index;
@@ -30,7 +29,6 @@ pub mod watch;
 // Re-export all the command structs and enums
 pub use commit::CommitArgs;
 pub use config::ConfigArgs;
-pub use debug::DebugArgs;
 pub use format::FormatArgs;
 pub use graphrag::GraphRAGArgs;
 pub use index::IndexArgs;

@@ -82,6 +82,7 @@ pub async fn execute(
 			config,
 			&IndexArgs {
 				no_git: args.no_git,
+				list_files: false,
 			},
 		)
 		.await?
@@ -183,6 +184,7 @@ pub async fn execute(
 						&config,
 						&IndexArgs {
 							no_git: args.no_git,
+							list_files: false,
 						},
 					)
 					.await?
