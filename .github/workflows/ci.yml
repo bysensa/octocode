@@ -23,6 +23,11 @@ jobs:
       with:
         components: rustfmt, clippy
 
+    - name: Install protobuf compiler
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y protobuf-compiler
+
     - name: Cache dependencies
       uses: actions/cache@v4
       with:
@@ -64,6 +69,11 @@ jobs:
       with:
         components: clippy
 
+    - name: Install protobuf compiler
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y protobuf-compiler
+
     - name: Cache dependencies
       uses: actions/cache@v4
       with:
@@ -101,6 +111,21 @@ jobs:
       with:
         toolchain: ${{ matrix.rust }}
 
+    - name: Install protobuf compiler (Ubuntu)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y protobuf-compiler
+
+    - name: Install protobuf compiler (macOS)
+      if: matrix.os == 'macos-latest'
+      run: brew install protobuf
+
+    - name: Install protobuf compiler (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        choco install protoc
+
     - name: Cache dependencies
       uses: actions/cache@v4
       with:
@@ -129,6 +154,11 @@ jobs:
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
 
+    - name: Install protobuf compiler
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y protobuf-compiler
+
     - name: Install cargo-audit
       run: cargo install cargo-audit --locked
 
@@ -144,6 +174,11 @@ jobs:
 
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
+
+    - name: Install protobuf compiler
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y protobuf-compiler
 
     - name: Install cargo-tarpaulin
       run: cargo install cargo-tarpaulin --locked
