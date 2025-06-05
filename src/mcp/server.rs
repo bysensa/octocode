@@ -20,6 +20,7 @@ use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration, Instant};
+use tracing::{debug, info, trace, warn};
 
 use crate::config::Config;
 use crate::indexer;
@@ -84,10 +85,9 @@ impl McpServer {
 		// Initialize logging
 		init_mcp_logging(working_directory.clone(), debug)?;
 
-		let semantic_code =
-			SemanticCodeProvider::new(config.clone(), working_directory.clone(), debug);
-		let graphrag = GraphRagProvider::new(config.clone(), working_directory.clone(), debug);
-		let memory = MemoryProvider::new(&config, working_directory.clone(), debug).await;
+		let semantic_code = SemanticCodeProvider::new(config.clone(), working_directory.clone());
+		let graphrag = GraphRagProvider::new(config.clone(), working_directory.clone());
+		let memory = MemoryProvider::new(&config, working_directory.clone()).await;
 
 		Ok(Self {
 			semantic_code,
@@ -117,18 +117,16 @@ impl McpServer {
 		// Start the file watcher as a completely independent background task
 		self.start_watcher().await?;
 
-		if self.debug {
-			eprintln!("MCP Server started with debug mode");
-			eprintln!(
-				"Watch configuration: debounce={}ms, timeout={}ms, max_events={}",
-				MCP_DEBOUNCE_MS, MCP_INDEX_TIMEOUT_MS, MCP_MAX_PENDING_EVENTS
-			);
-			eprintln!(
-				"Safety limits: max_request_size={}MB, io_timeout={}ms",
-				MCP_MAX_REQUEST_SIZE / 1_048_576,
-				MCP_IO_TIMEOUT_MS
-			);
-		}
+		// Log server startup details using structured logging (no console output for MCP protocol compliance)
+		info!(
+			debug_mode = self.debug,
+			debounce_ms = MCP_DEBOUNCE_MS,
+			timeout_ms = MCP_INDEX_TIMEOUT_MS,
+			max_events = MCP_MAX_PENDING_EVENTS,
+			max_request_size_mb = MCP_MAX_REQUEST_SIZE / 1_048_576,
+			io_timeout_ms = MCP_IO_TIMEOUT_MS,
+			"MCP Server started"
+		);
 
 		// Get the index receiver for handling indexing requests
 		let mut index_rx = self.index_rx.take().unwrap();
@@ -156,9 +154,7 @@ impl McpServer {
 					match result {
 						Ok(Ok(0)) => {
 							// EOF reached - normal shutdown
-							if self.debug {
-								eprintln!("MCP Server: EOF received, shutting down gracefully");
-							}
+							debug!("MCP Server: EOF received, shutting down gracefully");
 							break;
 						}
 						Ok(Ok(bytes_read)) => {
@@ -232,9 +228,7 @@ impl McpServer {
 						Ok(Err(e)) => {
 							// I/O error reading from stdin
 							if self.is_broken_pipe_error(&e) {
-								if self.debug {
-									eprintln!("MCP Server: Broken pipe detected, shutting down gracefully");
-								}
+								debug!("MCP Server: Broken pipe detected, shutting down gracefully");
 								break;
 							} else {
 								log_critical_error("Error reading from stdin", &e);
@@ -248,9 +242,7 @@ impl McpServer {
 						}
 						Err(_) => {
 							// Timeout on stdin read - this might indicate broken pipe or slow client
-							if self.debug {
-								eprintln!("MCP Server: Timeout reading from stdin");
-							}
+							debug!("MCP Server: Timeout reading from stdin");
 							consecutive_errors += 1;
 							if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
 								log_critical_anyhow_error(
@@ -265,9 +257,7 @@ impl McpServer {
 
 				// Handle indexing requests from file watcher (runs independently)
 				Some(_) = index_rx.recv() => {
-					if self.debug {
-						eprintln!("Processing index request...");
-					}
+					debug!("Processing index request");
 
 					// Additional delay to ensure all file operations are complete
 					sleep(Duration::from_millis(DEFAULT_ADDITIONAL_DELAY_MS)).await;
@@ -280,24 +270,16 @@ impl McpServer {
 
 					match indexing_result {
 						Ok(Ok(())) => {
-							if self.debug {
-								eprintln!("Reindex completed successfully");
-							}
+							info!("Reindex completed successfully");
 						}
 						Ok(Err(e)) => {
 							log_critical_anyhow_error("Reindex error", &e);
-							if self.debug {
-								eprintln!("Reindex error: {}", e);
-							}
 						}
 						Err(_) => {
 							log_critical_anyhow_error(
 								"Reindex timeout",
 								&anyhow::anyhow!("Reindex timed out after {}ms", MCP_INDEX_TIMEOUT_MS)
 							);
-							if self.debug {
-								eprintln!("Reindex timed out after {}ms", MCP_INDEX_TIMEOUT_MS);
-							}
 						}
 					}
 
@@ -315,9 +297,7 @@ impl McpServer {
 			handle.abort();
 		}
 
-		if self.debug {
-			eprintln!("MCP Server stopped");
-		}
+		debug!("MCP Server stopped");
 
 		Ok(())
 	}
@@ -331,9 +311,7 @@ impl McpServer {
 		// Start file watcher in background
 		let watcher_handle = tokio::spawn(async move {
 			if let Err(e) = run_watcher(file_tx, working_dir, debug).await {
-				if debug {
-					eprintln!("Watcher error: {}", e);
-				}
+				log_critical_anyhow_error("Watcher error", &e);
 			}
 		});
 
@@ -360,9 +338,7 @@ impl McpServer {
 							log_watcher_event("file_change", None, pending_events as usize);
 						}
 							None => {
-								if debug_mode {
-									eprintln!("File watcher channel closed, stopping debouncer");
-								}
+								debug!("File watcher channel closed, stopping debouncer");
 								break;
 							}
 						}
@@ -379,7 +355,10 @@ impl McpServer {
 									.is_ok()
 								{
 									if debug_mode {
-										eprintln!("Debounce period completed, requesting reindex for {} events...", pending_events);
+										debug!(
+							pending_events = pending_events,
+							"Debounce period completed, requesting reindex"
+						);
 									}
 
 									// Log the debounce trigger
@@ -388,7 +367,7 @@ impl McpServer {
 								// Send indexing request to main loop
 									if (index_tx.send(()).await).is_err() {
 										if debug_mode {
-											eprintln!("Failed to send index request - server may be shutting down");
+											debug!("Failed to send index request - server may be shutting down");
 										}
 										indexing_in_progress.store(false, Ordering::SeqCst);
 										break;
@@ -398,7 +377,7 @@ impl McpServer {
 									pending_events = 0;
 									last_event_time = None;
 								} else if debug_mode {
-									eprintln!("Indexing already in progress, will retry after current indexing completes");
+									debug!("Indexing already in progress, will retry after current indexing completes");
 									// Don't reset counters, will retry later
 								}
 							}
@@ -866,29 +845,31 @@ async fn run_watcher(
 					log_watcher_event("file_change_batch", None, relevant_events.len());
 
 					if debug && MCP_ENABLE_VERBOSE_EVENTS {
-						eprintln!(
-							"File watcher detected {} relevant events",
-							relevant_events.len()
+						trace!(
+							event_count = relevant_events.len(),
+							"File watcher detected relevant events"
 						);
 						for event in &relevant_events {
-							eprintln!("  - {:?}: {:?}", event.kind, event.path);
+							trace!(
+								event_kind = ?event.kind,
+								event_path = ?event.path,
+								"File watcher event detail"
+							);
 						}
 					}
 
 					// Send notification for each relevant event batch with error handling
 					if let Err(e) = debouncer_tx.try_send(()) {
-						if debug {
-							eprintln!("Warning: Failed to send file event: {:?}", e);
-						}
+						warn!(
+							error = ?e,
+							"Failed to send file event - channel may be full"
+						);
 						// Don't panic on channel send failure - just log and continue
 					}
 				}
 			}
 			Err(e) => {
 				log_critical_error("File watcher error", &e);
-				if debug {
-					eprintln!("File watcher error: {:?}", e);
-				}
 				// Continue running even on watcher errors
 			}
 		},
@@ -904,14 +885,12 @@ async fn run_watcher(
 		return Err(anyhow::anyhow!("Failed to watch directory: {}", e));
 	}
 
-	if debug {
-		eprintln!("File watcher started for: {}", working_dir.display());
-		eprintln!("Loaded ignore patterns from .gitignore and .noindex files");
-		eprintln!(
-			"Using debounce settings: {}ms debounce, {}ms additional delay",
-			MCP_DEBOUNCE_MS, DEFAULT_ADDITIONAL_DELAY_MS
-		);
-	}
+	debug!(
+		working_dir = %working_dir.display(),
+		debounce_ms = MCP_DEBOUNCE_MS,
+		additional_delay_ms = DEFAULT_ADDITIONAL_DELAY_MS,
+		"File watcher started with ignore patterns loaded"
+	);
 
 	// Forward events from debouncer to the main event handler with error recovery
 	let mut consecutive_errors = 0u32;
@@ -926,12 +905,10 @@ async fn run_watcher(
 				consecutive_errors += 1;
 				log_critical_error("Event channel send failed", &e);
 
-				if debug {
-					eprintln!(
-						"Event channel closed or failed, error count: {}",
-						consecutive_errors
-					);
-				}
+				debug!(
+					consecutive_errors = consecutive_errors,
+					"Event channel closed or failed"
+				);
 
 				if consecutive_errors >= MAX_WATCHER_ERRORS {
 					log_critical_anyhow_error(
@@ -950,9 +927,7 @@ async fn run_watcher(
 		}
 	}
 
-	if debug {
-		eprintln!("File watcher stopped");
-	}
+	debug!("File watcher stopped");
 
 	Ok(())
 }

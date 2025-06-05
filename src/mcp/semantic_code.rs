@@ -14,6 +14,7 @@
 
 use anyhow::Result;
 use serde_json::{json, Value};
+use tracing::debug;
 
 use crate::config::Config;
 use crate::indexer::search::search_codebase;
@@ -24,15 +25,13 @@ use crate::mcp::types::McpTool;
 pub struct SemanticCodeProvider {
 	config: Config,
 	working_directory: std::path::PathBuf,
-	debug: bool,
 }
 
 impl SemanticCodeProvider {
-	pub fn new(config: Config, working_directory: std::path::PathBuf, debug: bool) -> Self {
+	pub fn new(config: Config, working_directory: std::path::PathBuf) -> Self {
 		Self {
 			config,
 			working_directory,
-			debug,
 		}
 	}
 
@@ -126,14 +125,13 @@ impl SemanticCodeProvider {
 			));
 		}
 
-		if self.debug {
-			eprintln!(
-				"Executing search: query='{}', mode='{}' in directory '{}'",
-				query,
-				mode,
-				self.working_directory.display()
-			);
-		}
+		// Use structured logging instead of console output for MCP protocol compliance
+		debug!(
+			query = %query,
+			mode = %mode,
+			working_directory = %self.working_directory.display(),
+			"Executing semantic code search"
+		);
 
 		// Change to the working directory for the search
 		let _original_dir = std::env::current_dir()?;
@@ -183,13 +181,12 @@ impl SemanticCodeProvider {
 			file_patterns.push(pattern.to_string());
 		}
 
-		if self.debug {
-			eprintln!(
-				"Executing view_signatures: files={:?} in directory '{}'",
-				file_patterns,
-				self.working_directory.display()
-			);
-		}
+		// Use structured logging instead of console output for MCP protocol compliance
+		debug!(
+			file_patterns = ?file_patterns,
+			working_directory = %self.working_directory.display(),
+			"Executing view_signatures"
+		);
 
 		// Change to the working directory for processing
 		let _original_dir = std::env::current_dir()?;

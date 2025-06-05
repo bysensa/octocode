@@ -49,12 +49,8 @@ pub async fn run(args: McpArgs) -> Result<()> {
 		));
 	}
 
-	if args.debug {
-		eprintln!(
-			"MCP Server starting with working directory: {}",
-			working_directory.display()
-		);
-	}
+	// Note: No console output here - MCP protocol compliance requires clean stdout/stderr
+	// All debug information is logged to files via structured logging in the server
 
 	let mut server = McpServer::new(config, args.debug, working_directory, args.no_git).await?;
 	server.run().await

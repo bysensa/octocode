@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::Duration;
+use tracing::{debug, warn};
 
 use crate::config::Config;
 use crate::mcp::logging::{log_critical_anyhow_error, log_critical_error};
@@ -27,25 +28,20 @@ use crate::memory::{MemoryManager, MemoryQuery, MemoryType};
 pub struct MemoryProvider {
 	memory_manager: Arc<Mutex<MemoryManager>>,
 	working_directory: std::path::PathBuf,
-	debug: bool,
 }
 
 impl MemoryProvider {
-	pub async fn new(
-		config: &Config,
-		working_directory: std::path::PathBuf,
-		debug: bool,
-	) -> Option<Self> {
+	pub async fn new(config: &Config, working_directory: std::path::PathBuf) -> Option<Self> {
 		match MemoryManager::new(config).await {
 			Ok(manager) => Some(Self {
 				memory_manager: Arc::new(Mutex::new(manager)),
 				working_directory,
-				debug,
 			}),
 			Err(e) => {
-				if debug {
-					eprintln!("Warning: Failed to initialize memory manager: {}", e);
-				}
+				warn!(
+					error = %e,
+					"Failed to initialize memory manager"
+				);
 				None
 			}
 		}
@@ -317,12 +313,13 @@ impl MemoryProvider {
 					.collect::<Vec<String>>()
 			});
 
-		if self.debug {
-			eprintln!(
-				"Memorizing: title='{}', type='{:?}', importance={:?}",
-				title, memory_type, importance
-			);
-		}
+		// Use structured logging instead of console output for MCP protocol compliance
+		debug!(
+			title = %title,
+			memory_type = ?memory_type,
+			importance = ?importance,
+			"Memorizing new content"
+		);
 
 		// Change to working directory for Git context with error handling
 		let original_dir = std::env::current_dir()
@@ -358,7 +355,10 @@ impl MemoryProvider {
 
 		// Restore original directory regardless of result
 		if let Err(e) = std::env::set_current_dir(&original_dir) {
-			eprintln!("Warning: Failed to restore original directory: {}", e);
+			warn!(
+				error = %e,
+				"Failed to restore original directory"
+			);
 		}
 
 		let memory = memory_result?;
@@ -461,13 +461,12 @@ impl MemoryProvider {
 			..Default::default()
 		};
 
-		if self.debug {
-			eprintln!(
-				"Remembering: query='{}', limit={}",
-				query,
-				memory_query.limit.unwrap_or(10)
-			);
-		}
+		// Use structured logging instead of console output for MCP protocol compliance
+		debug!(
+			query = %query,
+			limit = memory_query.limit.unwrap_or(10),
+			"Remembering memories"
+		);
 
 		let results = {
 			let manager = self.memory_manager.lock().await;
@@ -549,9 +548,11 @@ impl MemoryProvider {
 				return Ok(serde_json::to_string(&response)?);
 			}
 
-			if self.debug {
-				eprintln!("Forgetting memory: id='{}'", memory_id);
-			}
+			// Use structured logging instead of console output for MCP protocol compliance
+			debug!(
+				memory_id = %memory_id,
+				"Forgetting memory by ID"
+			);
 
 			// Execute deletion with timeout
 			let res = {
@@ -643,9 +644,11 @@ impl MemoryProvider {
 				..Default::default()
 			};
 
-			if self.debug {
-				eprintln!("Forgetting memories matching: query='{}'", query);
-			}
+			// Use structured logging instead of console output for MCP protocol compliance
+			debug!(
+				query = %query,
+				"Forgetting memories matching query"
+			);
 
 			let res = {
 				let mut manager = self.memory_manager.lock().await;

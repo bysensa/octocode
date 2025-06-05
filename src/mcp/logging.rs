@@ -20,9 +20,9 @@ pub fn init_mcp_logging(base_dir: PathBuf, debug_mode: bool) -> Result<(), anyho
 
 	// Cross-platform way to create a "latest" indicator
 	let latest_file = project_storage.join("latest_log.txt");
-	std::fs::write(&latest_file, log_dir.to_string_lossy().as_bytes()).unwrap_or_else(|e| {
-		eprintln!("Warning: Could not create latest log indicator: {}", e);
-	});
+	// Silently ignore errors creating latest log indicator to maintain MCP protocol compliance
+	// The error is not critical and logging setup should continue
+	let _ = std::fs::write(&latest_file, log_dir.to_string_lossy().as_bytes());
 
 	// Create rotating file appender
 	let file_appender = RollingFileAppender::new(Rotation::DAILY, &log_dir, "mcp_server.log");

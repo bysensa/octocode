@@ -14,6 +14,7 @@
 
 use anyhow::Result;
 use serde_json::{json, Value};
+use tracing::debug;
 
 use crate::config::Config;
 use crate::indexer::graphrag::GraphRAG;
@@ -23,16 +24,14 @@ use crate::mcp::types::McpTool;
 pub struct GraphRagProvider {
 	graphrag: GraphRAG,
 	working_directory: std::path::PathBuf,
-	debug: bool,
 }
 
 impl GraphRagProvider {
-	pub fn new(config: Config, working_directory: std::path::PathBuf, debug: bool) -> Option<Self> {
+	pub fn new(config: Config, working_directory: std::path::PathBuf) -> Option<Self> {
 		if config.graphrag.enabled {
 			Some(Self {
 				graphrag: GraphRAG::new(config),
 				working_directory,
-				debug,
 			})
 		} else {
 			None
@@ -77,13 +76,12 @@ impl GraphRagProvider {
 			));
 		}
 
-		if self.debug {
-			eprintln!(
-				"Executing GraphRAG search: query='{}' in directory '{}'",
-				query,
-				self.working_directory.display()
-			);
-		}
+		// Use structured logging instead of console output for MCP protocol compliance
+		debug!(
+			query = %query,
+			working_directory = %self.working_directory.display(),
+			"Executing GraphRAG search"
+		);
 
 		// Change to the working directory for the search
 		let _original_dir = std::env::current_dir()?;
