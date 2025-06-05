@@ -708,6 +708,83 @@ fn map_node_kind_to_simple(kind: &str) -> String {
 	}
 }
 
+/// Optimized cleanup function that only processes files that actually need cleanup
+async fn cleanup_deleted_files_optimized(
+	store: &Store,
+	current_dir: &std::path::Path,
+) -> Result<()> {
+	// Get all indexed file paths from the database
+	let indexed_files = store.get_all_indexed_file_paths().await?;
+
+	// Early exit if no files to check
+	if indexed_files.is_empty() {
+		return Ok(());
+	}
+
+	// Create ignore matcher to check against .noindex and .gitignore patterns
+	let ignore_matcher = NoindexWalker::create_matcher(current_dir)?;
+
+	// Use parallel processing for file existence checks
+	let mut files_to_remove = Vec::new();
+
+	// Convert HashSet to Vec for chunking
+	let indexed_files_vec: Vec<String> = indexed_files.into_iter().collect();
+
+	// Process files in chunks to avoid overwhelming the file system
+	const CHUNK_SIZE: usize = 100;
+	for chunk in indexed_files_vec.chunks(CHUNK_SIZE) {
+		for indexed_file in chunk {
+			// Always treat indexed paths as relative to current directory
+			let absolute_path = current_dir.join(indexed_file);
+
+			// Check if file was deleted
+			if !absolute_path.exists() {
+				files_to_remove.push(indexed_file.clone());
+			} else {
+				// Check if file is now ignored by .noindex or .gitignore patterns
+				let is_ignored = ignore_matcher
+					.matched(&absolute_path, absolute_path.is_dir())
+					.is_ignore();
+				if is_ignored {
+					files_to_remove.push(indexed_file.clone());
+				}
+			}
+		}
+
+		// Process removals in batches to avoid overwhelming the database
+		if files_to_remove.len() >= CHUNK_SIZE {
+			for file_to_remove in &files_to_remove {
+				if let Err(e) = store.remove_blocks_by_path(file_to_remove).await {
+					eprintln!(
+						"Warning: Failed to remove blocks for {}: {}",
+						file_to_remove, e
+					);
+				}
+			}
+			files_to_remove.clear();
+
+			// Flush after each chunk to maintain data consistency
+			store.flush().await?;
+		}
+	}
+
+	// Remove any remaining files
+	if !files_to_remove.is_empty() {
+		for file_to_remove in &files_to_remove {
+			if let Err(e) = store.remove_blocks_by_path(file_to_remove).await {
+				eprintln!(
+					"Warning: Failed to remove blocks for {}: {}",
+					file_to_remove, e
+				);
+			}
+		}
+		// Final flush
+		store.flush().await?;
+	}
+
+	Ok(())
+}
+
 /// Helper function to perform intelligent flushing based on configuration
 /// Returns true if a flush was performed
 async fn flush_if_needed(
@@ -842,119 +919,50 @@ pub async fn index_files(
 		None
 	};
 
-	// First, check for deleted files and files now ignored by .noindex and remove their blocks from the database
-	// Note: Skip cleanup for force reindex or if this appears to be a fresh database
+	// Optimized cleanup: Only do cleanup if we have existing data and it's not a force reindex
 	let should_cleanup_deleted_files = {
 		let force_reindex = state.read().force_reindex;
-		if force_reindex {
-			false // Skip cleanup during force reindex
-		} else {
-			// Check if this looks like a fresh database by seeing if we have any indexed files
-			let indexed_files = store.get_all_indexed_file_paths().await.unwrap_or_default();
-			!indexed_files.is_empty() // Only cleanup if we have existing indexed files
-		}
+		!force_reindex // Only cleanup if not force reindexing
 	};
 
 	if should_cleanup_deleted_files {
 		{
 			let mut state_guard = state.write();
-			state_guard.status_message = "Checking for deleted and ignored files...".to_string();
+			state_guard.status_message = "Checking for deleted files...".to_string();
 		}
 
 		// Log cleanup phase start
 		log_indexing_progress("cleanup", 0, 0, None, 0);
 
-		// Get all indexed file paths from the database
-		let indexed_files = store.get_all_indexed_file_paths().await?;
-
-		// Create ignore matcher to check against .noindex and .gitignore patterns
-		let ignore_matcher = NoindexWalker::create_matcher(&current_dir)?;
-
-		// Check which indexed files no longer exist on disk OR are now ignored
-		let mut files_to_remove = Vec::new();
-		for indexed_file in &indexed_files {
-			// Always treat indexed paths as relative to current directory
-			let absolute_path = current_dir.join(indexed_file);
-
-			// Check if file was deleted
-			if !absolute_path.exists() {
-				files_to_remove.push((indexed_file.clone(), "deleted".to_string()));
-			} else {
-				// Check if file is now ignored by .noindex or .gitignore patterns
-				let is_ignored = ignore_matcher
-					.matched(&absolute_path, absolute_path.is_dir())
-					.is_ignore();
-				if is_ignored {
-					files_to_remove.push((indexed_file.clone(), "ignored".to_string()));
-				}
-			}
-		}
-
-		// Remove blocks for files that were deleted or are now ignored
-		if !files_to_remove.is_empty() {
-			for (file_to_remove, _reason) in &files_to_remove {
-				// Use the comprehensive removal function which handles all tables
-				match store.remove_blocks_by_path(file_to_remove).await {
-					Ok(_) => {} // Success - no need to be verbose
-					Err(e) => {
-						eprintln!(
-							"ERROR: Failed to remove blocks for {}: {}",
-							file_to_remove, e
-						);
-						// Continue with other files even if one fails
-					}
-				}
-			}
-
-			// Force flush to ensure deletions are persisted
-			store.flush().await?;
+		// Optimized cleanup: Get indexed files and check them efficiently
+		if let Err(e) = cleanup_deleted_files_optimized(store, &current_dir).await {
+			eprintln!("Warning: Cleanup failed: {}", e);
 		}
 
 		{
 			let mut state_guard = state.write();
 			state_guard.status_message = "".to_string();
 		}
-	} // End of deleted files cleanup
-
-	// First pass: count all files to be processed
-	{
-		let mut state_guard = state.write();
-		state_guard.status_message = "Counting files...".to_string();
 	}
 
-	// Count files based on whether git optimization is active
-	let total_files = if let Some(ref changed_files) = git_changed_files {
-		// Git optimization active: count only changed files that are indexable
-		let mut count = 0;
-		for changed_file in changed_files {
-			let absolute_path = current_dir.join(changed_file);
-			if absolute_path.exists()
-				&& absolute_path.is_file()
-				&& (detect_language(&absolute_path).is_some()
-					|| is_allowed_text_extension(&absolute_path))
-			{
-				count += 1;
-			}
-		}
-		count
-	} else {
-		// No git optimization: count all indexable files
-		count_indexable_files(&current_dir)?
-	};
-
+	// Progressive processing: Skip separate counting phase and count during processing
 	{
 		let mut state_guard = state.write();
-		state_guard.total_files = total_files;
-		state_guard.counting_files = false;
-		state_guard.status_message = "".to_string(); // Clear the status message
+		state_guard.total_files = 0; // Will be updated progressively
+		state_guard.counting_files = true;
+		state_guard.status_message = "Starting indexing...".to_string();
 	}
 
-	// Second pass: actually process the files
+	// Single pass: progressive counting + processing combined
 	// Use NoindexWalker to respect both .gitignore and .noindex files
 	let walker = NoindexWalker::create_walker(&current_dir).build();
 
+	// Progressive counting variables
+	let mut total_files_found = 0;
+	let mut files_processed = 0;
+
 	// Log file processing phase start
-	log_indexing_progress("file_processing", 0, total_files, None, 0);
+	log_indexing_progress("file_processing", 0, 0, None, 0);
 
 	for result in walker {
 		let entry = match result {
@@ -969,6 +977,31 @@ pub async fn index_files(
 
 		// Create relative path from the current directory using our utility
 		let file_path = PathUtils::to_relative_string(entry.path(), &current_dir);
+
+		// Check if this file would be indexed (for progressive counting)
+		let is_indexable = if let Some(ref changed_files) = git_changed_files {
+			// Git optimization: only count changed files that are indexable
+			changed_files.contains(&file_path)
+				&& (detect_language(entry.path()).is_some()
+					|| is_allowed_text_extension(entry.path()))
+		} else {
+			// Normal mode: count all indexable files
+			detect_language(entry.path()).is_some() || is_allowed_text_extension(entry.path())
+		};
+
+		if is_indexable {
+			total_files_found += 1;
+
+			// Update total count progressively every 10 files to avoid too frequent updates
+			if total_files_found % 10 == 0 {
+				let mut state_guard = state.write();
+				state_guard.total_files = total_files_found;
+				if total_files_found <= 50 {
+					// Still in early discovery phase
+					state_guard.status_message = format!("Found {} files...", total_files_found);
+				}
+			}
+		}
 
 		// GIT OPTIMIZATION: Skip files not in the changed set (if git optimization is active)
 		if let Some(ref changed_files) = git_changed_files {
@@ -1036,15 +1069,27 @@ pub async fn index_files(
 						}
 					}
 
-					state.write().indexed_files += 1;
+					files_processed += 1;
+					state.write().indexed_files = files_processed;
+
+					// Update counting phase status
+					{
+						let mut state_guard = state.write();
+						if state_guard.counting_files && total_files_found > 50 {
+							// Switch from counting to processing mode
+							state_guard.counting_files = false;
+							state_guard.total_files = total_files_found;
+							state_guard.status_message = "".to_string();
+						}
+					}
 
 					// Log progress periodically for code files
-					let current_files = state.read().indexed_files;
-					if current_files % 50 == 0 || current_files == total_files {
+					if files_processed % 50 == 0 {
+						let current_total = state.read().total_files;
 						log_indexing_progress(
 							"file_processing",
-							current_files,
-							total_files,
+							files_processed,
+							current_total,
 							Some(&file_path),
 							embedding_calls,
 						);
@@ -1105,15 +1150,27 @@ pub async fn index_files(
 							let _ = store.store_file_metadata(&file_path, actual_mtime).await;
 						}
 
-						state.write().indexed_files += 1;
+						files_processed += 1;
+						state.write().indexed_files = files_processed;
+
+						// Update counting phase status
+						{
+							let mut state_guard = state.write();
+							if state_guard.counting_files && total_files_found > 50 {
+								// Switch from counting to processing mode
+								state_guard.counting_files = false;
+								state_guard.total_files = total_files_found;
+								state_guard.status_message = "".to_string();
+							}
+						}
 
 						// Log progress periodically for text files
-						let current_files = state.read().indexed_files;
-						if current_files % 50 == 0 || current_files == total_files {
+						if files_processed % 50 == 0 {
+							let current_total = state.read().total_files;
 							log_indexing_progress(
 								"file_processing",
-								current_files,
-								total_files,
+								files_processed,
+								current_total,
 								Some(&file_path),
 								embedding_calls,
 							);
@@ -1166,7 +1223,7 @@ pub async fn index_files(
 		log_indexing_progress(
 			"graphrag_build",
 			state.read().indexed_files,
-			total_files,
+			state.read().total_files,
 			None,
 			embedding_calls,
 		);
@@ -1192,12 +1249,22 @@ pub async fn index_files(
 		state_guard.embedding_calls = embedding_calls;
 	}
 
+	// Finalize counting if still in progress
+	{
+		let mut state_guard = state.write();
+		if state_guard.counting_files {
+			state_guard.counting_files = false;
+			state_guard.total_files = total_files_found;
+		}
+	}
+
 	// Log indexing completion
 	let final_files = state.read().indexed_files;
+	let final_total = state.read().total_files;
 	log_indexing_progress(
 		"indexing_complete",
 		final_files,
-		total_files,
+		final_total,
 		None,
 		embedding_calls,
 	);
@@ -1215,33 +1282,6 @@ pub async fn index_files(
 	store.flush().await?;
 
 	Ok(())
-}
-
-// Helper function to count indexable files
-fn count_indexable_files(current_dir: &std::path::Path) -> Result<usize> {
-	let mut count = 0;
-
-	// Use NoindexWalker to respect both .gitignore and .noindex files
-	let walker = NoindexWalker::create_walker(current_dir).build();
-
-	for result in walker {
-		let entry = match result {
-			Ok(entry) => entry,
-			Err(_) => continue,
-		};
-
-		// Skip directories, only count files
-		if !entry.file_type().is_some_and(|ft| ft.is_file()) {
-			continue;
-		}
-
-		// Check if this file would be indexed
-		if detect_language(entry.path()).is_some() || is_allowed_text_extension(entry.path()) {
-			count += 1;
-		}
-	}
-
-	Ok(count)
 }
 
 // Function to handle file changes (for watch mode)
