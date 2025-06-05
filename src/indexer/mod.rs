@@ -332,30 +332,6 @@ pub fn get_file_mtime(file_path: &std::path::Path) -> Result<u64> {
 	Ok(mtime)
 }
 
-/// Check if file should be skipped based on modification time
-async fn should_skip_file(
-	store: &Store,
-	file_path: &str,
-	actual_mtime: u64,
-	force_reindex: bool,
-) -> Result<bool> {
-	// Always process if force reindex
-	if force_reindex {
-		return Ok(false);
-	}
-
-	// Check if we have stored metadata for this file
-	if let Ok(Some(stored_mtime)) = store.get_file_mtime(file_path).await {
-		// Skip if file hasn't been modified
-		if actual_mtime <= stored_mtime {
-			return Ok(true);
-		}
-	}
-
-	// Process the file (either new or modified)
-	Ok(false)
-}
-
 // Detect language based on file extension
 pub fn detect_language(path: &std::path::Path) -> Option<&str> {
 	match path.extension()?.to_str()? {
@@ -945,6 +921,19 @@ pub async fn index_files(
 		}
 	}
 
+	// PERFORMANCE OPTIMIZATION: Load all file metadata in one batch query
+	// This eliminates individual database queries for each file during traversal
+	{
+		let mut state_guard = state.write();
+		state_guard.status_message = "Loading file metadata...".to_string();
+	}
+
+	let file_metadata_map = store.get_all_file_metadata().await?;
+	println!(
+		"📊 Loaded metadata for {} files from database",
+		file_metadata_map.len()
+	);
+
 	// Progressive processing: Skip separate counting phase and count during processing
 	{
 		let mut state_guard = state.write();
@@ -1011,15 +1000,17 @@ pub async fn index_files(
 			}
 		}
 
-		// OPTIMIZATION: Check file modification time to skip unchanged files
+		// PERFORMANCE OPTIMIZATION: Fast file modification time check using preloaded metadata
+		// This replaces individual database queries with HashMap lookup
 		let force_reindex = state.read().force_reindex;
-		if let Ok(actual_mtime) = get_file_mtime(entry.path()) {
-			if let Ok(should_skip) =
-				should_skip_file(store, &file_path, actual_mtime, force_reindex).await
-			{
-				if should_skip {
-					// File hasn't changed, skip processing entirely
-					continue;
+		if !force_reindex {
+			if let Ok(actual_mtime) = get_file_mtime(entry.path()) {
+				// Fast HashMap lookup instead of database query
+				if let Some(stored_mtime) = file_metadata_map.get(&file_path) {
+					if actual_mtime <= *stored_mtime {
+						// File hasn't changed, skip processing entirely
+						continue;
+					}
 				}
 			}
 		}

@@ -2326,6 +2326,57 @@ impl Store {
 		Ok(None)
 	}
 
+	// Get ALL file metadata in one batch query (PERFORMANCE OPTIMIZATION)
+	// This eliminates the need for individual database queries per file
+	pub async fn get_all_file_metadata(&self) -> Result<std::collections::HashMap<String, u64>> {
+		let mut metadata_map = std::collections::HashMap::new();
+
+		let table_names = self.db.table_names().execute().await?;
+		if !table_names.contains(&"file_metadata".to_string()) {
+			return Ok(metadata_map); // Return empty map if table doesn't exist
+		}
+
+		let table = self.db.open_table("file_metadata").execute().await?;
+
+		// Query all file metadata in one go
+		let mut results = table
+			.query()
+			.select(Select::Columns(vec![
+				"path".to_string(),
+				"mtime".to_string(),
+			]))
+			.execute()
+			.await?;
+
+		// Process all batches
+		while let Some(batch) = results.try_next().await? {
+			if batch.num_rows() > 0 {
+				let path_array = batch
+					.column_by_name("path")
+					.ok_or_else(|| anyhow::anyhow!("Path column not found"))?
+					.as_any()
+					.downcast_ref::<StringArray>()
+					.ok_or_else(|| anyhow::anyhow!("Path column is not a StringArray"))?;
+
+				let mtime_array = batch
+					.column_by_name("mtime")
+					.ok_or_else(|| anyhow::anyhow!("Mtime column not found"))?
+					.as_any()
+					.downcast_ref::<Int64Array>()
+					.ok_or_else(|| anyhow::anyhow!("Mtime column is not an Int64Array"))?;
+
+				// Extract path and mtime pairs
+				for i in 0..batch.num_rows() {
+					let path = path_array.value(i).to_string();
+					let mtime = mtime_array.value(i) as u64;
+					metadata_map.insert(path, mtime);
+				}
+			}
+		}
+
+		Ok(metadata_map)
+	}
+
 	// Create file metadata table
 	async fn create_file_metadata_table(&self) -> Result<()> {
 		let schema = Arc::new(Schema::new(vec![
