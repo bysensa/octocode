@@ -1008,7 +1008,11 @@ pub async fn index_files(
 				// Fast HashMap lookup instead of database query
 				if let Some(stored_mtime) = file_metadata_map.get(&file_path) {
 					if actual_mtime <= *stored_mtime {
-						// File hasn't changed, skip processing entirely
+						// File hasn't changed, skip processing entirely but count as skipped
+						{
+							let mut state_guard = state.write();
+							state_guard.skipped_files += 1;
+						}
 						continue;
 					}
 				}

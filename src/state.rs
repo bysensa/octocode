@@ -35,6 +35,7 @@ pub struct IndexState {
 	pub current_directory: PathBuf,
 	pub indexed_files: usize,
 	pub total_files: usize,
+	pub skipped_files: usize, // Files skipped due to being unchanged
 	pub embedding_calls: usize,
 	pub indexing_complete: bool,
 	pub status_message: String,

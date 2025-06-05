@@ -97,6 +97,7 @@ pub async fn display_indexing_progress(state: Arc<RwLock<state::IndexState>>) {
 	let spinner_chars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 	let mut spinner_idx = 0;
 	let mut last_indexed = 0;
+	let mut last_skipped = 0;
 	let mut last_graphrag_blocks = 0;
 	let mut last_status_message = String::new();
 	let mut indexing_complete = false;
@@ -104,6 +105,7 @@ pub async fn display_indexing_progress(state: Arc<RwLock<state::IndexState>>) {
 	while !indexing_complete {
 		// Gather all necessary state in local variables before the await
 		let current_indexed;
+		let current_skipped;
 		let total_files;
 		let graphrag_blocks;
 		let status_message;
@@ -113,6 +115,7 @@ pub async fn display_indexing_progress(state: Arc<RwLock<state::IndexState>>) {
 		{
 			let current_state = state.read();
 			current_indexed = current_state.indexed_files;
+			current_skipped = current_state.skipped_files;
 			total_files = current_state.total_files;
 			graphrag_blocks = current_state.graphrag_blocks;
 			status_message = current_state.status_message.clone();
@@ -129,6 +132,7 @@ pub async fn display_indexing_progress(state: Arc<RwLock<state::IndexState>>) {
 
 		// Only redraw if something changed or on spinner change
 		if current_indexed != last_indexed
+			|| current_skipped != last_skipped
 			|| graphrag_blocks != last_graphrag_blocks
 			|| status_message != last_status_message
 		{
@@ -139,11 +143,17 @@ pub async fn display_indexing_progress(state: Arc<RwLock<state::IndexState>>) {
 			if counting_files {
 				print!("{} Counting files...", spinner_chars[spinner_idx]);
 			} else if total_files > 0 {
-				let percentage = (current_indexed as f32 / total_files as f32 * 100.0) as u32;
+				let processed_total = current_indexed + current_skipped;
+				let percentage = (processed_total as f32 / total_files as f32 * 100.0) as u32;
 				print!(
 					"{} Indexing: {}/{} files ({}%)",
-					spinner_chars[spinner_idx], current_indexed, total_files, percentage
+					spinner_chars[spinner_idx], processed_total, total_files, percentage
 				);
+
+				// Show breakdown if we have skipped files
+				if current_skipped > 0 {
+					print!(" [{} new, {} unchanged]", current_indexed, current_skipped);
+				}
 
 				// Add GraphRAG info if enabled and blocks exist
 				if graphrag_enabled && graphrag_blocks > 0 {
@@ -164,6 +174,7 @@ pub async fn display_indexing_progress(state: Arc<RwLock<state::IndexState>>) {
 
 			std::io::stdout().flush().unwrap();
 			last_indexed = current_indexed;
+			last_skipped = current_skipped;
 			last_graphrag_blocks = graphrag_blocks;
 			last_status_message = status_message.clone();
 		} else {
@@ -172,11 +183,17 @@ pub async fn display_indexing_progress(state: Arc<RwLock<state::IndexState>>) {
 			if counting_files {
 				print!("{} Counting files...", spinner_chars[spinner_idx]);
 			} else if total_files > 0 {
-				let percentage = (current_indexed as f32 / total_files as f32 * 100.0) as u32;
+				let processed_total = current_indexed + current_skipped;
+				let percentage = (processed_total as f32 / total_files as f32 * 100.0) as u32;
 				print!(
 					"{} Indexing: {}/{} files ({}%)",
-					spinner_chars[spinner_idx], current_indexed, total_files, percentage
+					spinner_chars[spinner_idx], processed_total, total_files, percentage
 				);
+
+				// Show breakdown if we have skipped files
+				if current_skipped > 0 {
+					print!(" [{} new, {} unchanged]", current_indexed, current_skipped);
+				}
 
 				// Add GraphRAG info if enabled and blocks exist
 				if graphrag_enabled && graphrag_blocks > 0 {
@@ -202,6 +219,7 @@ pub async fn display_indexing_progress(state: Arc<RwLock<state::IndexState>>) {
 
 	// Final summary message
 	let final_indexed;
+	let final_skipped;
 	let final_total;
 	let final_graphrag_enabled;
 	let final_graphrag_blocks;
@@ -209,6 +227,7 @@ pub async fn display_indexing_progress(state: Arc<RwLock<state::IndexState>>) {
 	{
 		let final_state = state.read();
 		final_indexed = final_state.indexed_files;
+		final_skipped = final_state.skipped_files;
 		final_total = final_state.total_files;
 		final_graphrag_enabled = final_state.graphrag_enabled;
 		final_graphrag_blocks = final_state.graphrag_blocks;
@@ -216,14 +235,31 @@ pub async fn display_indexing_progress(state: Arc<RwLock<state::IndexState>>) {
 
 	print!("\r\x1b[K"); // Clear the line before final message
 	if !final_graphrag_enabled {
-		println!(
-			"✓ Indexing complete! {} of {} files processed",
-			final_indexed, final_total
-		);
+		if final_skipped > 0 {
+			println!(
+				"✓ Indexing complete! {} of {} files processed ({} new, {} unchanged)",
+				final_indexed + final_skipped,
+				final_total,
+				final_indexed,
+				final_skipped
+			);
+		} else {
+			println!(
+				"✓ Indexing complete! {} of {} files processed",
+				final_indexed, final_total
+			);
+		}
 	} else {
-		println!(
-			"✓ Indexing complete! {} of {} files processed, GraphRAG: {} blocks",
-			final_indexed, final_total, final_graphrag_blocks
-		);
+		if final_skipped > 0 {
+			println!(
+				"✓ Indexing complete! {} of {} files processed ({} new, {} unchanged), GraphRAG: {} blocks",
+				final_indexed + final_skipped, final_total, final_indexed, final_skipped, final_graphrag_blocks
+			);
+		} else {
+			println!(
+				"✓ Indexing complete! {} of {} files processed, GraphRAG: {} blocks",
+				final_indexed, final_total, final_graphrag_blocks
+			);
+		}
 	}
 }
