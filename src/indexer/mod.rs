@@ -370,6 +370,7 @@ pub fn detect_language(path: &std::path::Path) -> Option<&str> {
 		"cpp" | "cc" | "cxx" | "c++" | "hpp" | "h" => Some("cpp"),
 		"sh" | "bash" => Some("bash"),
 		"rb" => Some("ruby"),
+		"svelte" => Some("svelte"),
 		"md" => Some("markdown"),
 		_ => None,
 	}

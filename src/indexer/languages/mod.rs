@@ -27,6 +27,7 @@ mod php;
 mod python;
 mod ruby;
 mod rust;
+mod svelte;
 mod typescript;
 
 // Re-export language modules
@@ -39,6 +40,7 @@ pub use php::Php;
 pub use python::Python;
 pub use ruby::Ruby;
 pub use rust::Rust;
+pub use svelte::Svelte;
 pub use typescript::TypeScript;
 
 /// Common trait for all language parsers
@@ -102,6 +104,7 @@ pub fn get_language(name: &str) -> Option<Box<dyn Language>> {
 		"bash" => Some(Box::new(Bash {})),
 		"ruby" => Some(Box::new(Ruby {})),
 		"json" => Some(Box::new(Json {})),
+		"svelte" => Some(Box::new(Svelte {})),
 		_ => None,
 	}
 }
