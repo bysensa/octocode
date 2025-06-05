@@ -91,6 +91,10 @@ fn default_embeddings_batch_size() -> usize {
 	32
 }
 
+fn default_embeddings_max_tokens_per_batch() -> usize {
+	100000
+}
+
 // Embedding configuration defaults
 fn default_embedding_config() -> EmbeddingConfig {
 	EmbeddingConfig {
@@ -160,6 +164,12 @@ pub struct IndexConfig {
 	#[serde(default = "default_embeddings_batch_size")]
 	pub embeddings_batch_size: usize,
 
+	/// Maximum tokens per batch for embeddings generation (global limit).
+	/// This prevents API errors like "max allowed tokens per submitted batch is 120000".
+	/// Uses tiktoken cl100k_base tokenizer for counting. Default: 100000
+	#[serde(default = "default_embeddings_max_tokens_per_batch")]
+	pub embeddings_max_tokens_per_batch: usize,
+
 	#[serde(default = "default_graphrag_enabled")]
 	pub graphrag_enabled: bool,
 
@@ -184,6 +194,7 @@ impl Default for IndexConfig {
 			chunk_size: default_chunk_size(),
 			chunk_overlap: default_chunk_overlap(),
 			embeddings_batch_size: default_embeddings_batch_size(),
+			embeddings_max_tokens_per_batch: default_embeddings_max_tokens_per_batch(),
 			graphrag_enabled: default_graphrag_enabled(),
 			llm_enabled: default_graphrag_enabled(),
 			require_git: default_require_git(),

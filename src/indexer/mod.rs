@@ -27,7 +27,7 @@ pub use languages::*;
 pub use search::*;
 
 use crate::config::Config;
-use crate::embedding::calculate_unique_content_hash;
+use crate::embedding::{calculate_unique_content_hash, count_tokens};
 use crate::mcp::logging::{
 	log_file_processing_error, log_indexing_progress, log_performance_metrics,
 };
@@ -1032,19 +1032,19 @@ pub async fn index_files(
 						);
 					}
 
-					// Process batches when they reach the batch size
-					if code_blocks_batch.len() >= config.index.embeddings_batch_size {
+					// Process batches when they reach the batch size or token limit
+					if should_process_batch(&code_blocks_batch, |b| &b.content, config) {
 						embedding_calls += code_blocks_batch.len();
 						process_code_blocks_batch(store, &code_blocks_batch, config).await?;
 						code_blocks_batch.clear();
 					}
 					// Only process text_blocks_batch if we have any (from unsupported files)
-					if text_blocks_batch.len() >= config.index.embeddings_batch_size {
+					if should_process_batch(&text_blocks_batch, |b| &b.content, config) {
 						embedding_calls += text_blocks_batch.len();
 						process_text_blocks_batch(store, &text_blocks_batch, config).await?;
 						text_blocks_batch.clear();
 					}
-					if document_blocks_batch.len() >= config.index.embeddings_batch_size {
+					if should_process_batch(&document_blocks_batch, |b| &b.content, config) {
 						embedding_calls += document_blocks_batch.len();
 						process_document_blocks_batch(store, &document_blocks_batch, config)
 							.await?;
@@ -1092,8 +1092,8 @@ pub async fn index_files(
 							);
 						}
 
-						// Process batch when it reaches the batch size
-						if text_blocks_batch.len() >= config.index.embeddings_batch_size {
+						// Process batch when it reaches the batch size or token limit
+						if should_process_batch(&text_blocks_batch, |b| &b.content, config) {
 							embedding_calls += text_blocks_batch.len();
 							process_text_blocks_batch(store, &text_blocks_batch, config).await?;
 							text_blocks_batch.clear();
@@ -1798,6 +1798,29 @@ async fn process_document_blocks_batch(
 	log_performance_metrics("document_blocks_batch", duration_ms, blocks.len(), None);
 
 	Ok(())
+}
+
+/// Check if a batch should be processed based on size and token limits
+fn should_process_batch<T>(
+	batch: &[T],
+	get_content: impl Fn(&T) -> &str,
+	config: &Config,
+) -> bool {
+	if batch.is_empty() {
+		return false;
+	}
+	
+	// Check size limit
+	if batch.len() >= config.index.embeddings_batch_size {
+		return true;
+	}
+	
+	// Check token limit
+	let total_tokens: usize = batch.iter()
+		.map(|item| count_tokens(get_content(item)))
+		.sum();
+	
+	total_tokens >= config.index.embeddings_max_tokens_per_batch
 }
 
 // Constants for text chunking

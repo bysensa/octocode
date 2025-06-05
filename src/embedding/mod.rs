@@ -19,6 +19,7 @@ pub mod types;
 
 use crate::config::Config;
 use anyhow::Result;
+use tiktoken_rs::cl100k_base;
 
 pub use provider::{create_embedding_provider_from_parts, EmbeddingProvider};
 pub use types::*;
@@ -43,7 +44,48 @@ pub async fn generate_embeddings(
 	provider_impl.generate_embedding(contents).await
 }
 
+/// Count tokens in a text using tiktoken (cl100k_base tokenizer)
+pub fn count_tokens(text: &str) -> usize {
+	let bpe = cl100k_base().expect("Failed to load cl100k_base tokenizer");
+	bpe.encode_with_special_tokens(text).len()
+}
+
+/// Split texts into batches respecting both count and token limits
+pub fn split_texts_into_token_limited_batches(
+	texts: Vec<String>,
+	max_batch_size: usize,
+	max_tokens_per_batch: usize,
+) -> Vec<Vec<String>> {
+	let mut batches = Vec::new();
+	let mut current_batch = Vec::new();
+	let mut current_token_count = 0;
+
+	for text in texts {
+		let text_tokens = count_tokens(&text);
+		
+		// If adding this text would exceed either limit, start a new batch
+		if !current_batch.is_empty() && 
+		   (current_batch.len() >= max_batch_size || 
+		    current_token_count + text_tokens > max_tokens_per_batch) {
+			batches.push(current_batch);
+			current_batch = Vec::new();
+			current_token_count = 0;
+		}
+		
+		current_batch.push(text);
+		current_token_count += text_tokens;
+	}
+
+	// Add the last batch if it's not empty
+	if !current_batch.is_empty() {
+		batches.push(current_batch);
+	}
+
+	batches
+}
+
 /// Generate batch embeddings based on configured provider (supports provider:model format)
+/// Now includes token-aware batching
 pub async fn generate_embeddings_batch(
 	texts: Vec<String>,
 	is_code: bool,
@@ -60,9 +102,23 @@ pub async fn generate_embeddings_batch(
 	let (provider, model) = parse_provider_model(model_string);
 
 	let provider_impl = create_embedding_provider_from_parts(&provider, &model)?;
-	let embeddings = provider_impl.generate_embeddings_batch(texts).await?;
+	
+	// Split texts into token-limited batches
+	let batches = split_texts_into_token_limited_batches(
+		texts,
+		config.index.embeddings_batch_size,
+		config.index.embeddings_max_tokens_per_batch,
+	);
 
-	Ok(embeddings)
+	let mut all_embeddings = Vec::new();
+	
+	// Process each batch
+	for batch in batches {
+		let batch_embeddings = provider_impl.generate_embeddings_batch(batch).await?;
+		all_embeddings.extend(batch_embeddings);
+	}
+
+	Ok(all_embeddings)
 }
 
 /// Calculate a unique hash for content including file path
