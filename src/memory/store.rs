@@ -352,12 +352,52 @@ impl MemoryStore {
 			}
 		}
 
-		// Sort by relevance score (highest first)
-		results.sort_by(|a, b| {
-			b.relevance_score
-				.partial_cmp(&a.relevance_score)
-				.unwrap_or(std::cmp::Ordering::Equal)
-		});
+		// Apply sorting based on query parameters
+		if let Some(sort_by) = &query.sort_by {
+			let sort_order = query
+				.sort_order
+				.as_ref()
+				.unwrap_or(&super::types::SortOrder::Descending);
+
+			results.sort_by(|a, b| {
+				let ordering = match sort_by {
+					super::types::MemorySortBy::CreatedAt => {
+						a.memory.created_at.cmp(&b.memory.created_at)
+					}
+					super::types::MemorySortBy::UpdatedAt => {
+						a.memory.updated_at.cmp(&b.memory.updated_at)
+					}
+					super::types::MemorySortBy::Importance => a
+						.memory
+						.metadata
+						.importance
+						.partial_cmp(&b.memory.metadata.importance)
+						.unwrap_or(std::cmp::Ordering::Equal),
+					super::types::MemorySortBy::Confidence => a
+						.memory
+						.metadata
+						.confidence
+						.partial_cmp(&b.memory.metadata.confidence)
+						.unwrap_or(std::cmp::Ordering::Equal),
+					super::types::MemorySortBy::Relevance => a
+						.relevance_score
+						.partial_cmp(&b.relevance_score)
+						.unwrap_or(std::cmp::Ordering::Equal),
+				};
+
+				match sort_order {
+					super::types::SortOrder::Ascending => ordering,
+					super::types::SortOrder::Descending => ordering.reverse(),
+				}
+			});
+		} else {
+			// Default: Sort by relevance score (highest first)
+			results.sort_by(|a, b| {
+				b.relevance_score
+					.partial_cmp(&a.relevance_score)
+					.unwrap_or(std::cmp::Ordering::Equal)
+			});
+		}
 
 		// Apply final limit
 		results.truncate(limit);
