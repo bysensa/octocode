@@ -199,7 +199,7 @@ pub mod git {
 		Ok(String::from_utf8(output.stdout)?.trim().to_string())
 	}
 
-	/// Get files changed between two commits (including unstaged changes)
+	/// Get files changed between two commits (committed changes only, no unstaged)
 	pub fn get_changed_files_since_commit(
 		repo_path: &Path,
 		since_commit: &str,
@@ -221,55 +221,11 @@ pub mod git {
 			}
 		}
 
-		// Get unstaged changes
-		let output = Command::new("git")
-			.args(["diff", "--name-only"])
-			.current_dir(repo_path)
-			.output()?;
-
-		if output.status.success() {
-			let unstaged_files = String::from_utf8(output.stdout)?;
-			for file in unstaged_files.lines() {
-				if !file.trim().is_empty() {
-					changed_files.insert(file.trim().to_string());
-				}
-			}
-		}
-
-		// Get staged changes
-		let output = Command::new("git")
-			.args(["diff", "--cached", "--name-only"])
-			.current_dir(repo_path)
-			.output()?;
-
-		if output.status.success() {
-			let staged_files = String::from_utf8(output.stdout)?;
-			for file in staged_files.lines() {
-				if !file.trim().is_empty() {
-					changed_files.insert(file.trim().to_string());
-				}
-			}
-		}
-
-		// Get untracked files
-		let output = Command::new("git")
-			.args(["ls-files", "--others", "--exclude-standard"])
-			.current_dir(repo_path)
-			.output()?;
-
-		if output.status.success() {
-			let untracked_files = String::from_utf8(output.stdout)?;
-			for file in untracked_files.lines() {
-				if !file.trim().is_empty() {
-					changed_files.insert(file.trim().to_string());
-				}
-			}
-		}
-
 		Ok(changed_files.into_iter().collect())
 	}
 
-	/// Get all changed files (committed + staged + unstaged + untracked)
+	/// Get all working directory changes (staged + unstaged + untracked)
+	/// Note: This is used for non-git optimization scenarios only
 	pub fn get_all_changed_files(repo_path: &Path) -> Result<Vec<String>> {
 		let mut changed_files = std::collections::HashSet::new();
 
@@ -835,12 +791,12 @@ pub async fn index_files_with_quiet(
 				// Get current commit
 				if let Ok(current_commit) = git::get_current_commit_hash(git_root) {
 					if last_commit != current_commit {
-						// Get files changed since last indexed commit
+						// Commit hash changed - get files changed since last indexed commit
 						match git::get_changed_files_since_commit(git_root, &last_commit) {
 							Ok(changed_files) => {
 								if !quiet {
 									println!(
-										"🚀 Git optimization: Found {} changed files since last commit",
+										"🚀 Git optimization: Commit changed, found {} files to reindex",
 										changed_files.len()
 									);
 								}
@@ -859,42 +815,21 @@ pub async fn index_files_with_quiet(
 							}
 						}
 					} else {
-						// Same commit, only check for uncommitted changes
-						match git::get_all_changed_files(git_root) {
-							Ok(changed_files) => {
-								if changed_files.is_empty() {
-									if !quiet {
-										println!("✅ No changes since last index, skipping");
-									}
-									{
-										let mut state_guard = state.write();
-										state_guard.indexing_complete = true;
-									}
-									return Ok(());
-								} else {
-									if !quiet {
-										println!(
-											"🚀 Git optimization: Found {} uncommitted changes",
-											changed_files.len()
-										);
-									}
-									Some(
-										changed_files
-											.into_iter()
-											.collect::<std::collections::HashSet<_>>(),
-									)
-								}
-							}
-							Err(e) => {
-								eprintln!(
-									"Warning: Could not get git status, indexing all files: {}",
-									e
-								);
-								None
-							}
+						// Same commit hash - skip indexing entirely (ignore unstaged changes)
+						if !quiet {
+							println!("✅ No commit changes since last index, skipping reindex");
 						}
+						{
+							let mut state_guard = state.write();
+							state_guard.indexing_complete = true;
+						}
+						return Ok(());
 					}
 				} else {
+					// Could not get current commit, fall back to full indexing
+					if !quiet {
+						println!("⚠️  Could not get current commit hash, indexing all files");
+					}
 					None
 				}
 			} else {
