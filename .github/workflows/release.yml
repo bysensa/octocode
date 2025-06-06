@@ -253,17 +253,17 @@ jobs:
         VERSION="${{ needs.create-release.outputs.version }}"
 
         # Update release notes with download links
-        cat > release_notes.md << 'EOF'
+        cat > release_notes.md << EOF
         ## 🚀 What's Changed
 
-        ${{ needs.create-release.outputs.changelog }}
+        \${{ needs.create-release.outputs.changelog }}
 
         ## 📦 Installation
 
         ### Quick Install Script (Universal)
-        ```bash
-        curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh
-        ```
+        \`\`\`bash
+        curl -fsSL https://raw.githubusercontent.com/\${{ github.repository }}/main/install.sh | sh
+        \`\`\`
 
         **Works on:** Linux, macOS, Windows (Git Bash/WSL/MSYS2), and any Unix-like system
 
@@ -271,22 +271,21 @@ jobs:
 
         | Platform | Architecture | Download |
         |----------|--------------|----------|
-         | Linux | x86_64 (static) | [octocode-${VERSION}-x86_64-unknown-linux-musl.tar.gz](https://github.com/${{ github.repository }}/releases/download/${VERSION}/octocode-${VERSION}-x86_64-unknown-linux-musl.tar.gz) |
-         | Linux | ARM64 (static) | [octocode-${VERSION}-aarch64-unknown-linux-musl.tar.gz](https://github.com/${{ github.repository }}/releases/download/${VERSION}/octocode-${VERSION}-aarch64-unknown-linux-musl.tar.gz) |
-         | Windows | x86_64 | [octocode-${VERSION}-x86_64-pc-windows-msvc.zip](https://github.com/${{ github.repository }}/releases/download/${VERSION}/octocode-${VERSION}-x86_64-pc-windows-msvc.zip) |
-         | Windows | ARM64 | [octocode-${VERSION}-aarch64-pc-windows-msvc.zip](https://github.com/${{ github.repository }}/releases/download/${VERSION}/octocode-${VERSION}-aarch64-pc-windows-msvc.zip) |
-         | macOS | x86_64 | [octocode-${VERSION}-x86_64-apple-darwin.tar.gz](https://github.com/${{ github.repository }}/releases/download/${VERSION}/octocode-${VERSION}-x86_64-apple-darwin.tar.gz) |
-         | macOS | ARM64 | [octocode-${VERSION}-aarch64-apple-darwin.tar.gz](https://github.com/${{ github.repository }}/releases/download/${VERSION}/octocode-${VERSION}-aarch64-apple-darwin.tar.gz) |
+         | Linux | x86_64 (static) | [octocode-${VERSION}-x86_64-unknown-linux-musl.tar.gz](https://github.com/\${{ github.repository }}/releases/download/${VERSION}/octocode-${VERSION}-x86_64-unknown-linux-musl.tar.gz) |
+         | Linux | ARM64 (static) | [octocode-${VERSION}-aarch64-unknown-linux-musl.tar.gz](https://github.com/\${{ github.repository }}/releases/download/${VERSION}/octocode-${VERSION}-aarch64-unknown-linux-musl.tar.gz) |
+         | Windows | x86_64 | [octocode-${VERSION}-x86_64-pc-windows-msvc.zip](https://github.com/\${{ github.repository }}/releases/download/${VERSION}/octocode-${VERSION}-x86_64-pc-windows-msvc.zip) |
+         | Windows | ARM64 | [octocode-${VERSION}-aarch64-pc-windows-msvc.zip](https://github.com/\${{ github.repository }}/releases/download/${VERSION}/octocode-${VERSION}-aarch64-pc-windows-msvc.zip) |
+         | macOS | x86_64 | [octocode-${VERSION}-x86_64-apple-darwin.tar.gz](https://github.com/\${{ github.repository }}/releases/download/${VERSION}/octocode-${VERSION}-x86_64-apple-darwin.tar.gz) |
+         | macOS | ARM64 | [octocode-${VERSION}-aarch64-apple-darwin.tar.gz](https://github.com/\${{ github.repository }}/releases/download/${VERSION}/octocode-${VERSION}-aarch64-apple-darwin.tar.gz) |
 
-        ### Using Cargo
-        ```bash
-        cargo install octocode
-        ```
-
+         ### Using Cargo (from Git)
+         \`\`\`bash
+         cargo install --git https://github.com/\${{ github.repository }}
+         \`\`\`
         ### Verify Installation
-        ```bash
+        \`\`\`bash
         octocode --version
-        ```
+        \`\`\`
         EOF
 
         # Publish the release (remove draft status)
@@ -294,36 +293,7 @@ jobs:
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  publish-crates:
-    name: Publish to crates.io
-    needs: [create-release, build]
-    runs-on: ubuntu-latest
-    if: "!contains(needs.create-release.outputs.version, '-')"  # Only for stable releases
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
 
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@1.87.0
-
-    - name: Install protobuf compiler
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y protobuf-compiler
-
-    - name: Cache dependencies
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-cargo-
-
-    - name: Publish to crates.io
-      run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
   docker:
     name: Build and Push Docker Images
@@ -343,6 +313,10 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
+    - name: Set lowercase repository name
+      id: repo
+      run: echo "repository=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
       with:
@@ -350,7 +324,7 @@ jobs:
         platforms: linux/amd64,linux/arm64
         push: true
         tags: |
-          ghcr.io/${{ github.repository }}:latest
-          ghcr.io/${{ github.repository }}:${{ needs.create-release.outputs.version }}
+          ghcr.io/${{ steps.repo.outputs.repository }}:latest
+          ghcr.io/${{ steps.repo.outputs.repository }}:${{ needs.create-release.outputs.version }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
