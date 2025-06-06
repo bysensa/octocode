@@ -256,13 +256,13 @@ jobs:
         cat > release_notes.md << EOF
         ## 🚀 What's Changed
 
-        \${{ needs.create-release.outputs.changelog }}
+        ${{ needs.create-release.outputs.changelog }}
 
         ## 📦 Installation
 
         ### Quick Install Script (Universal)
         \`\`\`bash
-        curl -fsSL https://raw.githubusercontent.com/\${{ github.repository }}/main/install.sh | sh
+        curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh
         \`\`\`
 
         **Works on:** Linux, macOS, Windows (Git Bash/WSL/MSYS2), and any Unix-like system
@@ -271,16 +271,16 @@ jobs:
 
         | Platform | Architecture | Download |
         |----------|--------------|----------|
-         | Linux | x86_64 (static) | [octocode-${VERSION}-x86_64-unknown-linux-musl.tar.gz](https://github.com/\${{ github.repository }}/releases/download/${VERSION}/octocode-${VERSION}-x86_64-unknown-linux-musl.tar.gz) |
-         | Linux | ARM64 (static) | [octocode-${VERSION}-aarch64-unknown-linux-musl.tar.gz](https://github.com/\${{ github.repository }}/releases/download/${VERSION}/octocode-${VERSION}-aarch64-unknown-linux-musl.tar.gz) |
-         | Windows | x86_64 | [octocode-${VERSION}-x86_64-pc-windows-msvc.zip](https://github.com/\${{ github.repository }}/releases/download/${VERSION}/octocode-${VERSION}-x86_64-pc-windows-msvc.zip) |
-         | Windows | ARM64 | [octocode-${VERSION}-aarch64-pc-windows-msvc.zip](https://github.com/\${{ github.repository }}/releases/download/${VERSION}/octocode-${VERSION}-aarch64-pc-windows-msvc.zip) |
-         | macOS | x86_64 | [octocode-${VERSION}-x86_64-apple-darwin.tar.gz](https://github.com/\${{ github.repository }}/releases/download/${VERSION}/octocode-${VERSION}-x86_64-apple-darwin.tar.gz) |
-         | macOS | ARM64 | [octocode-${VERSION}-aarch64-apple-darwin.tar.gz](https://github.com/\${{ github.repository }}/releases/download/${VERSION}/octocode-${VERSION}-aarch64-apple-darwin.tar.gz) |
+         | Linux | x86_64 (static) | [octocode-${VERSION}-x86_64-unknown-linux-musl.tar.gz](https://github.com/${{ github.repository }}/releases/download/${VERSION}/octocode-${VERSION}-x86_64-unknown-linux-musl.tar.gz) |
+         | Linux | ARM64 (static) | [octocode-${VERSION}-aarch64-unknown-linux-musl.tar.gz](https://github.com/${{ github.repository }}/releases/download/${VERSION}/octocode-${VERSION}-aarch64-unknown-linux-musl.tar.gz) |
+         | Windows | x86_64 | [octocode-${VERSION}-x86_64-pc-windows-msvc.zip](https://github.com/${{ github.repository }}/releases/download/${VERSION}/octocode-${VERSION}-x86_64-pc-windows-msvc.zip) |
+         | Windows | ARM64 | [octocode-${VERSION}-aarch64-pc-windows-msvc.zip](https://github.com/${{ github.repository }}/releases/download/${VERSION}/octocode-${VERSION}-aarch64-pc-windows-msvc.zip) |
+         | macOS | x86_64 | [octocode-${VERSION}-x86_64-apple-darwin.tar.gz](https://github.com/${{ github.repository }}/releases/download/${VERSION}/octocode-${VERSION}-x86_64-apple-darwin.tar.gz) |
+         | macOS | ARM64 | [octocode-${VERSION}-aarch64-apple-darwin.tar.gz](https://github.com/${{ github.repository }}/releases/download/${VERSION}/octocode-${VERSION}-aarch64-apple-darwin.tar.gz) |
 
          ### Using Cargo (from Git)
          \`\`\`bash
-         cargo install --git https://github.com/\${{ github.repository }}
+         cargo install --git https://github.com/${{ github.repository }}
          \`\`\`
         ### Verify Installation
         \`\`\`bash
