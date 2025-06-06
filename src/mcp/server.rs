@@ -46,14 +46,14 @@ use crate::watcher_config::{
 // - MCP_INDEX_TIMEOUT_MS: Maximum time to wait for indexing to complete before timing out
 // - MCP_ENABLE_VERBOSE_EVENTS: Whether to log individual file events (useful for debugging)
 // - MCP_MAX_REQUEST_SIZE: Maximum size of incoming JSON-RPC requests (prevents memory exhaustion)
-// - MCP_IO_TIMEOUT_MS: Timeout for stdin/stdout operations (prevents hanging on broken pipes)
+// - MCP_IO_TIMEOUT_MS: Timeout for individual stdin/stdout operations (prevents hanging on broken pipes, NOT for server lifecycle)
 //
 const MCP_DEBOUNCE_MS: u64 = MCP_DEFAULT_DEBOUNCE_MS; // 2000ms = 2 seconds
 const MCP_MAX_PENDING_EVENTS: usize = 100;
 const MCP_INDEX_TIMEOUT_MS: u64 = 300_000; // 5 minutes
 const MCP_ENABLE_VERBOSE_EVENTS: bool = false; // Set to true for detailed event logging
 const MCP_MAX_REQUEST_SIZE: usize = 10_485_760; // 10MB maximum request size
-const MCP_IO_TIMEOUT_MS: u64 = 30_000; // 30 seconds for I/O operations
+const MCP_IO_TIMEOUT_MS: u64 = 30_000; // 30 seconds for individual I/O operations (NOT for server lifecycle)
 
 /// MCP Server implementation with modular tool providers
 pub struct McpServer {
@@ -240,18 +240,14 @@ impl McpServer {
 								tokio::time::sleep(Duration::from_millis(100)).await;
 							}
 						}
-						Err(_) => {
-							// Timeout on stdin read - this might indicate broken pipe or slow client
-							debug!("MCP Server: Timeout reading from stdin");
-							consecutive_errors += 1;
-							if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
-								log_critical_anyhow_error(
-									"Stdin timeout limit exceeded",
-									&anyhow::anyhow!("No input received for {} consecutive timeouts", consecutive_errors)
-								);
-								break;
-							}
-						}
+				Err(_) => {
+					// Timeout on stdin read - this is normal when no client requests are pending
+					// MCP servers should wait indefinitely for client requests, not terminate on timeouts
+					trace!("MCP Server: Timeout reading from stdin (normal - waiting for client requests)");
+					// Do NOT increment consecutive_errors for timeouts - this is expected behavior
+					// Reset consecutive_errors since timeout is not an actual error
+					consecutive_errors = 0;
+				}
 					}
 				}
 
