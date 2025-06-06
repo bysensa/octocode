@@ -3,11 +3,12 @@
 # Octocode Installation Script
 # Universal installation script that works on Unix, Linux, macOS, and Windows
 # Works with: bash, zsh, sh, Git Bash, WSL, MSYS2
+# Requires: curl (for downloading releases)
 
 set -e
 
 # Configuration
-REPO="muvon/octocode"
+REPO="Muvon/octocode"
 BINARY_NAME="octocode"
 INSTALL_DIR="${OCTOCODE_INSTALL_DIR:-$HOME/.local/bin}"
 
@@ -71,18 +72,19 @@ detect_platform() {
     esac
 }
 
-# Get the latest release version
+# Get the latest release version (including prereleases)
 get_latest_version() {
     if command_exists curl; then
-        curl -s "https://api.github.com/repos/$REPO/releases/latest" | \
+        curl -s "https://api.github.com/repos/$REPO/releases" | \
             grep '"tag_name":' | \
-            sed -E 's/.*"([^"]+)".*/\1/'
-    elif command_exists wget; then
-        wget -qO- "https://api.github.com/repos/$REPO/releases/latest" | \
-            grep '"tag_name":' | \
+            head -1 | \
             sed -E 's/.*"([^"]+)".*/\1/'
     else
-        log_error "Neither curl nor wget found. Please install one of them."
+        log_error "curl is required but not found. Please install curl."
+        log_info "On Ubuntu/Debian: sudo apt-get install curl"
+        log_info "On CentOS/RHEL: sudo yum install curl"
+        log_info "On macOS: curl is pre-installed"
+        log_info "On Windows: curl is available in Windows 10+ or install via chocolatey"
         exit 1
     fi
 }
@@ -129,19 +131,21 @@ download_and_install() {
     
     log_info "Downloading from: $url"
     
-    # Download with fallback options
-    if command -v curl >/dev/null 2>&1; then
+    # Download using curl (required)
+    if command_exists curl; then
         if ! curl -fsSL "$url" -o "$tmp_dir/$filename"; then
-            log_error "Download failed with curl"
-            exit 1
-        fi
-    elif command -v wget >/dev/null 2>&1; then
-        if ! wget -q "$url" -O "$tmp_dir/$filename"; then
-            log_error "Download failed with wget"
+            log_error "Download failed. Please check:"
+            log_error "1. Internet connection"
+            log_error "2. Release exists: $url"
+            log_error "3. GitHub is accessible"
             exit 1
         fi
     else
-        log_error "Neither curl nor wget found. Please install one of them."
+        log_error "curl is required but not found. Please install curl."
+        log_info "On Ubuntu/Debian: sudo apt-get install curl"
+        log_info "On CentOS/RHEL: sudo yum install curl"
+        log_info "On macOS: curl is pre-installed"
+        log_info "On Windows: curl is available in Windows 10+ or install via chocolatey"
         exit 1
     fi
     
@@ -235,11 +239,39 @@ verify_installation() {
     fi
 }
 
+# Check prerequisites
+check_prerequisites() {
+    if ! command_exists curl; then
+        log_error "curl is required but not found."
+        echo ""
+        log_info "Please install curl first:"
+        log_info "• Ubuntu/Debian: sudo apt-get install curl"
+        log_info "• CentOS/RHEL: sudo yum install curl"
+        log_info "• Fedora: sudo dnf install curl"
+        log_info "• Alpine: apk add curl"
+        log_info "• macOS: curl is pre-installed"
+        log_info "• Windows: curl is available in Windows 10+ or install via chocolatey"
+        echo ""
+        log_info "After installing curl, run this script again."
+        exit 1
+    fi
+    
+    # Test curl functionality
+    if ! curl --version >/dev/null 2>&1; then
+        log_error "curl is installed but not working properly."
+        log_info "Please check your curl installation."
+        exit 1
+    fi
+}
+
 # Main installation function
 main() {
     local version target
     
     log_info "Installing $BINARY_NAME..."
+    
+    # Check prerequisites first
+    check_prerequisites
     
     # Parse command line arguments
     while [ $# -gt 0 ]; do
@@ -262,6 +294,9 @@ Octocode Installation Script
 
 USAGE:
     install.sh [OPTIONS]
+
+REQUIREMENTS:
+    curl                    Required for downloading releases
 
 OPTIONS:
     --version <VERSION>     Install specific version (default: latest)
@@ -291,8 +326,8 @@ EXAMPLES WITH ENVIRONMENT VARIABLES:
     export OCTOCODE_INSTALL_DIR=/opt/bin
     ./install.sh
 
-    curl -fsSL https://raw.githubusercontent.com/muvon/octocode/main/install.sh | sh
-    curl -fsSL https://raw.githubusercontent.com/muvon/octocode/main/install.sh | sh -s -- --version 0.1.0
+    curl -fsSL https://raw.githubusercontent.com/Muvon/octocode/master/install.sh | sh
+    curl -fsSL https://raw.githubusercontent.com/Muvon/octocode/master/install.sh | sh -s -- --version 0.1.0
 
 EOF
                 exit 0

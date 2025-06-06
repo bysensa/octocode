@@ -1,4 +1,3 @@
-
 // Copyright 2025 Muvon Un Limited
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -619,7 +618,12 @@ pub(super) fn detect_line_ending(content: &str) -> &str {
 	}
 }
 
-pub(super) fn check_line_length(content: &str, max_line_length: u32, file_path: &Path, verbose: bool) {
+pub(super) fn check_line_length(
+	content: &str,
+	max_line_length: u32,
+	file_path: &Path,
+	verbose: bool,
+) {
 	if !verbose {
 		return;
 	}

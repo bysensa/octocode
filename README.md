@@ -57,15 +57,15 @@ Octocode is a powerful code indexer and semantic search engine that builds intel
 
 ### Download Prebuilt Binary (Recommended)
 ```bash
-# Universal install script (Linux, macOS, Windows)
-curl -fsSL https://raw.githubusercontent.com/muvon/octocode/main/install.sh | sh
+# Universal install script (Linux, macOS, Windows) - requires curl
+curl -fsSL https://raw.githubusercontent.com/Muvon/octocode/master/install.sh | sh
 ```
 
-Or download manually from [GitHub Releases](https://github.com/muvon/octocode/releases).
+Or download manually from [GitHub Releases](https://github.com/Muvon/octocode/releases).
 
 ### Using Cargo (from Git)
 ```bash
-cargo install --git https://github.com/muvon/octocode
+cargo install --git https://github.com/Muvon/octocode
 ```
 
 ### Build from Source
@@ -74,7 +74,7 @@ cargo install --git https://github.com/muvon/octocode
 - **Git** (for repository features)
 
 ```bash
-git clone https://github.com/muvon/octocode.git
+git clone https://github.com/Muvon/octocode.git
 cd octocode
 
 # macOS: Full build with local embeddings
@@ -339,7 +339,7 @@ octocode config --model "openai/gpt-4o-mini"
 
 ## 🤝 Support & Community
 
-- **🐛 Issues**: [GitHub Issues](https://github.com/muvon/octocode/issues)
+- **🐛 Issues**: [GitHub Issues](https://github.com/Muvon/octocode/issues)
 - **📧 Email**: [opensource@muvon.io](mailto:opensource@muvon.io)
 - **🏢 Company**: Muvon Un Limited (Hong Kong)
 
