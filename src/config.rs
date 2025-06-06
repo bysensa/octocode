@@ -34,124 +34,37 @@ use std::path::PathBuf;
 use crate::embedding::types::EmbeddingConfig;
 use crate::storage;
 
-// Default values functions
-fn default_model() -> String {
-	"openai/gpt-4.1-mini".to_string()
-}
-
-fn default_base_url() -> String {
-	"https://openrouter.ai/api/v1".to_string()
-}
-
-fn default_timeout() -> u64 {
-	120
-}
-
-fn default_output_format() -> String {
-	"markdown".to_string()
-}
-
-fn default_max_files() -> usize {
-	20
-}
-
-fn default_context_lines() -> usize {
-	3
-}
-
-fn default_search_block_max_characters() -> usize {
-	1000
-}
-
-fn default_chunk_size() -> usize {
-	2000
-}
-
-fn default_chunk_overlap() -> usize {
-	100
-}
-
-fn default_max_results() -> usize {
-	50
-}
-
-fn default_similarity_threshold() -> f32 {
-	0.6
-}
-
-fn default_top_k() -> usize {
-	20
-}
-
-fn default_graphrag_enabled() -> bool {
-	false
-}
-
-fn default_embeddings_batch_size() -> usize {
-	16 // 16 files per batch - table.add() every 16 files for better persistence
-}
-
-fn default_embeddings_max_tokens_per_batch() -> usize {
-	100000 // Keep existing token limit
-}
-
-fn default_flush_frequency() -> usize {
-	2 // Flush every 2 batches = every 32 files for coordinated persistence
-}
-
-// Embedding configuration defaults
-fn default_embedding_config() -> EmbeddingConfig {
-	EmbeddingConfig {
-		code_model: "fastembed:jinaai/jina-embeddings-v2-base-code".to_string(),
-		text_model: "fastembed:sentence-transformers/all-MiniLM-L6-v2-quantized".to_string(),
-		jina: Default::default(),
-		voyage: Default::default(),
-		google: Default::default(),
-	}
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphRAGConfig {
-	#[serde(default = "default_graphrag_enabled")]
 	pub enabled: bool,
-
-	#[serde(default = "default_model")]
 	pub description_model: String,
-
-	#[serde(default = "default_model")]
 	pub relationship_model: String,
 }
 
 impl Default for GraphRAGConfig {
 	fn default() -> Self {
 		Self {
-			enabled: default_graphrag_enabled(),
-			description_model: default_model(),
-			relationship_model: default_model(),
+			enabled: false,
+			description_model: "openai/gpt-4.1-mini".to_string(),
+			relationship_model: "openai/gpt-4.1-mini".to_string(),
 		}
 	}
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpenRouterConfig {
-	#[serde(default = "default_model")]
 	pub model: String,
-
-	#[serde(default = "default_base_url")]
 	pub base_url: String,
-
-	#[serde(default = "default_timeout")]
 	pub timeout: u64,
-
 	pub api_key: Option<String>,
 }
 
 impl Default for OpenRouterConfig {
 	fn default() -> Self {
 		Self {
-			model: default_model(),
-			base_url: default_base_url(),
-			timeout: default_timeout(),
+			model: "openai/gpt-4.1-mini".to_string(),
+			base_url: "https://openrouter.ai/api/v1".to_string(),
+			timeout: 120,
 			api_key: None,
 		}
 	}
@@ -159,57 +72,41 @@ impl Default for OpenRouterConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndexConfig {
-	#[serde(default = "default_chunk_size")]
 	pub chunk_size: usize,
-
-	#[serde(default = "default_chunk_overlap")]
 	pub chunk_overlap: usize,
-
-	#[serde(default = "default_embeddings_batch_size")]
 	pub embeddings_batch_size: usize,
 
 	/// Maximum tokens per batch for embeddings generation (global limit).
 	/// This prevents API errors like "max allowed tokens per submitted batch is 120000".
 	/// Uses tiktoken cl100k_base tokenizer for counting. Default: 100000
-	#[serde(default = "default_embeddings_max_tokens_per_batch")]
 	pub embeddings_max_tokens_per_batch: usize,
 
 	/// How often to flush data to storage during indexing (in batches).
 	/// 1 = flush after every batch (safest, slower)
 	/// 5 = flush every 5 batches (faster, less safe)
 	/// Default: 1 for maximum data safety
-	#[serde(default = "default_flush_frequency")]
 	pub flush_frequency: usize,
 
-	#[serde(default = "default_graphrag_enabled")]
 	pub graphrag_enabled: bool,
-
-	#[serde(default = "default_graphrag_enabled")]
 	pub llm_enabled: bool,
 
 	/// Require git repository for indexing (default: true)
-	#[serde(default = "default_require_git")]
 	pub require_git: bool,
 
-	#[serde(default)]
 	pub ignore_patterns: Vec<String>,
-}
-
-fn default_require_git() -> bool {
-	true
 }
 
 impl Default for IndexConfig {
 	fn default() -> Self {
 		Self {
-			chunk_size: default_chunk_size(),
-			chunk_overlap: default_chunk_overlap(),
-			embeddings_batch_size: default_embeddings_batch_size(),
-			embeddings_max_tokens_per_batch: default_embeddings_max_tokens_per_batch(),
-			flush_frequency: default_flush_frequency(),
-			graphrag_enabled: default_graphrag_enabled(),
-			llm_enabled: default_graphrag_enabled(),
-			require_git: default_require_git(),
+			chunk_size: 2000,
+			chunk_overlap: 100,
+			embeddings_batch_size: 16,
+			embeddings_max_tokens_per_batch: 100000,
+			flush_frequency: 2,
+			graphrag_enabled: false,
+			llm_enabled: false,
+			require_git: true,
 			ignore_patterns: vec![
 				".git/".to_string(),
 				"target/".to_string(),
@@ -221,46 +118,38 @@ impl Default for IndexConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchConfig {
-	#[serde(default = "default_max_results")]
 	pub max_results: usize,
-
-	#[serde(default = "default_similarity_threshold")]
 	pub similarity_threshold: f32,
-
-	#[serde(default = "default_top_k")]
 	pub top_k: usize,
-
-	#[serde(default = "default_output_format")]
 	pub output_format: String,
-
-	#[serde(default = "default_max_files")]
 	pub max_files: usize,
-
-	#[serde(default = "default_context_lines")]
 	pub context_lines: usize,
 
 	/// Maximum characters to display per code/text/doc block in search results.
 	/// If 0, displays full content. Default: 1000
-	#[serde(default = "default_search_block_max_characters")]
 	pub search_block_max_characters: usize,
 }
 
 impl Default for SearchConfig {
 	fn default() -> Self {
 		Self {
-			max_results: default_max_results(),
-			similarity_threshold: default_similarity_threshold(),
-			top_k: default_top_k(),
-			output_format: default_output_format(),
-			max_files: default_max_files(),
-			context_lines: default_context_lines(),
-			search_block_max_characters: default_search_block_max_characters(),
+			max_results: 50,
+			similarity_threshold: 0.6,
+			top_k: 20,
+			output_format: "markdown".to_string(),
+			max_files: 20,
+			context_lines: 3,
+			search_block_max_characters: 1000,
 		}
 	}
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
+	/// Configuration version for future migrations
+	#[serde(default = "default_version")]
+	pub version: u32,
+
 	#[serde(default)]
 	pub openrouter: OpenRouterConfig,
 
@@ -270,20 +159,25 @@ pub struct Config {
 	#[serde(default)]
 	pub search: SearchConfig,
 
-	#[serde(default = "default_embedding_config")]
+	#[serde(default)]
 	pub embedding: EmbeddingConfig,
 
 	#[serde(default)]
 	pub graphrag: GraphRAGConfig,
 }
 
+fn default_version() -> u32 {
+	1
+}
+
 impl Default for Config {
 	fn default() -> Self {
 		Self {
+			version: default_version(),
 			openrouter: OpenRouterConfig::default(),
 			index: IndexConfig::default(),
 			search: SearchConfig::default(),
-			embedding: default_embedding_config(),
+			embedding: EmbeddingConfig::default(),
 			graphrag: GraphRAGConfig::default(),
 		}
 	}
@@ -297,9 +191,8 @@ impl Config {
 			let content = fs::read_to_string(&config_path)?;
 			toml::from_str(&content)?
 		} else {
-			// Create default config if it doesn't exist
-			let config = Config::default();
-			let toml_content = toml::to_string_pretty(&config)?;
+			// Load from template first, then save to system config
+			let template_config = Self::load_from_template()?;
 
 			// Ensure the parent directory exists
 			if let Some(parent) = config_path.parent() {
@@ -308,8 +201,10 @@ impl Config {
 				}
 			}
 
+			// Save template as the new config
+			let toml_content = toml::to_string_pretty(&template_config)?;
 			fs::write(&config_path, toml_content)?;
-			config
+			template_config
 		};
 
 		// Environment variables take precedence over config file values
@@ -318,6 +213,26 @@ impl Config {
 		}
 
 		Ok(config)
+	}
+
+	/// Load configuration from the default template
+	fn load_from_template() -> Result<Self> {
+		// Try to load from embedded template first
+		let template_content = Self::get_default_template_content()?;
+		let config: Config = toml::from_str(&template_content)?;
+		Ok(config)
+	}
+
+	/// Get the default template content
+	fn get_default_template_content() -> Result<String> {
+		// First try to read from config-templates/default.toml in the current directory
+		let template_path = std::path::Path::new("config-templates/default.toml");
+		if template_path.exists() {
+			return Ok(fs::read_to_string(template_path)?);
+		}
+
+		// If not found, use embedded template
+		Ok(include_str!("../config-templates/default.toml").to_string())
 	}
 
 	pub fn save(&self) -> Result<()> {
@@ -362,12 +277,33 @@ mod tests {
 	#[test]
 	fn test_default_config() {
 		let config = Config::default();
+		assert_eq!(config.version, 1);
 		assert_eq!(config.openrouter.model, "openai/gpt-4.1-mini");
 		assert_eq!(config.index.chunk_size, 2000);
 		assert_eq!(config.search.max_results, 50);
 		assert_eq!(
 			config.embedding.get_active_provider(),
 			crate::embedding::types::EmbeddingProviderType::FastEmbed
+		);
+	}
+
+	#[test]
+	fn test_template_loading() {
+		let result = Config::load_from_template();
+		assert!(result.is_ok(), "Should be able to load from template");
+
+		let config = result.unwrap();
+		assert_eq!(config.version, 1);
+		assert_eq!(config.openrouter.model, "openai/gpt-4.1-mini");
+		assert_eq!(config.index.chunk_size, 2000);
+		assert_eq!(config.search.max_results, 50);
+		assert_eq!(
+			config.embedding.code_model,
+			"fastembed:jinaai/jina-embeddings-v2-base-code"
+		);
+		assert_eq!(
+			config.embedding.text_model,
+			"fastembed:sentence-transformers/all-MiniLM-L6-v2-quantized"
 		);
 	}
 }

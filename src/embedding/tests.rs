@@ -105,9 +105,6 @@ mod embedding_tests {
 		let config = EmbeddingConfig {
 			code_model: "sentencetransformer:microsoft/codebert-base".to_string(),
 			text_model: "sentencetransformer:sentence-transformers/all-mpnet-base-v2".to_string(),
-			jina: Default::default(),
-			voyage: Default::default(),
-			google: Default::default(),
 		};
 
 		// Test getting active provider

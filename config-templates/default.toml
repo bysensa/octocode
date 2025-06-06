@@ -1,0 +1,45 @@
+# Default configuration for Octocode
+# This file contains all default values and serves as the template for new installations
+# Version: 1 (for future migration support)
+version = 1
+
+[openrouter]
+model = "openai/gpt-4.1-mini"
+base_url = "https://openrouter.ai/api/v1"
+timeout = 120
+# api_key = "" # Set via environment variable OPENROUTER_API_KEY
+
+[index]
+chunk_size = 2000
+chunk_overlap = 100
+embeddings_batch_size = 16  # 16 files per batch - table.add() every 16 files for better persistence
+embeddings_max_tokens_per_batch = 100000  # Keep existing token limit
+flush_frequency = 2  # Flush every 2 batches = every 32 files for coordinated persistence
+graphrag_enabled = false
+llm_enabled = false
+require_git = true  # Require git repository for indexing
+ignore_patterns = [
+    ".git/",
+    "target/",
+    "node_modules/",
+]
+
+[search]
+max_results = 20
+similarity_threshold = 0.65
+top_k = 10
+output_format = "markdown"
+max_files = 10
+context_lines = 3
+search_block_max_characters = 400  # Maximum characters to display per code/text/doc block
+
+[embedding]
+code_model = "voyage:voyage-code-3"
+text_model = "voyage:voyage-3.5-lite"
+# API keys are sourced from environment variables:
+# JINA_API_KEY, VOYAGE_API_KEY, GOOGLE_API_KEY
+
+[graphrag]
+enabled = false
+description_model = "openai/gpt-4.1-mini"
+relationship_model = "openai/gpt-4.1-mini"

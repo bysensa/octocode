@@ -35,52 +35,19 @@ impl Default for EmbeddingProviderType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingConfig {
 	/// Code embedding model (format: "provider:model")
-	#[serde(default = "default_code_model")]
 	pub code_model: String,
 
 	/// Text embedding model (format: "provider:model")
-	#[serde(default = "default_text_model")]
 	pub text_model: String,
-
-	/// Jina AI configuration (API key only)
-	#[serde(default)]
-	pub jina: JinaConfig,
-
-	/// Voyage AI configuration (API key only)
-	#[serde(default)]
-	pub voyage: VoyageConfig,
-
-	/// Google configuration (API key only)
-	#[serde(default)]
-	pub google: GoogleConfig,
 }
 
-/// Default code model
-fn default_code_model() -> String {
-	"fastembed:all-MiniLM-L6-v2".to_string()
-}
-
-/// Default text model
-fn default_text_model() -> String {
-	"fastembed:multilingual-e5-small".to_string()
-}
-
-/// Jina AI specific configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct JinaConfig {
-	pub api_key: Option<String>,
-}
-
-/// Voyage AI specific configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct VoyageConfig {
-	pub api_key: Option<String>,
-}
-
-/// Google specific configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct GoogleConfig {
-	pub api_key: Option<String>,
+impl Default for EmbeddingConfig {
+	fn default() -> Self {
+		Self {
+			code_model: "fastembed:jinaai/jina-embeddings-v2-base-code".to_string(),
+			text_model: "fastembed:sentence-transformers/all-MiniLM-L6-v2-quantized".to_string(),
+		}
+	}
 }
 
 /// Parse provider and model from a string in format "provider:model"
@@ -110,21 +77,12 @@ impl EmbeddingConfig {
 		provider
 	}
 
-	/// Get API key for a specific provider (checks environment variables first)
+	/// Get API key for a specific provider (from environment variables only)
 	pub fn get_api_key(&self, provider: &EmbeddingProviderType) -> Option<String> {
 		match provider {
-			EmbeddingProviderType::Jina => {
-				// Environment variable takes priority
-				std::env::var("JINA_API_KEY")
-					.ok()
-					.or_else(|| self.jina.api_key.clone())
-			}
-			EmbeddingProviderType::Voyage => std::env::var("VOYAGE_API_KEY")
-				.ok()
-				.or_else(|| self.voyage.api_key.clone()),
-			EmbeddingProviderType::Google => std::env::var("GOOGLE_API_KEY")
-				.ok()
-				.or_else(|| self.google.api_key.clone()),
+			EmbeddingProviderType::Jina => std::env::var("JINA_API_KEY").ok(),
+			EmbeddingProviderType::Voyage => std::env::var("VOYAGE_API_KEY").ok(),
+			EmbeddingProviderType::Google => std::env::var("GOOGLE_API_KEY").ok(),
 			_ => None, // FastEmbed and SentenceTransformer don't need API keys
 		}
 	}
