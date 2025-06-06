@@ -799,8 +799,14 @@ async fn perform_indexing(
 	};
 
 	// Perform the indexing directly (same as watch command in quiet mode)
-	let indexing_result =
-		indexer::index_files(store, state.clone(), config, git_repo_root.as_deref()).await;
+	let indexing_result = indexer::index_files_with_quiet(
+		store,
+		state.clone(),
+		config,
+		git_repo_root.as_deref(),
+		true,
+	)
+	.await;
 
 	let duration_ms = start_time.elapsed().as_millis() as u64;
 

@@ -20,7 +20,7 @@ use tokio::time::Duration;
 use tracing::{debug, warn};
 
 use crate::config::Config;
-use crate::mcp::logging::{log_critical_anyhow_error, log_critical_error};
+use crate::mcp::logging::log_critical_anyhow_error;
 use crate::mcp::types::McpTool;
 use crate::memory::{MemoryManager, MemoryQuery, MemoryType};
 
@@ -363,26 +363,14 @@ impl MemoryProvider {
 
 		let memory = memory_result?;
 
-		// Return compact JSON response for token efficiency with safe serialization
-		let response = json!({
-			"success": 1,
-			"memory_id": memory.id,
-			"message": "Memory stored successfully"
-		});
-
-		// Ensure proper JSON encoding to avoid string slicing issues
-		// Use to_string_pretty for better error handling with Unicode
-		match serde_json::to_string_pretty(&response) {
-			Ok(json_str) => Ok(json_str),
-			Err(e) => {
-				// Fallback to minimal response if JSON encoding fails
-				log_critical_error("Memory response serialization failed", &e);
-				Ok(format!(
-					r#"{{"success": 1, "memory_id": "{}", "message": "Memory stored successfully"}}"#,
-					memory.id
-				))
-			}
-		}
+		// Return plain text response for MCP protocol compliance
+		Ok(format!(
+			"✅ Memory stored successfully\n\nMemory ID: {}\nTitle: {}\nType: {}\nCreated: {}",
+			memory.id,
+			memory.title,
+			memory.memory_type,
+			memory.created_at.format("%Y-%m-%d %H:%M:%S UTC")
+		))
 	}
 
 	/// Execute the remember tool
@@ -474,52 +462,61 @@ impl MemoryProvider {
 		};
 
 		if results.is_empty() {
-			let response = json!({
-				"success": 1,
-				"memories_found": 0,
-				"message": "No stored memories match your query. Try using different search terms, removing filters, or checking if any memories have been stored yet."
-			});
-			return Ok(serde_json::to_string(&response)?);
+			return Ok("No stored memories match your query. Try using different search terms, removing filters, or checking if any memories have been stored yet.".to_string());
 		}
 
-		// Create a structured response that is JSON-safe
-		let mut memories_data = Vec::new();
+		// Create a structured markdown response for better readability
+		let mut response = format!("🧠 Found {} matching memories:\n\n", results.len());
 
 		for (i, result) in results.iter().enumerate() {
-			let memory_data = json!({
-				"index": i + 1,
-				"relevance_score": result.relevance_score,
-				"memory_id": result.memory.id,
-				"title": Self::sanitize_content(&result.memory.title),
-				"memory_type": result.memory.memory_type.to_string(),
-				"importance": result.memory.metadata.importance,
-				"created_at": result.memory.created_at.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
-				"git_commit": result.memory.metadata.git_commit.as_deref().unwrap_or("None"),
-				"tags": if result.memory.metadata.tags.is_empty() {
-					"None".to_string()
-				} else {
+			response.push_str(&format!(
+				"## {}. {} (Score: {:.2})\n\n",
+				i + 1,
+				Self::sanitize_content(&result.memory.title),
+				result.relevance_score
+			));
+
+			response.push_str(&format!(
+				"**Type:** {} | **Importance:** {:.1} | **Created:** {}\n",
+				result.memory.memory_type,
+				result.memory.metadata.importance,
+				result.memory.created_at.format("%Y-%m-%d %H:%M:%S UTC")
+			));
+
+			if !result.memory.metadata.tags.is_empty() {
+				response.push_str(&format!(
+					"**Tags:** {}\n",
 					result.memory.metadata.tags.join(", ")
-				},
-				"related_files": if result.memory.metadata.related_files.is_empty() {
-					"None".to_string()
-				} else {
+				));
+			}
+
+			if !result.memory.metadata.related_files.is_empty() {
+				response.push_str(&format!(
+					"**Related Files:** {}\n",
 					result.memory.metadata.related_files.join(", ")
-				},
-				"content": Self::sanitize_content(&result.memory.content),
-				"selection_reason": Self::sanitize_content(&result.selection_reason)
-			});
-			memories_data.push(memory_data);
+				));
+			}
+
+			if let Some(git_commit) = &result.memory.metadata.git_commit {
+				response.push_str(&format!("**Git Commit:** {}\n", git_commit));
+			}
+
+			response.push_str(&format!("**Memory ID:** {}\n\n", result.memory.id));
+
+			response.push_str(&format!(
+				"**Content:**\n{}\n\n",
+				Self::sanitize_content(&result.memory.content)
+			));
+
+			response.push_str(&format!(
+				"**Why selected:** {}\n\n",
+				Self::sanitize_content(&result.selection_reason)
+			));
+
+			response.push_str("---\n\n");
 		}
 
-		// Create a structured JSON response
-		let response = json!({
-			"success": 1,
-			"memories_found": results.len(),
-			"memories": memories_data
-		});
-
-		// Return properly encoded JSON to avoid string slicing issues
-		Ok(serde_json::to_string_pretty(&response)?)
+		Ok(response)
 	}
 
 	/// Execute the forget tool
@@ -530,22 +527,17 @@ impl MemoryProvider {
 			.and_then(|v| v.as_bool())
 			.unwrap_or(false)
 		{
-			let response = json!({
-				"success": 0,
-				"error": "Missing required confirmation: set 'confirm' to true to proceed with deletion"
-			});
-			return Ok(serde_json::to_string(&response)?);
+			return Ok(
+				"❌ Missing required confirmation: set 'confirm' to true to proceed with deletion"
+					.to_string(),
+			);
 		}
 
 		// Handle specific memory ID deletion
 		if let Some(memory_id) = arguments.get("memory_id").and_then(|v| v.as_str()) {
 			// Validate memory ID format
 			if memory_id.trim().is_empty() || memory_id.len() > 100 {
-				let response = json!({
-					"success": 0,
-					"error": "Invalid memory ID format"
-				});
-				return Ok(serde_json::to_string(&response)?);
+				return Ok("❌ Invalid memory ID format".to_string());
 			}
 
 			// Use structured logging instead of console output for MCP protocol compliance
@@ -567,22 +559,13 @@ impl MemoryProvider {
 				}
 			};
 			match res {
-				Ok(_) => {
-					let response = json!({
-						"success": 1,
-						"memory_id": memory_id,
-						"message": "Memory deleted successfully"
-					});
-					Ok(serde_json::to_string(&response)?)
-				}
+				Ok(_) => Ok(format!(
+					"✅ Memory deleted successfully\n\nMemory ID: {}",
+					memory_id
+				)),
 				Err(e) => {
 					log_critical_anyhow_error("Memory deletion failed", &e);
-					let response = json!({
-						"success": 0,
-						"memory_id": memory_id,
-						"error": format!("Failed to delete memory: {}", e)
-					});
-					Ok(serde_json::to_string(&response)?)
+					Ok(format!("❌ Failed to delete memory: {}", e))
 				}
 			}
 		}
@@ -590,19 +573,11 @@ impl MemoryProvider {
 		else if let Some(query) = arguments.get("query").and_then(|v| v.as_str()) {
 			// Validate UTF-8 to prevent panics
 			if !query.is_ascii() && std::str::from_utf8(query.as_bytes()).is_err() {
-				let response = json!({
-					"success": 0,
-					"error": "Invalid UTF-8 in query"
-				});
-				return Ok(serde_json::to_string(&response)?);
+				return Ok("❌ Invalid UTF-8 in query".to_string());
 			}
 
 			if query.len() < 3 || query.len() > 500 {
-				let response = json!({
-					"success": 0,
-					"error": "Query must be between 3 and 500 characters"
-				});
-				return Ok(serde_json::to_string(&response)?);
+				return Ok("❌ Query must be between 3 and 500 characters".to_string());
 			}
 			// Parse memory types filter
 			let memory_types = if let Some(types_array) =
@@ -655,28 +630,14 @@ impl MemoryProvider {
 				manager.forget_matching(memory_query).await
 			};
 			match res {
-				Ok(deleted_count) => {
-					let response = json!({
-						"success": 1,
-						"deleted_count": deleted_count,
-						"message": format!("{} memories deleted successfully", deleted_count)
-					});
-					Ok(serde_json::to_string(&response)?)
-				}
-				Err(e) => {
-					let response = json!({
-						"success": 0,
-						"error": format!("Failed to delete memories: {}", e)
-					});
-					Ok(serde_json::to_string(&response)?)
-				}
+				Ok(deleted_count) => Ok(format!(
+					"✅ {} memories deleted successfully\n\nQuery: \"{}\"",
+					deleted_count, query
+				)),
+				Err(e) => Ok(format!("❌ Failed to delete memories: {}", e)),
 			}
 		} else {
-			let response = json!({
-				"success": 0,
-				"error": "Either 'memory_id' or 'query' must be provided"
-			});
-			Ok(serde_json::to_string(&response)?)
+			Ok("❌ Either 'memory_id' or 'query' must be provided".to_string())
 		}
 	}
 }

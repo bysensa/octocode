@@ -787,6 +787,16 @@ pub async fn index_files(
 	config: &Config,
 	git_repo_root: Option<&Path>,
 ) -> Result<()> {
+	index_files_with_quiet(store, state, config, git_repo_root, false).await
+}
+
+pub async fn index_files_with_quiet(
+	store: &Store,
+	state: SharedState,
+	config: &Config,
+	git_repo_root: Option<&Path>,
+	quiet: bool,
+) -> Result<()> {
 	let current_dir = state.read().current_directory.clone();
 	let mut code_blocks_batch = Vec::new();
 	let mut text_blocks_batch = Vec::new();
@@ -828,10 +838,12 @@ pub async fn index_files(
 						// Get files changed since last indexed commit
 						match git::get_changed_files_since_commit(git_root, &last_commit) {
 							Ok(changed_files) => {
-								println!(
-									"🚀 Git optimization: Found {} changed files since last commit",
-									changed_files.len()
-								);
+								if !quiet {
+									println!(
+										"🚀 Git optimization: Found {} changed files since last commit",
+										changed_files.len()
+									);
+								}
 								Some(
 									changed_files
 										.into_iter()
@@ -851,17 +863,21 @@ pub async fn index_files(
 						match git::get_all_changed_files(git_root) {
 							Ok(changed_files) => {
 								if changed_files.is_empty() {
-									println!("✅ No changes since last index, skipping");
+									if !quiet {
+										println!("✅ No changes since last index, skipping");
+									}
 									{
 										let mut state_guard = state.write();
 										state_guard.indexing_complete = true;
 									}
 									return Ok(());
 								} else {
-									println!(
-										"🚀 Git optimization: Found {} uncommitted changes",
-										changed_files.len()
-									);
+									if !quiet {
+										println!(
+											"🚀 Git optimization: Found {} uncommitted changes",
+											changed_files.len()
+										);
+									}
 									Some(
 										changed_files
 											.into_iter()
@@ -883,7 +899,9 @@ pub async fn index_files(
 				}
 			} else {
 				// No previous commit stored, need to index all files for baseline
-				println!("📋 First-time git indexing: indexing all files");
+				if !quiet {
+					println!("📋 First-time git indexing: indexing all files");
+				}
 				None
 			}
 		} else {
@@ -929,10 +947,12 @@ pub async fn index_files(
 	}
 
 	let file_metadata_map = store.get_all_file_metadata().await?;
-	println!(
-		"📊 Loaded metadata for {} files from database",
-		file_metadata_map.len()
-	);
+	if !quiet {
+		println!(
+			"📊 Loaded metadata for {} files from database",
+			file_metadata_map.len()
+		);
+	}
 
 	// Progressive processing: Skip separate counting phase and count during processing
 	{
