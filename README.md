@@ -47,29 +47,85 @@ Octocode is a powerful code indexer and semantic search engine that builds intel
 - **Smart batching**: 16 files per batch with token-aware API optimization
 - **Frequent persistence**: Data saved every 16 files (max 16 files at risk)
 - **Fast file traversal**: Single-pass progressive counting and processing
-- Local embedding models (FastEmbed, SentenceTransformer)
-- Cloud providers (Jina AI, Voyage AI, Google)
+- **Local embedding models**: FastEmbed and SentenceTransformer (macOS only)
+- **Cloud embedding providers**: Voyage AI (default), Jina AI, Google
+- **Free tier available**: Voyage AI provides 200M free tokens monthly
 - Lance columnar database for fast vector search
 - Incremental indexing and git-aware optimization
 
 ## 📦 Installation
 
-### Prerequisites
+### Download Prebuilt Binary (Recommended)
+```bash
+# Universal install script (Linux, macOS, Windows)
+curl -fsSL https://raw.githubusercontent.com/muvon/octocode/main/install.sh | sh
+```
+
+Or download manually from [GitHub Releases](https://github.com/muvon/octocode/releases).
+
+### Using Cargo (from Git)
+```bash
+cargo install --git https://github.com/muvon/octocode
+```
+
+### Build from Source
+**Prerequisites:**
 - **Rust 1.70+** ([install from rustup.rs](https://rustup.rs/))
 - **Git** (for repository features)
 
-### Build from Source
 ```bash
 git clone https://github.com/muvon/octocode.git
 cd octocode
+
+# macOS: Full build with local embeddings
 cargo build --release
+
+# Windows/Linux: Cloud embeddings only (due to ONNX Runtime issues)
+cargo build --release --no-default-features
 ```
 
-The binary will be available at `target/release/octocode`.
+**Note**: Prebuilt binaries use cloud embeddings only. Local embeddings require building from source on macOS.
+
+## 🔑 Getting Started - API Keys
+
+**⚠️ Important**: Octocode requires API keys to function. Local embedding models are only available on macOS builds.
+
+### Required: Voyage AI (Embeddings)
+```bash
+export VOYAGE_API_KEY="your-voyage-api-key"
+```
+- **Free tier**: 200M tokens per month
+- **Get API key**: [voyageai.com](https://www.voyageai.com/)
+- **Used for**: Code and text embeddings (semantic search)
+
+### Optional: OpenRouter (LLM Features)
+```bash
+export OPENROUTER_API_KEY="your-openrouter-api-key"
+```
+- **Get API key**: [openrouter.ai](https://openrouter.ai/)
+- **Used for**: Commit messages, code review, GraphRAG descriptions
+- **Note**: Basic search and indexing work without this
+
+### Platform Limitations
+- **Windows/Linux**: Must use cloud embeddings (Voyage AI default)
+- **macOS**: Can use local embeddings (build from source) or cloud embeddings
 
 ## 🚀 Quick Start
 
-### 1. Basic Setup
+### 1. Setup API Keys (Required)
+```bash
+# Set Voyage AI API key for embeddings (free 200M tokens/month)
+export VOYAGE_API_KEY="your-voyage-api-key"
+
+# Optional: Set OpenRouter API key for LLM features (commit, review, GraphRAG)
+export OPENROUTER_API_KEY="your-openrouter-api-key"
+```
+
+**Get your free API keys:**
+- **Voyage AI**: [Get free API key](https://www.voyageai.com/) (200M tokens/month free)
+- **OpenRouter**: [Get API key](https://openrouter.ai/) (optional, for LLM features)
+
+### 2. Basic Usage
 ```bash
 # Index your current directory
 octocode index
@@ -81,7 +137,7 @@ octocode search "HTTP request handling"
 octocode view "src/**/*.rs"
 ```
 
-### 2. AI-Powered Git Workflow
+### 3. AI-Powered Git Workflow (Requires OpenRouter API Key)
 ```bash
 # Generate intelligent commit messages
 git add .
@@ -91,7 +147,7 @@ octocode commit
 octocode review
 ```
 
-### 3. MCP Server for AI Assistants
+### 4. MCP Server for AI Assistants
 ```bash
 # Start MCP server
 octocode mcp
@@ -123,8 +179,7 @@ octocode memory clear-all --yes
 
 ### 5. Advanced Features
 ```bash
-# Enable GraphRAG with AI descriptions
-export OPENROUTER_API_KEY="your-key"
+# Enable GraphRAG with AI descriptions (requires OpenRouter API key)
 octocode config --graphrag-enabled true
 octocode index
 
@@ -208,29 +263,47 @@ octocode memory clear-all --yes
 
 ## 🔧 Configuration
 
-Octocode stores configuration in `~/.local/share/octocode/config.toml`. Quick setup:
+Octocode stores configuration in `~/.local/share/octocode/config.toml`. 
 
+### Required Setup
+```bash
+# Set Voyage AI API key (required for embeddings)
+export VOYAGE_API_KEY="your-voyage-api-key"
+
+# Optional: Set OpenRouter API key for LLM features
+export OPENROUTER_API_KEY="your-openrouter-api-key"
+```
+
+### Advanced Configuration
 ```bash
 # View current configuration
 octocode config --show
 
-# Use local models (no API keys required) 
+# Use local models (macOS only - requires building from source)
 octocode config \
-  --code-embedding-model "fastembed:all-MiniLM-L6-v2" \
-  --text-embedding-model "fastembed:multilingual-e5-small"
+  --code-embedding-model "fastembed:jinaai/jina-embeddings-v2-base-code" \
+  --text-embedding-model "fastembed:sentence-transformers/all-MiniLM-L6-v2-quantized"
+
+# Use different cloud embedding provider
+octocode config \
+  --code-embedding-model "jina:jina-embeddings-v2-base-code" \
+  --text-embedding-model "jina:jina-embeddings-v2-base-en"
 
 # Enable GraphRAG with AI descriptions
-export OPENROUTER_API_KEY="your-key"
 octocode config --graphrag-enabled true
 
 # Set custom OpenRouter model
 octocode config --model "openai/gpt-4o-mini"
 ```
 
-**Default Models:**
-- Code embedding: `fastembed:jinaai/jina-embeddings-v2-base-code`
-- Text embedding: `fastembed:sentence-transformers/all-MiniLM-L6-v2-quantized`
-- LLM: `openai/gpt-4.1-mini` (via OpenRouter)
+### Default Models
+- **Code embedding**: `voyage:voyage-code-2` (Voyage AI)
+- **Text embedding**: `voyage:voyage-2` (Voyage AI)  
+- **LLM**: `openai/gpt-4o-mini` (via OpenRouter)
+
+### Platform Support
+- **Windows/Linux**: Cloud embeddings only (Voyage AI, Jina AI, Google)
+- **macOS**: Local embeddings available (FastEmbed, SentenceTransformer) + cloud options
 
 ## 📚 Documentation
 
@@ -242,11 +315,11 @@ octocode config --model "openai/gpt-4o-mini"
 
 ## 🔒 Privacy & Security
 
-- **🏠 Local-first**: FastEmbed and SentenceTransformer run entirely offline
-- **🔐 No code upload**: Only file metadata sent to AI APIs (when enabled)
+- **🏠 Local-first option**: FastEmbed and SentenceTransformer run entirely offline (macOS only)
 - **🔑 Secure storage**: API keys stored locally, environment variables supported
 - **📁 Respects .gitignore**: Never indexes sensitive files or directories
 - **🛡️ MCP security**: Server runs locally with no external network access for search
+- **🌐 Cloud embeddings**: Voyage AI and other providers process only file metadata, not source code
 
 ## 🌐 Supported Languages
 
