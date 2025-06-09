@@ -20,8 +20,21 @@
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde_json::{json, Value};
+use std::sync::LazyLock;
+use std::time::Duration;
 
 use super::types::EmbeddingProviderType;
+
+// Shared HTTP client with connection pooling for optimal performance
+static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(|| {
+	Client::builder()
+		.pool_max_idle_per_host(10)
+		.pool_idle_timeout(Duration::from_secs(30))
+		.timeout(Duration::from_secs(60))
+		.connect_timeout(Duration::from_secs(10))
+		.build()
+		.expect("Failed to create HTTP client")
+});
 
 // Feature-specific provider modules
 pub mod fastembed;
@@ -182,11 +195,10 @@ impl JinaProvider {
 		texts: Vec<String>,
 		model: &str,
 	) -> Result<Vec<Vec<f32>>> {
-		let client = Client::new();
 		let jina_api_key =
 			std::env::var("JINA_API_KEY").context("JINA_API_KEY environment variable not set")?;
 
-		let response = client
+		let response = HTTP_CLIENT
 			.post("https://api.jina.ai/v1/embeddings")
 			.header("Authorization", format!("Bearer {}", jina_api_key))
 			.json(&json!({
@@ -232,11 +244,10 @@ impl VoyageProvider {
 		texts: Vec<String>,
 		model: &str,
 	) -> Result<Vec<Vec<f32>>> {
-		let client = Client::new();
 		let voyage_api_key = std::env::var("VOYAGE_API_KEY")
 			.context("VOYAGE_API_KEY environment variable not set")?;
 
-		let response = client
+		let response = HTTP_CLIENT
 			.post("https://api.voyageai.com/v1/embeddings")
 			.header("Authorization", format!("Bearer {}", voyage_api_key))
 			.header("Content-Type", "application/json")
@@ -288,7 +299,6 @@ impl GoogleProvider {
 		texts: Vec<String>,
 		model: &str,
 	) -> Result<Vec<Vec<f32>>> {
-		let client = Client::new();
 		let google_api_key = std::env::var("GOOGLE_API_KEY")
 			.context("GOOGLE_API_KEY environment variable not set")?;
 
@@ -296,7 +306,7 @@ impl GoogleProvider {
 		let mut all_embeddings = Vec::new();
 
 		for text in texts {
-			let response = client
+			let response = HTTP_CLIENT
 				.post(format!("https://generativelanguage.googleapis.com/v1beta/models/{}:embedContent?key={}", model, google_api_key))
 				.header("Content-Type", "application/json")
 				.json(&json!({

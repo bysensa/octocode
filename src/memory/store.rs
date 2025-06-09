@@ -37,6 +37,7 @@ pub struct MemoryStore {
 	db: Connection,
 	embedding_provider: Box<dyn crate::embedding::provider::EmbeddingProvider>,
 	config: MemoryConfig,
+	main_config: crate::config::Config,
 	vector_dim: usize,
 }
 
@@ -46,6 +47,7 @@ impl MemoryStore {
 		db_path: &str,
 		embedding_provider: Box<dyn crate::embedding::provider::EmbeddingProvider>,
 		config: MemoryConfig,
+		main_config: crate::config::Config,
 	) -> Result<Self> {
 		// Connect to LanceDB
 		let db = connect(db_path).execute().await?;
@@ -58,6 +60,7 @@ impl MemoryStore {
 			db,
 			embedding_provider,
 			config,
+			main_config,
 			vector_dim,
 		};
 
@@ -124,12 +127,28 @@ impl MemoryStore {
 
 	/// Store a memory
 	pub async fn store_memory(&mut self, memory: &Memory) -> Result<()> {
-		// Generate embedding for the memory
-		let embedding = self
-			.embedding_provider
-			.generate_embedding(&memory.get_searchable_text())
-			.await?;
+		// Generate embedding using the same high-level function as indexer for consistency
+		let embeddings = crate::embedding::generate_embeddings_batch(
+			vec![memory.get_searchable_text()],
+			false,
+			&self.main_config,
+		)
+		.await?;
 
+		let embedding = embeddings
+			.into_iter()
+			.next()
+			.ok_or_else(|| anyhow::anyhow!("No embedding generated"))?;
+
+		self.store_memory_with_embedding(memory, embedding).await
+	}
+
+	/// Store a memory with a pre-computed embedding (for batch operations)
+	async fn store_memory_with_embedding(
+		&mut self,
+		memory: &Memory,
+		embedding: Vec<f32>,
+	) -> Result<()> {
 		// Create record batch
 		let schema = Arc::new(Schema::new(vec![
 			Field::new("id", DataType::Utf8, false),
@@ -213,11 +232,36 @@ impl MemoryStore {
 		Ok(())
 	}
 
-	/// Store multiple memories in batch
+	/// Store multiple memories in batch with optimized embedding generation
 	pub async fn store_memories(&mut self, memories: &[Memory]) -> Result<()> {
-		for memory in memories {
-			self.store_memory(memory).await?;
+		if memories.is_empty() {
+			return Ok(());
 		}
+
+		// Collect all searchable texts for batch embedding generation
+		let texts: Vec<String> = memories
+			.iter()
+			.map(|memory| memory.get_searchable_text())
+			.collect();
+
+		// Generate ALL embeddings in ONE API request using the same high-level function as indexer
+		// This includes token-aware batching and respects config limits
+		let embeddings =
+			crate::embedding::generate_embeddings_batch(texts, false, &self.main_config).await?;
+
+		if embeddings.len() != memories.len() {
+			return Err(anyhow::anyhow!(
+				"Embedding count mismatch: expected {}, got {}",
+				memories.len(),
+				embeddings.len()
+			));
+		}
+
+		// Store all memories with their pre-computed embeddings
+		for (memory, embedding) in memories.iter().zip(embeddings.into_iter()) {
+			self.store_memory_with_embedding(memory, embedding).await?;
+		}
+
 		Ok(())
 	}
 

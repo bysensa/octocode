@@ -45,8 +45,13 @@ impl MemoryManager {
 		let (provider, model) = parse_provider_model(model_string);
 		let embedding_provider = create_embedding_provider_from_parts(&provider, &model)?;
 
-		let store =
-			MemoryStore::new(&db_path_str, embedding_provider, memory_config.clone()).await?;
+		let store = MemoryStore::new(
+			&db_path_str,
+			embedding_provider,
+			memory_config.clone(),
+			config.clone(),
+		)
+		.await?;
 
 		Ok(Self {
 			store,
@@ -66,8 +71,13 @@ impl MemoryManager {
 		let (provider, model) = parse_provider_model(model_string);
 		let embedding_provider = create_embedding_provider_from_parts(&provider, &model)?;
 
-		let store =
-			MemoryStore::new(&db_path_str, embedding_provider, memory_config.clone()).await?;
+		let store = MemoryStore::new(
+			&db_path_str,
+			embedding_provider,
+			memory_config.clone(),
+			config.clone(),
+		)
+		.await?;
 
 		Ok(Self {
 			store,
