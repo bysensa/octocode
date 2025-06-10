@@ -17,7 +17,7 @@ use serde_json::{json, Value};
 use tracing::debug;
 
 use crate::config::Config;
-use crate::indexer::search::search_codebase;
+use crate::indexer::search::search_codebase_with_details;
 use crate::indexer::{extract_file_signatures, signatures_to_markdown, NoindexWalker, PathUtils};
 use crate::mcp::types::McpTool;
 
@@ -39,13 +39,13 @@ impl SemanticCodeProvider {
 	pub fn get_tool_definition() -> McpTool {
 		McpTool {
 			name: "search_code".to_string(),
-			description: "Search through the codebase using semantic vector search to find relevant code snippets, functions, classes, documentation, or text content. Returns results formatted as markdown with file paths, line numbers, relevance scores, and syntax-highlighted code blocks.".to_string(),
+			description: "Search through the codebase using semantic vector search to find relevant code snippets, functions, classes, documentation, or text content. Use NATURAL LANGUAGE queries (not code syntax). Returns 3 most relevant results by default, formatted as markdown with file paths, line numbers, relevance scores, and syntax-highlighted code blocks.".to_string(),
 			input_schema: json!({
 				"type": "object",
 				"properties": {
 					"query": {
 						"type": "string",
-						"description": "Natural language search query describing what you're looking for (avoid control characters and escape sequences). Examples: 'authentication functions', 'error handling code', 'database connection setup', 'API endpoints for user management', 'configuration parsing logic'",
+						"description": "Natural language search query describing what you're looking for (avoid control characters and escape sequences). Use descriptive phrases, NOT code syntax. GOOD examples: 'authentication functions', 'error handling code', 'database connection setup', 'API endpoints for user management', 'configuration parsing logic', 'HTTP request handlers'. BAD examples: 'fn authenticate()', 'class UserAuth', 'import database'",
 						"minLength": 3,
 						"maxLength": 500
 					},
@@ -60,6 +60,24 @@ impl SemanticCodeProvider {
 							"docs": "Search only in documentation files (README, markdown, etc.)",
 							"all": "Search across all content types for comprehensive results"
 						}
+					},
+					"detail_level": {
+						"type": "string",
+						"description": "Level of detail to include in code results for token efficiency",
+						"enum": ["signatures", "partial", "full"],
+						"default": "partial",
+						"enumDescriptions": {
+							"signatures": "Function/class signatures only (most token-efficient, good for overview)",
+							"partial": "Smart truncated content with key parts (balanced approach)",
+							"full": "Complete function/class bodies (use when full implementation needed)"
+						}
+					},
+					"max_results": {
+						"type": "integer",
+						"description": "Maximum number of results to return (default: 3 for efficiency)",
+						"minimum": 1,
+						"maximum": 20,
+						"default": 3
 					}
 				},
 				"required": ["query"],
@@ -125,10 +143,38 @@ impl SemanticCodeProvider {
 			));
 		}
 
+		let detail_level = arguments
+			.get("detail_level")
+			.and_then(|v| v.as_str())
+			.unwrap_or("partial");
+
+		// Validate detail_level
+		if !["signatures", "partial", "full"].contains(&detail_level) {
+			return Err(anyhow::anyhow!(
+				"Invalid detail_level '{}': must be one of 'signatures', 'partial', or 'full'",
+				detail_level
+			));
+		}
+
+		let max_results = arguments
+			.get("max_results")
+			.and_then(|v| v.as_u64())
+			.unwrap_or(3) as usize;
+
+		// Validate max_results
+		if !(1..=20).contains(&max_results) {
+			return Err(anyhow::anyhow!(
+				"Invalid max_results '{}': must be between 1 and 20",
+				max_results
+			));
+		}
+
 		// Use structured logging instead of console output for MCP protocol compliance
 		debug!(
 			query = %query,
 			mode = %mode,
+			detail_level = %detail_level,
+			max_results = %max_results,
 			working_directory = %self.working_directory.display(),
 			"Executing semantic code search"
 		);
@@ -137,8 +183,10 @@ impl SemanticCodeProvider {
 		let _original_dir = std::env::current_dir()?;
 		std::env::set_current_dir(&self.working_directory)?;
 
-		// Use the search functionality from the existing codebase
-		let results = search_codebase(query, mode, &self.config).await;
+		// Use the enhanced search functionality with detail level control
+		let results =
+			search_codebase_with_details(query, mode, detail_level, max_results, &self.config)
+				.await;
 
 		// Restore original directory
 		std::env::set_current_dir(&_original_dir)?;

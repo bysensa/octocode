@@ -175,6 +175,95 @@ pub async fn expand_symbols(
 	Ok(expanded_blocks)
 }
 
+// Enhanced search function for MCP server with detail level control - returns formatted markdown results
+pub async fn search_codebase_with_details(
+	query: &str,
+	mode: &str,
+	detail_level: &str,
+	max_results: usize,
+	config: &Config,
+) -> Result<String> {
+	// Initialize store
+	let store = Store::new().await?;
+
+	// Generate embeddings for the query
+	let embeddings = match mode {
+		"code" => crate::embedding::generate_embeddings(query, true, config).await?,
+		"docs" | "text" => crate::embedding::generate_embeddings(query, false, config).await?,
+		_ => crate::embedding::generate_embeddings(query, true, config).await?, // Default to code model for "all"
+	};
+
+	// Perform the search based on mode
+	match mode {
+		"code" => {
+			let results = store
+				.get_code_blocks_with_config(
+					embeddings,
+					Some(max_results),
+					Some(config.search.similarity_threshold),
+				)
+				.await?;
+			Ok(format_code_search_results_with_detail(
+				&results,
+				detail_level,
+			))
+		}
+		"text" => {
+			let results = store
+				.get_text_blocks_with_config(
+					embeddings,
+					Some(max_results),
+					Some(config.search.similarity_threshold),
+				)
+				.await?;
+			Ok(format_text_search_results_as_markdown(&results))
+		}
+		"docs" => {
+			let results = store
+				.get_document_blocks_with_config(
+					embeddings,
+					Some(max_results),
+					Some(config.search.similarity_threshold),
+				)
+				.await?;
+			Ok(format_doc_search_results_as_markdown(&results))
+		}
+		_ => {
+			// "all" mode - search across all types with limited results per type
+			let results_per_type = max_results.div_ceil(3); // Distribute results across types
+			let code_results = store
+				.get_code_blocks_with_config(
+					embeddings.clone(),
+					Some(results_per_type),
+					Some(config.search.similarity_threshold),
+				)
+				.await?;
+			let text_results = store
+				.get_text_blocks_with_config(
+					embeddings.clone(),
+					Some(results_per_type),
+					Some(config.search.similarity_threshold),
+				)
+				.await?;
+			let doc_results = store
+				.get_document_blocks_with_config(
+					embeddings,
+					Some(results_per_type),
+					Some(config.search.similarity_threshold),
+				)
+				.await?;
+
+			// Format combined results with detail level for code
+			Ok(format_combined_search_results_with_detail(
+				&code_results,
+				&text_results,
+				&doc_results,
+				detail_level,
+			))
+		}
+	}
+}
+
 // Search function for MCP server - returns formatted markdown results
 pub async fn search_codebase(query: &str, mode: &str, config: &Config) -> Result<String> {
 	// Initialize store
@@ -251,6 +340,104 @@ pub async fn search_codebase(query: &str, mode: &str, config: &Config) -> Result
 			))
 		}
 	}
+}
+
+// Format code search results with detail level control as markdown for MCP
+fn format_code_search_results_with_detail(blocks: &[CodeBlock], detail_level: &str) -> String {
+	if blocks.is_empty() {
+		return "No code results found.".to_string();
+	}
+
+	let mut output = String::new();
+	output.push_str(&format!(
+		"# Code Search Results\n\nFound {} code blocks:\n\n",
+		blocks.len()
+	));
+
+	// Group blocks by file path for better organization
+	let mut blocks_by_file: std::collections::HashMap<String, Vec<&CodeBlock>> =
+		std::collections::HashMap::new();
+
+	for block in blocks {
+		// Ensure we display relative paths
+		let display_path = ensure_relative_path(&block.path);
+		blocks_by_file.entry(display_path).or_default().push(block);
+	}
+
+	// Format results organized by file
+	for (file_path, file_blocks) in blocks_by_file.iter() {
+		output.push_str(&format!("## File: {}\n\n", file_path));
+
+		for (idx, block) in file_blocks.iter().enumerate() {
+			output.push_str(&format!(
+				"### Block {} of {} in file\n\n",
+				idx + 1,
+				file_blocks.len()
+			));
+			output.push_str(&format!("- **Language**: {}\n", block.language));
+			output.push_str(&format!(
+				"- **Lines**: {}-{}\n",
+				block.start_line, block.end_line
+			));
+
+			// Show similarity score if available
+			if let Some(distance) = block.distance {
+				output.push_str(&format!("- **Similarity**: {:.4}\n", 1.0 - distance));
+			}
+
+			if !block.symbols.is_empty() {
+				output.push_str("- **Symbols**: ");
+				// Deduplicate symbols in display
+				let mut display_symbols = block.symbols.clone();
+				display_symbols.sort();
+				display_symbols.dedup();
+
+				let relevant_symbols: Vec<String> = display_symbols
+					.iter()
+					.filter(|symbol| !symbol.contains("_"))
+					.cloned()
+					.collect();
+
+				if !relevant_symbols.is_empty() {
+					output.push_str(&relevant_symbols.join(", "));
+				}
+				output.push('\n');
+			}
+
+			output.push_str("\n**Content:**\n\n");
+
+			// Apply detail level formatting
+			match detail_level {
+				"signatures" => {
+					// Show clean preview without comments and with key parts
+					let preview = get_code_preview(&block.content, &block.language);
+					output.push_str("```");
+					output.push_str(&block.language);
+					output.push('\n');
+					output.push_str(&preview);
+					output.push_str("\n```\n\n");
+				}
+				"full" => {
+					// Show complete content
+					output.push_str("```");
+					output.push_str(&block.language);
+					output.push('\n');
+					output.push_str(&block.content);
+					output.push_str("\n```\n\n");
+				}
+				_ => {
+					// "partial" - default smart truncation
+					output.push_str("```");
+					output.push_str(&block.language);
+					output.push('\n');
+					output.push_str(&block.content);
+					output.push_str("\n```\n\n");
+				}
+			}
+		}
+	}
+
+	output
 }
 
 // Format code search results as markdown for MCP
@@ -438,6 +625,46 @@ fn format_doc_search_results_as_markdown(blocks: &[crate::store::DocumentBlock])
 	output
 }
 
+// Format combined search results as markdown for MCP with detail level control
+fn format_combined_search_results_with_detail(
+	code_blocks: &[CodeBlock],
+	text_blocks: &[crate::store::TextBlock],
+	doc_blocks: &[crate::store::DocumentBlock],
+	detail_level: &str,
+) -> String {
+	let mut output = String::new();
+	output.push_str("# Combined Search Results\n\n");
+
+	let total_results = code_blocks.len() + text_blocks.len() + doc_blocks.len();
+	if total_results == 0 {
+		return "No results found.".to_string();
+	}
+
+	output.push_str(&format!("Found {} total results:\n\n", total_results));
+
+	// Documentation Results
+	if !doc_blocks.is_empty() {
+		output.push_str(&format_doc_search_results_as_markdown(doc_blocks));
+		output.push('\n');
+	}
+
+	// Code Results with detail level
+	if !code_blocks.is_empty() {
+		output.push_str(&format_code_search_results_with_detail(
+			code_blocks,
+			detail_level,
+		));
+		output.push('\n');
+	}
+
+	// Text Results
+	if !text_blocks.is_empty() {
+		output.push_str(&format_text_search_results_as_markdown(text_blocks));
+	}
+
+	output
+}
+
 // Format combined search results as markdown for MCP
 fn format_combined_search_results_as_markdown(
 	code_blocks: &[CodeBlock],
@@ -472,4 +699,89 @@ fn format_combined_search_results_as_markdown(
 	}
 
 	output
+}
+// Get a clean preview of code content by skipping comments and showing key parts
+fn get_code_preview(content: &str, _language: &str) -> String {
+	let lines: Vec<&str> = content.lines().collect();
+
+	// If content is short, just return it all
+	if lines.len() <= 10 {
+		return content.to_string();
+	}
+
+	// Skip leading comments and empty lines
+	let mut start_idx = 0;
+	for (i, line) in lines.iter().enumerate() {
+		let trimmed = line.trim();
+
+		// Skip empty lines
+		if trimmed.is_empty() {
+			continue;
+		}
+
+		// Skip common comment patterns across languages
+		if trimmed.starts_with("//") ||     // C-style, Rust, JS, etc.
+		   trimmed.starts_with("#") ||      // Python, Shell, Ruby, etc.
+		   trimmed.starts_with("/*") ||     // C-style block comments
+		   trimmed.starts_with("*") ||      // Continuation of block comments
+		   trimmed.starts_with("<!--") ||   // HTML comments
+		   trimmed.starts_with("--") ||     // SQL, Lua comments
+		   trimmed.starts_with("%") ||      // LaTeX, Erlang comments
+		   trimmed.starts_with(";") ||      // Lisp, assembly comments
+		   trimmed.starts_with("\"\"\"") ||  // Python docstrings
+		   trimmed.starts_with("'''")
+		{
+			// Python docstrings
+			continue;
+		}
+
+		// Found first non-comment line
+		start_idx = i;
+		break;
+	}
+
+	// Take first 3-4 lines of actual code
+	let preview_start = 4;
+	let preview_end = 3;
+
+	let mut result = Vec::new();
+
+	// Add first few lines
+	for line in lines.iter().skip(start_idx).take(preview_start) {
+		result.push(*line);
+	}
+
+	// If there's more content, add separator and last few lines
+	if start_idx + preview_start < lines.len() {
+		let remaining_lines = lines.len() - (start_idx + preview_start);
+		if remaining_lines > preview_end {
+			result.push("// ... [content omitted] ...");
+
+			// Add last few lines
+			for line in lines.iter().skip(lines.len() - preview_end) {
+				result.push(*line);
+			}
+		} else {
+			// Just add the remaining lines
+			for line in lines.iter().skip(start_idx + preview_start) {
+				result.push(*line);
+			}
+		}
+	}
+
+	result.join("\n")
+}
+
+// Ensure path is relative to current working directory for display
+fn ensure_relative_path(path: &str) -> String {
+	if let Ok(current_dir) = std::env::current_dir() {
+		if let Ok(absolute_path) = std::path::Path::new(path).canonicalize() {
+			if let Ok(relative) = absolute_path.strip_prefix(&current_dir) {
+				return relative.to_string_lossy().to_string();
+			}
+		}
+	}
+
+	// If path is already relative or we can't determine relative path, return as-is
+	path.to_string()
 }
