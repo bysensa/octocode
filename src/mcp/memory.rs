@@ -16,7 +16,7 @@ use anyhow::Result;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tokio::time::Duration;
+
 use tracing::{debug, warn};
 
 use crate::config::Config;
@@ -333,24 +333,17 @@ impl MemoryProvider {
 		}
 
 		let memory_result = {
-			// Use timeout to prevent hanging
-			let memory_future = async {
-				let mut manager = self.memory_manager.lock().await;
-				manager
-					.memorize(
-						memory_type,
-						title.to_string(),
-						content.to_string(),
-						importance,
-						tags,
-						related_files,
-					)
-					.await
-			};
-
-			tokio::time::timeout(Duration::from_secs(30), memory_future)
-				.await
-				.map_err(|_| anyhow::anyhow!("Memory operation timed out"))?
+			let mut manager = self.memory_manager.lock().await;
+			manager
+				.memorize(
+					memory_type,
+					title.to_string(),
+					content.to_string(),
+					importance,
+					tags,
+					related_files,
+				)
+				.await?
 		};
 
 		// Restore original directory regardless of result
@@ -361,7 +354,7 @@ impl MemoryProvider {
 			);
 		}
 
-		let memory = memory_result?;
+		let memory = memory_result;
 
 		// Return plain text response for MCP protocol compliance
 		Ok(format!(
@@ -546,17 +539,10 @@ impl MemoryProvider {
 				"Forgetting memory by ID"
 			);
 
-			// Execute deletion with timeout
+			// Execute deletion
 			let res = {
-				let delete_future = async {
-					let mut manager = self.memory_manager.lock().await;
-					manager.forget(memory_id).await
-				};
-
-				match tokio::time::timeout(Duration::from_secs(30), delete_future).await {
-					Ok(result) => result,
-					Err(_) => Err(anyhow::anyhow!("Memory deletion timed out")),
-				}
+				let mut manager = self.memory_manager.lock().await;
+				manager.forget(memory_id).await
 			};
 			match res {
 				Ok(_) => Ok(format!(
