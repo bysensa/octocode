@@ -66,7 +66,7 @@ impl GraphBuilder {
 
 		// Initialize AI enhancements if enabled
 		let client = Client::new();
-		let ai_enhancements = if config.index.llm_enabled {
+		let ai_enhancements = if config.graphrag.use_llm {
 			Some(AIEnhancements::new(config.clone(), client.clone()))
 		} else {
 			None
@@ -87,13 +87,13 @@ impl GraphBuilder {
 		config: Config,
 		_use_ai_enhancements: bool,
 	) -> Result<Self> {
-		// Note: _use_ai_enhancements parameter is ignored, using config.index.llm_enabled instead
+		// Note: _use_ai_enhancements parameter is ignored, using config.graphrag.use_llm instead
 		Self::new(config).await
 	}
 
 	// Check if LLM enhancements are enabled
 	fn llm_enabled(&self) -> bool {
-		self.config.index.llm_enabled
+		self.config.graphrag.use_llm
 	}
 
 	// Convert absolute path to relative path from project root
@@ -113,8 +113,10 @@ impl GraphBuilder {
 		state: Option<SharedState>,
 	) -> Result<()> {
 		let mut new_nodes = Vec::new();
+		let mut pending_embeddings = Vec::new(); // For batch embedding generation
 		let mut processed_count = 0;
 		let mut skipped_count = 0;
+		let mut batches_processed = 0;
 
 		// Group code blocks by file for efficient processing
 		let mut files_to_blocks: HashMap<String, Vec<&CodeBlock>> = HashMap::new();
@@ -223,12 +225,14 @@ impl GraphBuilder {
 					)
 				};
 
-				// Generate embedding for the file summary (much lighter than full content)
+				// Generate summary text for embedding (much lighter than full content)
 				let summary_text =
 					format!("{} {} symbols: {}", file_name, language, symbols.join(" "));
-				let embedding = self.generate_embedding(&summary_text).await?;
 
-				// Create the file node
+				// Store summary text for batch embedding generation
+				pending_embeddings.push(summary_text);
+
+				// Create the file node without embedding (will be added later)
 				let node = CodeNode {
 					id: relative_path.clone(),
 					name: file_name,
@@ -240,15 +244,10 @@ impl GraphBuilder {
 					exports,
 					functions: all_functions,
 					hash: content_hash,
-					embedding,
+					embedding: Vec::new(), // Will be filled after batch embedding
 					size_lines: total_lines as u32,
 					language,
 				};
-
-				// Add the node to the graph
-				let mut graph = self.graph.write().await;
-				graph.nodes.insert(relative_path, node.clone());
-				drop(graph);
 
 				new_nodes.push(node);
 				processed_count += 1;
@@ -258,35 +257,64 @@ impl GraphBuilder {
 					let mut state_guard = state.write();
 					state_guard.status_message = format!("Processing file: {}", file_path);
 				}
+
+				// Check if we should process batch (same logic as normal indexing)
+				if self.should_process_batch(&pending_embeddings) {
+					self.process_nodes_batch(
+						&mut new_nodes,
+						&mut pending_embeddings,
+						&mut batches_processed,
+					)
+					.await?;
+				}
 			}
 		}
 
-		// Discover relationships efficiently (no AI needed for most relationships)
+		// Process any remaining nodes in the final batch
 		if !new_nodes.is_empty() {
+			self.process_nodes_batch(
+				&mut new_nodes,
+				&mut pending_embeddings,
+				&mut batches_processed,
+			)
+			.await?;
+		}
+
+		// Collect all processed nodes for relationship discovery
+		let all_processed_nodes = {
+			let graph = self.graph.read().await;
+			graph.nodes.values().cloned().collect::<Vec<CodeNode>>()
+		};
+
+		// Discover relationships efficiently for all processed nodes
+		if !all_processed_nodes.is_empty() {
+			// Get only the newly processed nodes for relationship discovery
+			let _new_node_ids: std::collections::HashSet<String> =
+				all_processed_nodes.iter().map(|n| n.id.clone()).collect();
+
 			let relationships = if self.llm_enabled() {
 				// Enhanced relationship discovery with optional AI for complex cases
-				self.discover_relationships_with_ai_enhancement(&new_nodes)
+				self.discover_relationships_with_ai_enhancement(&all_processed_nodes)
 					.await?
 			} else {
 				// Fast rule-based relationship discovery only
-				self.discover_relationships_efficiently(&new_nodes).await?
+				self.discover_relationships_efficiently(&all_processed_nodes)
+					.await?
 			};
+
 			if !relationships.is_empty() {
 				let mut graph = self.graph.write().await;
 				graph.relationships.extend(relationships.clone());
 				drop(graph);
 
-				// Save the nodes and relationships
+				// Save just the relationships (nodes were already saved in batches)
 				let db_ops = DatabaseOperations::new(&self.store);
-				db_ops
-					.save_graph_incremental(&new_nodes, &relationships)
-					.await?;
-			} else {
-				// Save just the nodes
-				let db_ops = DatabaseOperations::new(&self.store);
-				db_ops.save_graph_incremental(&new_nodes, &[]).await?;
+				db_ops.save_graph_incremental(&[], &relationships).await?;
 			}
 		}
+
+		// Final flush to ensure all data is persisted
+		self.store.flush().await?;
 
 		// Update final state
 		if let Some(state) = state {
@@ -420,6 +448,9 @@ impl GraphBuilder {
 		// Process the code blocks to build the graph
 		self.process_files_from_codeblocks(&all_code_blocks, state.clone())
 			.await?;
+
+		// Final flush to ensure all data is persisted
+		self.store.flush().await?;
 
 		// Update final state
 		if let Some(ref state) = state {
@@ -586,5 +617,76 @@ impl GraphBuilder {
 		}
 
 		Ok(paths)
+	}
+
+	// Check if we should process batch (same logic as normal indexing)
+	fn should_process_batch(&self, pending_embeddings: &[String]) -> bool {
+		// Use the same batch size logic as normal indexing
+		let batch_size = self.config.index.embeddings_batch_size;
+		let max_tokens = self.config.index.embeddings_max_tokens_per_batch;
+
+		if pending_embeddings.len() >= batch_size {
+			return true;
+		}
+
+		// Check token count (approximate)
+		let total_tokens: usize = pending_embeddings.iter().map(|s| s.len() / 4).sum(); // Rough token estimate
+		total_tokens >= max_tokens
+	}
+
+	// Process a batch of nodes with embeddings and persist them
+	async fn process_nodes_batch(
+		&self,
+		nodes: &mut Vec<CodeNode>,
+		pending_embeddings: &mut Vec<String>,
+		batches_processed: &mut usize,
+	) -> Result<()> {
+		if nodes.is_empty() || pending_embeddings.is_empty() {
+			return Ok(());
+		}
+
+		// Generate embeddings in batch (same as normal indexing)
+		let embeddings = crate::embedding::generate_embeddings_batch(
+			pending_embeddings.clone(),
+			false, // Use text embeddings for GraphRAG descriptions
+			&self.config,
+		)
+		.await?;
+
+		// Assign embeddings to nodes
+		for (node, embedding) in nodes.iter_mut().zip(embeddings.iter()) {
+			node.embedding = embedding.clone();
+		}
+
+		// Add nodes to the graph
+		{
+			let mut graph = self.graph.write().await;
+			for node in nodes.iter() {
+				graph.nodes.insert(node.id.clone(), node.clone());
+			}
+		}
+
+		// Persist nodes to database (same as normal indexing)
+		let db_ops = DatabaseOperations::new(&self.store);
+		db_ops.save_graph_incremental(nodes, &[]).await?;
+
+		// Clear the batches
+		nodes.clear();
+		pending_embeddings.clear();
+		*batches_processed += 1;
+
+		// Use the same flush logic as normal indexing
+		self.flush_if_needed(batches_processed).await?;
+
+		Ok(())
+	}
+
+	// Flush if needed (same logic as normal indexing)
+	async fn flush_if_needed(&self, batches_processed: &mut usize) -> Result<()> {
+		if *batches_processed >= self.config.index.flush_frequency {
+			self.store.flush().await?;
+			*batches_processed = 0;
+		}
+		Ok(())
 	}
 }

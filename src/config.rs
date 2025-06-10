@@ -37,6 +37,7 @@ use crate::storage;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphRAGConfig {
 	pub enabled: bool,
+	pub use_llm: bool,
 	pub description_model: String,
 	pub relationship_model: String,
 }
@@ -45,6 +46,7 @@ impl Default for GraphRAGConfig {
 	fn default() -> Self {
 		Self {
 			enabled: false,
+			use_llm: false,
 			description_model: "openai/gpt-4.1-mini".to_string(),
 			relationship_model: "openai/gpt-4.1-mini".to_string(),
 		}
@@ -87,9 +89,6 @@ pub struct IndexConfig {
 	/// Default: 1 for maximum data safety
 	pub flush_frequency: usize,
 
-	pub graphrag_enabled: bool,
-	pub llm_enabled: bool,
-
 	/// Require git repository for indexing (default: true)
 	pub require_git: bool,
 
@@ -104,8 +103,6 @@ impl Default for IndexConfig {
 			embeddings_batch_size: 16,
 			embeddings_max_tokens_per_batch: 100000,
 			flush_frequency: 2,
-			graphrag_enabled: false,
-			llm_enabled: false,
 			require_git: true,
 			ignore_patterns: vec![
 				".git/".to_string(),
@@ -285,6 +282,11 @@ mod tests {
 			config.embedding.get_active_provider(),
 			crate::embedding::types::EmbeddingProviderType::FastEmbed
 		);
+		// Test new GraphRAG configuration structure
+		assert!(!config.graphrag.enabled);
+		assert!(!config.graphrag.use_llm);
+		assert_eq!(config.graphrag.description_model, "openai/gpt-4.1-mini");
+		assert_eq!(config.graphrag.relationship_model, "openai/gpt-4.1-mini");
 	}
 
 	#[test]
@@ -296,14 +298,13 @@ mod tests {
 		assert_eq!(config.version, 1);
 		assert_eq!(config.openrouter.model, "openai/gpt-4.1-mini");
 		assert_eq!(config.index.chunk_size, 2000);
-		assert_eq!(config.search.max_results, 50);
-		assert_eq!(
-			config.embedding.code_model,
-			"fastembed:jinaai/jina-embeddings-v2-base-code"
-		);
-		assert_eq!(
-			config.embedding.text_model,
-			"fastembed:sentence-transformers/all-MiniLM-L6-v2-quantized"
-		);
+		assert_eq!(config.search.max_results, 20);
+		assert_eq!(config.embedding.code_model, "voyage:voyage-code-3");
+		assert_eq!(config.embedding.text_model, "voyage:voyage-3.5-lite");
+		// Test new GraphRAG configuration structure from template
+		assert!(!config.graphrag.enabled);
+		assert!(!config.graphrag.use_llm);
+		assert_eq!(config.graphrag.description_model, "openai/gpt-4.1-mini");
+		assert_eq!(config.graphrag.relationship_model, "openai/gpt-4.1-mini");
 	}
 }

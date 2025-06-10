@@ -893,7 +893,7 @@ impl Store {
 
 		// Create graphrag_nodes table if it doesn't exist
 		if !table_names.contains(&"graphrag_nodes".to_string()) {
-			// Create empty table with schema
+			// Create empty table with schema (updated to match CodeNode struct)
 			let schema = Arc::new(Schema::new(vec![
 				Field::new("id", DataType::Utf8, false),
 				Field::new("name", DataType::Utf8, false),
@@ -901,6 +901,11 @@ impl Store {
 				Field::new("path", DataType::Utf8, false),
 				Field::new("description", DataType::Utf8, false),
 				Field::new("symbols", DataType::Utf8, true), // JSON serialized
+				Field::new("imports", DataType::Utf8, true), // JSON serialized
+				Field::new("exports", DataType::Utf8, true), // JSON serialized
+				Field::new("functions", DataType::Utf8, true), // JSON serialized
+				Field::new("size_lines", DataType::UInt32, false),
+				Field::new("language", DataType::Utf8, false),
 				Field::new("hash", DataType::Utf8, false),
 				Field::new(
 					"embedding",
@@ -921,7 +926,7 @@ impl Store {
 
 		// Create graphrag_relationships table if it doesn't exist
 		if !table_names.contains(&"graphrag_relationships".to_string()) {
-			// Create empty table with schema
+			// Create empty table with schema (updated to match CodeRelationship struct)
 			let schema = Arc::new(Schema::new(vec![
 				Field::new("id", DataType::Utf8, false),
 				Field::new("source", DataType::Utf8, false),
@@ -929,6 +934,7 @@ impl Store {
 				Field::new("relation_type", DataType::Utf8, false),
 				Field::new("description", DataType::Utf8, false),
 				Field::new("confidence", DataType::Float32, false),
+				Field::new("weight", DataType::Float32, false),
 			]));
 
 			let _table = self
@@ -2254,7 +2260,7 @@ impl Store {
 		// Open the table
 		let table_names = self.db.table_names().execute().await?;
 		if !table_names.contains(&"graphrag_relationships".to_string()) {
-			// Return empty batch with schema
+			// Return empty batch with schema (updated to match CodeRelationship struct)
 			let schema = Arc::new(Schema::new(vec![
 				Field::new("id", DataType::Utf8, false),
 				Field::new("source", DataType::Utf8, false),
@@ -2262,6 +2268,7 @@ impl Store {
 				Field::new("relation_type", DataType::Utf8, false),
 				Field::new("description", DataType::Utf8, false),
 				Field::new("confidence", DataType::Float32, false),
+				Field::new("weight", DataType::Float32, false),
 			]));
 			return Ok(RecordBatch::new_empty(schema));
 		}

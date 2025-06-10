@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Indexer module for Octodev
+// Indexer module for Octocode
 // Handles code indexing, embedding, and search functionality
 
 pub mod graph_optimization;

@@ -291,6 +291,8 @@ async fn call_llm_for_commit_message(prompt: &str, config: &Config) -> Result<St
 			config.openrouter.base_url.trim_end_matches('/')
 		))
 		.header("Authorization", format!("Bearer {}", api_key))
+		.header("HTTP-Referer", "https://github.com/muvon/octocode")
+		.header("X-Title", "Octocode")
 		.header("Content-Type", "application/json")
 		.json(&payload)
 		.timeout(std::time::Duration::from_secs(config.openrouter.timeout))

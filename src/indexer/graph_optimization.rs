@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Graph Optimization module for Octodev GraphRAG
+// Graph Optimization module for Octocode GraphRAG
 // Provides optimized graph extraction and retrieval for AI sessions
 
 use crate::indexer::graphrag::{CodeGraph, CodeNode, CodeRelationship};

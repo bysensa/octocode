@@ -151,7 +151,7 @@ pub fn execute(args: &ConfigArgs, mut config: Config) -> Result<()> {
 		);
 		println!(
 			"   GraphRAG: {}",
-			if config.index.graphrag_enabled {
+			if config.graphrag.enabled {
 				"✅ Enabled"
 			} else {
 				"❌ Disabled"
@@ -159,7 +159,7 @@ pub fn execute(args: &ConfigArgs, mut config: Config) -> Result<()> {
 		);
 		println!(
 			"   LLM processing: {}",
-			if config.index.llm_enabled {
+			if config.graphrag.use_llm {
 				"✅ Enabled"
 			} else {
 				"❌ Disabled"
@@ -206,7 +206,7 @@ pub fn execute(args: &ConfigArgs, mut config: Config) -> Result<()> {
 		}
 
 		// GraphRAG Configuration (if enabled)
-		if config.index.graphrag_enabled {
+		if config.graphrag.enabled {
 			println!();
 			println!("🕸️  GraphRAG Configuration:");
 			println!(
@@ -277,7 +277,7 @@ pub fn execute(args: &ConfigArgs, mut config: Config) -> Result<()> {
 	}
 
 	if let Some(graphrag_enabled) = args.graphrag_enabled {
-		config.index.graphrag_enabled = graphrag_enabled;
+		config.graphrag.enabled = graphrag_enabled;
 		println!(
 			"GraphRAG {}",
 			if graphrag_enabled {

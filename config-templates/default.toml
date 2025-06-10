@@ -15,8 +15,6 @@ chunk_overlap = 100
 embeddings_batch_size = 16  # 16 files per batch - table.add() every 16 files for better persistence
 embeddings_max_tokens_per_batch = 100000  # Keep existing token limit
 flush_frequency = 2  # Flush every 2 batches = every 32 files for coordinated persistence
-graphrag_enabled = false
-llm_enabled = false
 require_git = true  # Require git repository for indexing
 ignore_patterns = [
     ".git/",
@@ -41,5 +39,6 @@ text_model = "voyage:voyage-3.5-lite"
 
 [graphrag]
 enabled = false
+use_llm = false
 description_model = "openai/gpt-4.1-mini"
 relationship_model = "openai/gpt-4.1-mini"

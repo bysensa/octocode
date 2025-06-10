@@ -33,7 +33,7 @@ impl AIEnhancements {
 
 	// Check if LLM enhancements are enabled
 	pub fn llm_enabled(&self) -> bool {
-		self.config.index.llm_enabled
+		self.config.graphrag.use_llm
 	}
 
 	// Enhanced relationship discovery with optional AI for complex cases
@@ -433,7 +433,7 @@ impl AIEnhancements {
 			.post("https://openrouter.ai/api/v1/chat/completions")
 			.header("Authorization", format!("Bearer {}", api_key))
 			.header("HTTP-Referer", "https://github.com/muvon/octocode")
-			.header("X-Title", "Octodev")
+			.header("X-Title", "Octocode")
 			.json(&request_body)
 			.send()
 			.await?;
