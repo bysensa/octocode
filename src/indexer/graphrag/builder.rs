@@ -387,6 +387,57 @@ impl GraphBuilder {
 		self.process_files_from_codeblocks(code_blocks, state).await
 	}
 
+	// Build GraphRAG from existing database when enabled after indexing
+	// This solves the critical issue where GraphRAG is enabled after database is already indexed
+	pub async fn build_from_existing_database(&self, state: Option<SharedState>) -> Result<()> {
+		// Update state to show we're building GraphRAG from existing data
+		if let Some(ref state) = state {
+			let mut state_guard = state.write();
+			state_guard.status_message = "Building GraphRAG from existing database...".to_string();
+		}
+
+		// Get all existing code blocks from the database
+		let all_code_blocks = self.store.get_all_code_blocks_for_graphrag().await?;
+
+		if all_code_blocks.is_empty() {
+			if let Some(ref state) = state {
+				let mut state_guard = state.write();
+				state_guard.status_message =
+					"No code blocks found in database for GraphRAG".to_string();
+			}
+			return Ok(());
+		}
+
+		// Update state with the number of blocks to process
+		if let Some(ref state) = state {
+			let mut state_guard = state.write();
+			state_guard.status_message = format!(
+				"Processing {} code blocks for GraphRAG...",
+				all_code_blocks.len()
+			);
+		}
+
+		// Process the code blocks to build the graph
+		self.process_files_from_codeblocks(&all_code_blocks, state.clone())
+			.await?;
+
+		// Update final state
+		if let Some(ref state) = state {
+			let mut state_guard = state.write();
+			state_guard.status_message = format!(
+				"GraphRAG built from existing database: {} blocks processed",
+				all_code_blocks.len()
+			);
+		} else {
+			println!(
+				"GraphRAG: Built from existing database with {} code blocks",
+				all_code_blocks.len()
+			);
+		}
+
+		Ok(())
+	}
+
 	// Get the full graph
 	pub async fn get_graph(&self) -> Result<CodeGraph> {
 		let graph = self.graph.read().await;

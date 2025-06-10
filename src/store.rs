@@ -1953,6 +1953,137 @@ impl Store {
 		Ok(true)
 	}
 
+	// Check if GraphRAG needs indexing
+	// Returns true if GraphRAG should be indexed (enabled but not yet indexed or empty)
+	pub async fn graphrag_needs_indexing(&self) -> Result<bool> {
+		// Check if GraphRAG tables exist
+		if !self.tables_exist(&["graphrag_nodes"]).await? {
+			return Ok(true); // Tables don't exist, needs indexing
+		}
+
+		// Check if we have any code blocks in the database (to index)
+		let table_names = self.db.table_names().execute().await?;
+		if !table_names.contains(&"code_blocks".to_string()) {
+			return Ok(false); // No code blocks to index
+		}
+
+		// Check if graphrag_nodes table is empty
+		let graphrag_table = self.db.open_table("graphrag_nodes").execute().await?;
+		let mut results = graphrag_table
+			.query()
+			.select(lancedb::query::Select::Columns(vec!["id".to_string()]))
+			.limit(1)
+			.execute()
+			.await?;
+
+		// If we can't get any results, GraphRAG is empty
+		if let Some(batch) = results.try_next().await? {
+			if batch.num_rows() == 0 {
+				return Ok(true); // GraphRAG table is empty, needs indexing
+			}
+		} else {
+			return Ok(true); // No data in GraphRAG table
+		}
+
+		Ok(false) // GraphRAG is already indexed
+	}
+
+	// Get all code blocks for GraphRAG indexing
+	// This is used when GraphRAG is enabled after the database is already indexed
+	pub async fn get_all_code_blocks_for_graphrag(&self) -> Result<Vec<CodeBlock>> {
+		let mut all_blocks = Vec::new();
+
+		let table_names = self.db.table_names().execute().await?;
+		if !table_names.contains(&"code_blocks".to_string()) {
+			return Ok(all_blocks); // No code blocks table
+		}
+
+		let table = self.db.open_table("code_blocks").execute().await?;
+		let mut results = table
+			.query()
+			.select(lancedb::query::Select::All)
+			.execute()
+			.await?;
+
+		while let Some(batch) = results.try_next().await? {
+			if batch.num_rows() > 0 {
+				// Extract data from each row
+				let path_array = batch
+					.column_by_name("path")
+					.ok_or_else(|| anyhow::anyhow!("Path column not found"))?
+					.as_any()
+					.downcast_ref::<StringArray>()
+					.ok_or_else(|| anyhow::anyhow!("Path column is not a StringArray"))?;
+
+				let hash_array = batch
+					.column_by_name("hash")
+					.ok_or_else(|| anyhow::anyhow!("Hash column not found"))?
+					.as_any()
+					.downcast_ref::<StringArray>()
+					.ok_or_else(|| anyhow::anyhow!("Hash column is not a StringArray"))?;
+
+				let language_array = batch
+					.column_by_name("language")
+					.ok_or_else(|| anyhow::anyhow!("Language column not found"))?
+					.as_any()
+					.downcast_ref::<StringArray>()
+					.ok_or_else(|| anyhow::anyhow!("Language column is not a StringArray"))?;
+
+				let content_array = batch
+					.column_by_name("content")
+					.ok_or_else(|| anyhow::anyhow!("Content column not found"))?
+					.as_any()
+					.downcast_ref::<StringArray>()
+					.ok_or_else(|| anyhow::anyhow!("Content column is not a StringArray"))?;
+
+				let symbols_array = batch
+					.column_by_name("symbols")
+					.ok_or_else(|| anyhow::anyhow!("Symbols column not found"))?
+					.as_any()
+					.downcast_ref::<StringArray>()
+					.ok_or_else(|| anyhow::anyhow!("Symbols column is not a StringArray"))?;
+
+				let start_line_array = batch
+					.column_by_name("start_line")
+					.ok_or_else(|| anyhow::anyhow!("Start line column not found"))?
+					.as_any()
+					.downcast_ref::<UInt32Array>()
+					.ok_or_else(|| anyhow::anyhow!("Start line column is not a UInt32Array"))?;
+
+				let end_line_array = batch
+					.column_by_name("end_line")
+					.ok_or_else(|| anyhow::anyhow!("End line column not found"))?
+					.as_any()
+					.downcast_ref::<UInt32Array>()
+					.ok_or_else(|| anyhow::anyhow!("End line column is not a UInt32Array"))?;
+
+				for i in 0..batch.num_rows() {
+					let symbols_str = symbols_array.value(i);
+					let symbols: Vec<String> = if symbols_str.is_empty() {
+						Vec::new()
+					} else {
+						serde_json::from_str(symbols_str).unwrap_or_else(|_| Vec::new())
+					};
+
+					let code_block = CodeBlock {
+						path: path_array.value(i).to_string(),
+						hash: hash_array.value(i).to_string(),
+						language: language_array.value(i).to_string(),
+						content: content_array.value(i).to_string(),
+						symbols,
+						start_line: start_line_array.value(i) as usize,
+						end_line: end_line_array.value(i) as usize,
+						distance: None,
+					};
+
+					all_blocks.push(code_block);
+				}
+			}
+		}
+
+		Ok(all_blocks)
+	}
+
 	// Store graph nodes in the database
 	pub async fn store_graph_nodes(&self, node_batch: RecordBatch) -> Result<()> {
 		// Open or create the table

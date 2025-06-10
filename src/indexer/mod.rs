@@ -1162,34 +1162,56 @@ pub async fn index_files_with_quiet(
 	// Force flush any remaining data after processing all batches
 	flush_if_needed(store, &mut batches_processed, config, true).await?;
 
-	// Build GraphRAG from all collected code blocks if enabled and if we found any blocks
-	if config.graphrag.enabled && !all_code_blocks.is_empty() {
-		{
-			let mut state_guard = state.write();
-			state_guard.status_message = "Building GraphRAG knowledge graph...".to_string();
-		}
+	// Build GraphRAG if enabled
+	if config.graphrag.enabled {
+		// Check if we have new blocks from this indexing run OR if GraphRAG needs initial indexing
+		let needs_graphrag_from_existing = if all_code_blocks.is_empty() {
+			// No new blocks, check if GraphRAG needs indexing from existing database
+			store.graphrag_needs_indexing().await.unwrap_or(false)
+		} else {
+			false // We have new blocks, process them normally
+		};
 
-		// Log GraphRAG phase start
-		log_indexing_progress(
-			"graphrag_build",
-			state.read().indexed_files,
-			state.read().total_files,
-			None,
-			embedding_calls,
-		);
+		if !all_code_blocks.is_empty() || needs_graphrag_from_existing {
+			{
+				let mut state_guard = state.write();
+				if needs_graphrag_from_existing {
+					state_guard.status_message =
+						"Building GraphRAG from existing database...".to_string();
+				} else {
+					state_guard.status_message = "Building GraphRAG knowledge graph...".to_string();
+				}
+			}
 
-		// Initialize GraphBuilder
-		let graph_builder = graphrag::GraphBuilder::new(config.clone()).await?;
+			// Log GraphRAG phase start
+			log_indexing_progress(
+				"graphrag_build",
+				state.read().indexed_files,
+				state.read().total_files,
+				None,
+				embedding_calls,
+			);
 
-		// Process code blocks to build the graph
-		graph_builder
-			.process_code_blocks(&all_code_blocks, Some(state.clone()))
-			.await?;
+			// Initialize GraphBuilder
+			let graph_builder = graphrag::GraphBuilder::new(config.clone()).await?;
 
-		// Update final state
-		{
-			let mut state_guard = state.write();
-			state_guard.status_message = "".to_string();
+			if needs_graphrag_from_existing {
+				// Build GraphRAG from existing database (critical fix for the reported issue)
+				graph_builder
+					.build_from_existing_database(Some(state.clone()))
+					.await?;
+			} else {
+				// Process new code blocks to build/update the graph
+				graph_builder
+					.process_code_blocks(&all_code_blocks, Some(state.clone()))
+					.await?;
+			}
+
+			// Update final state
+			{
+				let mut state_guard = state.write();
+				state_guard.status_message = "".to_string();
+			}
 		}
 	}
 
