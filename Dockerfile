@@ -1,6 +1,6 @@
 # Multi-stage Dockerfile for octocode
 # Stage 1: Build
-FROM rust:1.75-slim as builder
+FROM rust:1.87-slim as builder
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -14,8 +14,9 @@ WORKDIR /app
 # Copy manifests
 COPY Cargo.toml Cargo.lock ./
 
-# Copy source code
+# Copy source code and config templates
 COPY src ./src
+COPY config-templates ./config-templates
 
 # Build the application
 RUN cargo build --release
