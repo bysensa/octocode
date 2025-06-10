@@ -81,11 +81,28 @@ pub fn detect_project_root() -> Result<PathBuf> {
 // Convert absolute path to relative path from project root
 pub fn to_relative_path(absolute_path: &str, project_root: &Path) -> Result<String> {
 	let abs_path = PathBuf::from(absolute_path);
-	let relative = abs_path.strip_prefix(project_root).map_err(|_| {
+
+	// Canonicalize both paths to handle symlinks and case sensitivity issues
+	let canonical_abs = abs_path.canonicalize().unwrap_or_else(|_| {
+		// If canonicalization fails, try to make it absolute relative to project root
+		if abs_path.is_relative() {
+			project_root.join(&abs_path)
+		} else {
+			abs_path
+		}
+	});
+
+	let canonical_root = project_root
+		.canonicalize()
+		.unwrap_or_else(|_| project_root.to_path_buf());
+
+	let relative = canonical_abs.strip_prefix(&canonical_root).map_err(|_| {
 		anyhow::anyhow!(
-			"Path {} is not within project root {}",
+			"Path {} (canonical: {}) is not within project root {} (canonical: {})",
 			absolute_path,
-			project_root.display()
+			canonical_abs.display(),
+			project_root.display(),
+			canonical_root.display()
 		)
 	})?;
 

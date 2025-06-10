@@ -310,12 +310,18 @@ impl AIEnhancements {
 
 			// Add block content with some context
 			let block_content = if block.content.len() > 300 {
-				// For large blocks, take beginning and end
-				format!(
-					"{}\n...\n{}",
-					&block.content[0..150],
-					&block.content[block.content.len() - 150..]
-				)
+				// For large blocks, take beginning and end with proper UTF-8 handling
+				let start_chars: String = block.content.chars().take(150).collect();
+				let end_chars: String = block
+					.content
+					.chars()
+					.rev()
+					.take(150)
+					.collect::<String>()
+					.chars()
+					.rev()
+					.collect();
+				format!("{}\n...\n{}", start_chars, end_chars)
 			} else {
 				block.content.clone()
 			};

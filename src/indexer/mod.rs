@@ -819,6 +819,24 @@ pub async fn index_files_with_quiet(
 						if !quiet {
 							println!("✅ No commit changes since last index, skipping reindex");
 						}
+
+						// Check if GraphRAG needs to be built from existing database even when no files changed
+						if config.graphrag.enabled {
+							let needs_graphrag_from_existing =
+								store.graphrag_needs_indexing().await.unwrap_or(false);
+							if needs_graphrag_from_existing {
+								if !quiet {
+									println!("🔗 Building GraphRAG from existing database...");
+								}
+								log_indexing_progress("graphrag_build", 0, 0, None, 0);
+								let graph_builder =
+									graphrag::GraphBuilder::new(config.clone()).await?;
+								graph_builder
+									.build_from_existing_database(Some(state.clone()))
+									.await?;
+							}
+						}
+
 						{
 							let mut state_guard = state.write();
 							state_guard.indexing_complete = true;
