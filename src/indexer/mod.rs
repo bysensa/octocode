@@ -66,7 +66,7 @@ pub struct NoindexWalker;
 
 impl NoindexWalker {
 	/// Creates a WalkBuilder that respects .gitignore and .noindex files
-	/// ENHANCED: Better error handling and debugging for .noindex files
+	/// FIXED: Properly handles .noindex patterns using custom filter
 	pub fn create_walker(current_dir: &Path) -> ignore::WalkBuilder {
 		let mut builder = ignore::WalkBuilder::new(current_dir);
 
@@ -77,18 +77,9 @@ impl NoindexWalker {
 			.git_global(true) // Respect global git ignore files
 			.git_exclude(true); // Respect .git/info/exclude files
 
-		// Add .noindex support by adding it as an additional ignore file
-		let noindex_path = current_dir.join(".noindex");
-		if noindex_path.exists() {
-			match builder.add_ignore(&noindex_path) {
-				Some(e) => {
-					eprintln!("Warning: Failed to load .noindex file: {}", e);
-				}
-				None => {
-					// Successfully loaded - no need to be verbose
-				}
-			}
-		}
+		// FIXED: Use add_custom_ignore_filename to properly handle .noindex
+		// This method actually works unlike add_ignore()
+		builder.add_custom_ignore_filename(".noindex");
 
 		builder
 	}
