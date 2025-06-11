@@ -45,6 +45,10 @@ pub struct GraphBuilder {
 
 impl GraphBuilder {
 	pub async fn new(config: Config) -> Result<Self> {
+		Self::new_with_quiet(config, false).await
+	}
+
+	pub async fn new_with_quiet(config: Config, quiet: bool) -> Result<Self> {
 		// Detect project root (look for common indicators)
 		let project_root = detect_project_root()?;
 
@@ -62,7 +66,7 @@ impl GraphBuilder {
 
 		// Load existing graph from database
 		let db_ops = DatabaseOperations::new(&store);
-		let graph = Arc::new(RwLock::new(db_ops.load_graph(&project_root).await?));
+		let graph = Arc::new(RwLock::new(db_ops.load_graph(&project_root, quiet).await?));
 
 		// Initialize AI enhancements if enabled
 		let client = Client::new();

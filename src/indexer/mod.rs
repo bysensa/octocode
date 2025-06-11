@@ -769,6 +769,7 @@ pub async fn index_files_with_quiet(
 		state_guard.graphrag_blocks = 0;
 		state_guard.counting_files = true;
 		state_guard.status_message = "Counting files...".to_string();
+		state_guard.quiet_mode = quiet;
 	}
 
 	// Get force_reindex flag from state
@@ -821,7 +822,8 @@ pub async fn index_files_with_quiet(
 								}
 								log_indexing_progress("graphrag_build", 0, 0, None, 0);
 								let graph_builder =
-									graphrag::GraphBuilder::new(config.clone()).await?;
+									graphrag::GraphBuilder::new_with_quiet(config.clone(), quiet)
+										.await?;
 								graph_builder
 									.build_from_existing_database(Some(state.clone()))
 									.await?;
@@ -1202,7 +1204,8 @@ pub async fn index_files_with_quiet(
 			);
 
 			// Initialize GraphBuilder
-			let graph_builder = graphrag::GraphBuilder::new(config.clone()).await?;
+			let graph_builder =
+				graphrag::GraphBuilder::new_with_quiet(config.clone(), quiet).await?;
 
 			if needs_graphrag_from_existing {
 				// Build GraphRAG from existing database (critical fix for the reported issue)

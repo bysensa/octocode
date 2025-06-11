@@ -45,6 +45,8 @@ pub struct IndexState {
 	pub graphrag_blocks: usize,
 	// File counting state
 	pub counting_files: bool,
+	// Quiet mode for MCP server (no console output)
+	pub quiet_mode: bool,
 }
 
 pub type SharedState = Arc<RwLock<IndexState>>;

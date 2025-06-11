@@ -34,7 +34,7 @@ impl<'a> DatabaseOperations<'a> {
 	}
 
 	// Load the existing graph from database
-	pub async fn load_graph(&self, _project_root: &Path) -> Result<CodeGraph> {
+	pub async fn load_graph(&self, _project_root: &Path, quiet: bool) -> Result<CodeGraph> {
 		let mut graph = CodeGraph::default();
 
 		// Check if the tables exist
@@ -58,10 +58,12 @@ impl<'a> DatabaseOperations<'a> {
 			return Ok(graph); // No nodes found
 		}
 
-		println!(
-			"Loading {} GraphRAG nodes from database...",
-			node_batch.num_rows()
-		);
+		if !quiet {
+			println!(
+				"Loading {} GraphRAG nodes from database...",
+				node_batch.num_rows()
+			);
+		}
 
 		// Process nodes
 		let id_array = node_batch
@@ -198,10 +200,12 @@ impl<'a> DatabaseOperations<'a> {
 		// Load relationships
 		let rel_batch = self.store.get_graph_relationships().await?;
 		if rel_batch.num_rows() > 0 {
-			println!(
-				"Loading {} GraphRAG relationships from database...",
-				rel_batch.num_rows()
-			);
+			if !quiet {
+				println!(
+					"Loading {} GraphRAG relationships from database...",
+					rel_batch.num_rows()
+				);
+			}
 
 			// Process relationships
 			let source_array = rel_batch
@@ -251,7 +255,7 @@ impl<'a> DatabaseOperations<'a> {
 			}
 		}
 
-		if !graph.nodes.is_empty() {
+		if !graph.nodes.is_empty() && !quiet {
 			println!(
 				"Loaded GraphRAG knowledge graph with {} nodes and {} relationships",
 				graph.nodes.len(),
