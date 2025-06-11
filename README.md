@@ -145,6 +145,10 @@ octocode commit
 
 # Review code for best practices
 octocode review
+
+# Create AI-powered releases with version calculation and changelog
+octocode release --dry-run  # Preview what would be done
+octocode release            # Create the actual release
 ```
 
 ### 4. MCP Server for AI Assistants
@@ -156,7 +160,7 @@ octocode mcp
 # Provides: search_code, search_graphrag, memorize, remember, forget
 ```
 
-### 4. Memory Management
+### 5. Memory Management
 ```bash
 # Store important insights and decisions
 octocode memory memorize \
@@ -177,7 +181,7 @@ octocode memory for-files src/auth.rs
 octocode memory clear-all --yes
 ```
 
-### 5. Advanced Features
+### 6. Advanced Features
 ```bash
 # Enable GraphRAG with AI descriptions (requires OpenRouter API key)
 octocode config --graphrag-enabled true
@@ -200,6 +204,7 @@ octocode watch
 | `octocode view [pattern]` | View code signatures | `octocode view "src/**/*.rs" --md` |
 | `octocode commit` | AI-powered git commit | `octocode commit --all` |
 | `octocode review` | Code review assistant | `octocode review --focus security` |
+| `octocode release` | AI-powered release management | `octocode release --dry-run` |
 | `octocode memory <operation>` | Memory management | `octocode memory remember "auth bugs"` |
 | `octocode mcp` | Start MCP server | `octocode mcp --debug` |
 | `octocode watch` | Auto-reindex on changes | `octocode watch --quiet` |
@@ -229,7 +234,7 @@ Octocode includes a powerful memory system for storing and retrieving project in
 
 ### Memory Types
 - `code` - Code-related insights and patterns
-- `bug_fix` - Bug reports and solutions  
+- `bug_fix` - Bug reports and solutions
 - `feature` - Feature implementations and decisions
 - `architecture` - Architectural decisions and patterns
 - `performance` - Performance optimizations and metrics
@@ -261,9 +266,90 @@ octocode memory by-tags security --format json
 octocode memory clear-all --yes
 ```
 
+## 🚀 Release Management
+
+Octocode provides intelligent release management with AI-powered version calculation and automatic changelog generation.
+
+### Features
+- **AI Version Calculation**: Analyzes commit history using conventional commits to determine semantic version bumps
+- **Automatic Changelog**: Generates structured changelogs from commit messages
+- **Multi-Project Support**: Works with Rust (Cargo.toml), Node.js (package.json), PHP (composer.json), and Go (go.mod) projects
+- **Git Integration**: Creates release commits and annotated tags automatically
+- **Dry Run Mode**: Preview changes before execution
+
+### Usage
+
+```bash
+# Preview what would be done (recommended first step)
+octocode release --dry-run
+
+# Create a release with AI version calculation
+octocode release
+
+# Force a specific version
+octocode release --force-version "2.0.0"
+
+# Skip confirmation prompt
+octocode release --yes
+
+# Use custom changelog file
+octocode release --changelog "HISTORY.md"
+```
+
+### How It Works
+
+1. **Project Detection**: Automatically detects project type (Rust, Node.js, PHP, Go)
+2. **Version Analysis**: Gets current version from project files or git tags
+3. **Commit Analysis**: Analyzes commits since last release using conventional commit format
+4. **AI Calculation**: Uses LLM to determine appropriate version bump (major/minor/patch)
+5. **Changelog Generation**: Creates structured changelog with categorized changes
+6. **File Updates**: Updates project files with new version (Cargo.toml, package.json, composer.json, VERSION)
+7. **Git Operations**: Creates release commit and annotated tag
+
+### Conventional Commits Support
+
+The release command works best with conventional commit format:
+- `feat:` → Minor version bump
+- `fix:` → Patch version bump
+- `BREAKING CHANGE` or `!` → Major version bump
+- `chore:`, `docs:`, `style:`, etc. → Patch version bump
+
+### Example Output
+
+```
+🚀 Starting release process...
+
+📦 Project type detected: Rust (Cargo.toml)
+📌 Current version: 0.1.0
+📋 Analyzing commits since: v0.1.0
+📊 Found 5 commits to analyze
+
+🎯 Version calculation:
+   Current: 0.1.0
+   New:     0.2.0
+   Type:    minor
+   Reason:  New features added without breaking changes
+
+📝 Generated changelog entry:
+═══════════════════════════════════
+## [0.2.0] - 2025-01-27
+
+### ✨ Features
+
+- Add release command with AI version calculation
+- Implement dry-run mode for safe previews
+
+### 🐛 Bug Fixes
+
+- Fix memory search relevance scoring
+═══════════════════════════════════
+
+🔍 DRY RUN - No changes would be made
+```
+
 ## 🔧 Configuration
 
-Octocode stores configuration in `~/.local/share/octocode/config.toml`. 
+Octocode stores configuration in `~/.local/share/octocode/config.toml`.
 
 ### Required Setup
 ```bash
@@ -298,7 +384,7 @@ octocode config --model "openai/gpt-4o-mini"
 
 ### Default Models
 - **Code embedding**: `voyage:voyage-code-2` (Voyage AI)
-- **Text embedding**: `voyage:voyage-2` (Voyage AI)  
+- **Text embedding**: `voyage:voyage-2` (Voyage AI)
 - **LLM**: `openai/gpt-4o-mini` (via OpenRouter)
 
 ### Platform Support
@@ -308,7 +394,7 @@ octocode config --model "openai/gpt-4o-mini"
 ## 📚 Documentation
 
 - **[Architecture](doc/ARCHITECTURE.md)** - Core components and system design
-- **[Configuration](doc/CONFIGURATION.md)** - Setup and configuration options  
+- **[Configuration](doc/CONFIGURATION.md)** - Setup and configuration options
 - **[Advanced Usage](doc/ADVANCED_USAGE.md)** - Advanced features and workflows
 - **[Contributing](doc/CONTRIBUTING.md)** - Development setup and contribution guidelines
 - **[Performance](doc/PERFORMANCE.md)** - Performance metrics and optimization tips

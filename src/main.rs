@@ -68,6 +68,9 @@ enum Commands {
 	/// Review staged changes for best practices and potential issues
 	Review(commands::ReviewArgs),
 
+	/// Create a new release with AI-powered version calculation and changelog generation
+	Release(commands::ReleaseArgs),
+
 	/// Format code according to .editorconfig rules
 	Format(commands::FormatArgs),
 
@@ -107,6 +110,11 @@ async fn main() -> Result<(), anyhow::Error> {
 	// Handle the Review command separately (doesn't need store)
 	if let Commands::Review(review_args) = &args.command {
 		return commands::review::execute(&config, review_args).await;
+	}
+
+	// Handle the Release command separately (doesn't need store)
+	if let Commands::Release(release_args) = &args.command {
+		return commands::release::execute(&config, release_args).await;
 	}
 
 	// Handle the Format command separately (doesn't need store)
@@ -156,6 +164,7 @@ async fn main() -> Result<(), anyhow::Error> {
 		Commands::Mcp(_) => unreachable!(),    // Already handled above
 		Commands::Commit(_) => unreachable!(), // Already handled above
 		Commands::Review(_) => unreachable!(), // Already handled above
+		Commands::Release(_) => unreachable!(), // Already handled above
 		Commands::Format(_) => unreachable!(), // Already handled above
 		Commands::Logs(_) => unreachable!(),   // Already handled above
 		Commands::Memory(_) => unreachable!(), // Already handled above

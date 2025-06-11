@@ -73,6 +73,59 @@ octocode review --json
    💡 Suggestion: Move to environment variables or config file
 ```
 
+### AI-Powered Release Management
+
+Octocode provides intelligent release automation with AI-powered version calculation and changelog generation.
+
+```bash
+# Preview what would be done (always recommended first)
+octocode release --dry-run
+
+# Create a release with AI version calculation
+octocode release
+
+# Force a specific version (bypasses AI calculation)
+octocode release --force-version "2.0.0"
+
+# Skip confirmation prompt for automation
+octocode release --yes
+
+# Use custom changelog file
+octocode release --changelog "HISTORY.md"
+```
+
+**How it works:**
+
+1. **Project Detection**: Automatically detects project type (Rust, Node.js, PHP, Go)
+2. **Version Analysis**: Extracts current version from project files or git tags
+3. **Commit Analysis**: Analyzes commits since last release using conventional commit format
+4. **AI Calculation**: Uses LLM to determine appropriate semantic version bump
+5. **Changelog Generation**: Creates structured changelog with categorized changes
+6. **File Updates**: Updates project files (Cargo.toml, package.json, composer.json, VERSION)
+7. **Git Operations**: Creates release commit and annotated tag
+
+**Conventional Commits Support:**
+- `feat:` → Minor version bump (0.1.0 → 0.2.0)
+- `fix:` → Patch version bump (0.1.0 → 0.1.1)
+- `BREAKING CHANGE` or `!` → Major version bump (0.1.0 → 1.0.0)
+- `chore:`, `docs:`, `style:`, etc. → Patch version bump
+
+**Example workflow:**
+```bash
+# 1. Make your changes and commit them
+git add .
+octocode commit
+
+# 2. Preview the release
+octocode release --dry-run
+
+# 3. Create the release
+octocode release
+
+# 4. Push to remote
+git push origin main --tags
+```
+
 ## MCP Server Integration
 
 ### Setting Up MCP Server
