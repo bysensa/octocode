@@ -32,6 +32,10 @@ pub struct CommitArgs {
 	/// Skip confirmation prompt
 	#[arg(short, long)]
 	pub yes: bool,
+
+	/// Skip pre-commit and commit-msg hooks
+	#[arg(short, long)]
+	pub no_verify: bool,
 }
 
 pub async fn execute(config: &Config, args: &CommitArgs) -> Result<()> {
@@ -109,8 +113,12 @@ pub async fn execute(config: &Config, args: &CommitArgs) -> Result<()> {
 
 	// Perform the commit
 	println!("💾 Committing changes...");
+	let mut git_args = vec!["commit", "-m", &commit_message];
+	if args.no_verify {
+		git_args.push("--no-verify");
+	}
 	let output = Command::new("git")
-		.args(["commit", "-m", &commit_message])
+		.args(&git_args)
 		.current_dir(&current_dir)
 		.output()?;
 
