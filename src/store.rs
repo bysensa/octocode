@@ -26,7 +26,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -1667,10 +1667,62 @@ impl Store {
 			}
 		}
 
+		// Remove GraphRAG data associated with this file path
+		let mut graphrag_nodes_removed = 0;
+		let mut graphrag_relationships_removed = 0;
+
+		// Remove GraphRAG nodes if table exists
+		match self.remove_graph_nodes_by_path(file_path).await {
+			Ok(count) => {
+				graphrag_nodes_removed = count;
+				if count > 0 {
+					total_removed += count;
+				}
+			}
+			Err(e) => {
+				let error_msg = format!("Error removing GraphRAG nodes for {}: {}", file_path, e);
+				eprintln!("{}", error_msg);
+				errors.push(error_msg);
+			}
+		}
+
+		// Remove GraphRAG relationships if table exists
+		match self.remove_graph_relationships_by_path(file_path).await {
+			Ok(count) => {
+				graphrag_relationships_removed = count;
+				if count > 0 {
+					total_removed += count;
+				}
+			}
+			Err(e) => {
+				let error_msg = format!(
+					"Error removing GraphRAG relationships for {}: {}",
+					file_path, e
+				);
+				eprintln!("{}", error_msg);
+				errors.push(error_msg);
+			}
+		}
+
 		// Only report if there were significant actions or errors
 		if total_removed > 0 || !errors.is_empty() {
 			if total_removed > 0 {
-				// Only show summary for significant removals
+				// Only show summary for significant removals including GraphRAG data
+				if graphrag_nodes_removed > 0 || graphrag_relationships_removed > 0 {
+					// Log GraphRAG cleanup for debugging
+					if graphrag_nodes_removed > 0 {
+						eprintln!(
+							"Removed {} GraphRAG nodes for {}",
+							graphrag_nodes_removed, file_path
+						);
+					}
+					if graphrag_relationships_removed > 0 {
+						eprintln!(
+							"Removed {} GraphRAG relationships for {}",
+							graphrag_relationships_removed, file_path
+						);
+					}
+				}
 			}
 
 			// Always report errors
@@ -1834,6 +1886,32 @@ impl Store {
 		// Check document_blocks table
 		if table_names.contains(&"document_blocks".to_string()) {
 			let table = self.db.open_table("document_blocks").execute().await?;
+			let mut results = table
+				.query()
+				.select(Select::Columns(vec!["path".to_string()]))
+				.execute()
+				.await?;
+
+			// Process all batches
+			while let Some(batch) = results.try_next().await? {
+				if batch.num_rows() > 0 {
+					let path_array = batch
+						.column_by_name("path")
+						.ok_or_else(|| anyhow::anyhow!("Path column not found"))?
+						.as_any()
+						.downcast_ref::<StringArray>()
+						.ok_or_else(|| anyhow::anyhow!("Path column is not a StringArray"))?;
+
+					for i in 0..path_array.len() {
+						all_paths.insert(path_array.value(i).to_string());
+					}
+				}
+			}
+		}
+
+		// Check graphrag_nodes table (for completeness in file tracking)
+		if table_names.contains(&"graphrag_nodes".to_string()) {
+			let table = self.db.open_table("graphrag_nodes").execute().await?;
 			let mut results = table
 				.query()
 				.select(Select::Columns(vec!["path".to_string()]))
@@ -2164,6 +2242,95 @@ impl Store {
 			table.delete("TRUE").await?;
 		}
 		Ok(())
+	}
+
+	// Remove GraphRAG nodes associated with a specific file path
+	pub async fn remove_graph_nodes_by_path(&self, file_path: &str) -> Result<usize> {
+		let table_names = self.db.table_names().execute().await?;
+		if !table_names.contains(&"graphrag_nodes".to_string()) {
+			return Ok(0); // Table doesn't exist, nothing to remove
+		}
+
+		let table = self.db.open_table("graphrag_nodes").execute().await?;
+
+		// Escape single quotes in file_path to prevent SQL injection/errors
+		let escaped_path = file_path.replace("'", "''");
+
+		// First count how many we're going to delete for reporting
+		let mut count_results = table
+			.query()
+			.only_if(format!("path = '{}'", escaped_path))
+			.select(lancedb::query::Select::Columns(vec!["id".to_string()]))
+			.execute()
+			.await?;
+
+		let mut count = 0;
+		while let Some(batch) = count_results.try_next().await? {
+			count += batch.num_rows();
+		}
+
+		if count > 0 {
+			// Delete the nodes
+			table
+				.delete(&format!("path = '{}'", escaped_path))
+				.await
+				.context(format!(
+					"Failed to delete GraphRAG nodes for path: {}",
+					file_path
+				))?;
+		}
+
+		Ok(count)
+	}
+
+	// Remove GraphRAG relationships associated with a specific file path
+	pub async fn remove_graph_relationships_by_path(&self, file_path: &str) -> Result<usize> {
+		let table_names = self.db.table_names().execute().await?;
+		if !table_names.contains(&"graphrag_relationships".to_string()) {
+			return Ok(0); // Table doesn't exist, nothing to remove
+		}
+
+		let table = self
+			.db
+			.open_table("graphrag_relationships")
+			.execute()
+			.await?;
+
+		// Escape single quotes in file_path to prevent SQL injection/errors
+		let escaped_path = file_path.replace("'", "''");
+
+		// Count relationships where either source or target matches the file path
+		// GraphRAG relationships use node IDs which are file paths
+		let mut count_results = table
+			.query()
+			.only_if(format!(
+				"source = '{}' OR target = '{}'",
+				escaped_path, escaped_path
+			))
+			.select(lancedb::query::Select::Columns(vec!["source".to_string()]))
+			.execute()
+			.await?;
+
+		let mut count = 0;
+		while let Some(batch) = count_results.try_next().await? {
+			count += batch.num_rows();
+		}
+
+		if count > 0 {
+			// Delete relationships where either source or target matches the file path
+			table
+				.delete(&format!(
+					"source = '{}' OR target = '{}'",
+					escaped_path, escaped_path
+				))
+				.await
+				.context(format!(
+					"Failed to delete GraphRAG relationships for path: {}",
+					file_path
+				))?;
+		}
+
+		Ok(count)
 	}
 
 	// Search for graph nodes by vector similarity
