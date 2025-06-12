@@ -32,7 +32,9 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 // Arrow imports
-use arrow::array::{Array, FixedSizeListArray, Float32Array, Int64Array, StringArray, UInt32Array};
+use arrow::array::{
+	Array, FixedSizeListArray, Float32Array, Int64Array, ListArray, StringArray, UInt32Array,
+};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 
@@ -76,7 +78,8 @@ pub struct TextBlock {
 pub struct DocumentBlock {
 	pub path: String,
 	pub title: String,
-	pub content: String,
+	pub content: String,      // Storage content only
+	pub context: Vec<String>, // Hierarchical context (optional)
 	pub level: usize,
 	pub start_line: usize,
 	pub end_line: usize,
@@ -386,6 +389,11 @@ impl BatchConverter {
 			Field::new("path", DataType::Utf8, false),
 			Field::new("title", DataType::Utf8, false),
 			Field::new("content", DataType::Utf8, false),
+			Field::new(
+				"context",
+				DataType::List(Arc::new(Field::new("item", DataType::Utf8, true))),
+				true,
+			),
 			Field::new("level", DataType::UInt32, false),
 			Field::new("start_line", DataType::UInt32, false),
 			Field::new("end_line", DataType::UInt32, false),
@@ -405,6 +413,23 @@ impl BatchConverter {
 		let paths: Vec<&str> = blocks.iter().map(|b| b.path.as_str()).collect();
 		let titles: Vec<&str> = blocks.iter().map(|b| b.title.as_str()).collect();
 		let contents: Vec<&str> = blocks.iter().map(|b| b.content.as_str()).collect();
+
+		// Create context list array
+		let mut context_values = Vec::new();
+		let mut context_offsets = vec![0i32];
+		for block in blocks {
+			for context_item in &block.context {
+				context_values.push(context_item.as_str());
+			}
+			context_offsets.push(context_values.len() as i32);
+		}
+		let context_array = ListArray::new(
+			Arc::new(Field::new("item", DataType::Utf8, true)),
+			arrow::buffer::OffsetBuffer::new(context_offsets.into()),
+			Arc::new(StringArray::from(context_values)),
+			None,
+		);
+
 		let levels: Vec<u32> = blocks.iter().map(|b| b.level as u32).collect();
 		let start_lines: Vec<u32> = blocks.iter().map(|b| b.start_line as u32).collect();
 		let end_lines: Vec<u32> = blocks.iter().map(|b| b.end_line as u32).collect();
@@ -435,6 +460,11 @@ impl BatchConverter {
 			expected_len,
 			"contents array length mismatch"
 		);
+		assert_eq!(
+			context_array.len(),
+			expected_len,
+			"context_array length mismatch"
+		);
 		assert_eq!(levels.len(), expected_len, "levels array length mismatch");
 		assert_eq!(
 			start_lines.len(),
@@ -461,6 +491,7 @@ impl BatchConverter {
 				Arc::new(StringArray::from(paths)),
 				Arc::new(StringArray::from(titles)),
 				Arc::new(StringArray::from(contents)),
+				Arc::new(context_array),
 				Arc::new(UInt32Array::from(levels)),
 				Arc::new(UInt32Array::from(start_lines)),
 				Arc::new(UInt32Array::from(end_lines)),
@@ -652,6 +683,13 @@ impl BatchConverter {
 			.downcast_ref::<StringArray>()
 			.ok_or_else(|| anyhow::anyhow!("'content' column is not a StringArray"))?;
 
+		let context_array = batch
+			.column_by_name("context")
+			.ok_or_else(|| anyhow::anyhow!("'context' column not found"))?
+			.as_any()
+			.downcast_ref::<ListArray>()
+			.ok_or_else(|| anyhow::anyhow!("'context' column is not a ListArray"))?;
+
 		let level_array = batch
 			.column_by_name("level")
 			.ok_or_else(|| anyhow::anyhow!("'level' column not found"))?
@@ -683,10 +721,21 @@ impl BatchConverter {
 		for i in 0..num_rows {
 			let distance = distances.as_ref().map(|d| d[i]);
 
+			// Extract context from ListArray
+			let context_list = context_array.value(i);
+			let context_string_array = context_list
+				.as_any()
+				.downcast_ref::<StringArray>()
+				.ok_or_else(|| anyhow::anyhow!("Context list item is not a StringArray"))?;
+			let context: Vec<String> = (0..context_string_array.len())
+				.map(|j| context_string_array.value(j).to_string())
+				.collect();
+
 			document_blocks.push(DocumentBlock {
 				path: path_array.value(i).to_string(),
 				title: title_array.value(i).to_string(),
 				content: content_array.value(i).to_string(),
+				context,
 				level: level_array.value(i) as usize,
 				start_line: start_line_array.value(i) as usize,
 				end_line: end_line_array.value(i) as usize,

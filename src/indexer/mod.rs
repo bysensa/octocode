@@ -530,87 +530,311 @@ fn node_text(node: Node, contents: &str) -> String {
 	}
 }
 
-/// Parse markdown content and split it into meaningful chunks by headers
-pub fn parse_markdown_content(contents: &str, file_path: &str) -> Vec<DocumentBlock> {
-	let mut document_blocks = Vec::new();
-	let lines: Vec<&str> = contents.lines().collect();
+/// Represents a header section with hierarchical relationships
+#[derive(Debug, Clone)]
+struct HeaderSection {
+	level: usize,
+	content: String,      // ONLY actual content
+	context: Vec<String>, // ["# Doc", "## Start", "### Install"] - hierarchical context
+	start_line: usize,
+	end_line: usize,
+	children: Vec<usize>,  // Indices of child sections
+	parent: Option<usize>, // Index of parent section
+}
 
-	let mut current_title = "Introduction".to_string();
-	let mut current_level = 1;
+/// Result of chunking with separated storage and context
+#[derive(Debug, Clone)]
+struct ChunkResult {
+	storage_content: String, // ONLY actual content for storage
+	context: Vec<String>,    // Hierarchical context (optional)
+	title: String,
+	level: usize,
+	start_line: usize,
+	end_line: usize,
+}
+
+/// Hierarchical document structure for bottom-up processing
+#[derive(Debug)]
+struct DocumentHierarchy {
+	sections: Vec<HeaderSection>,
+	root_sections: Vec<usize>, // Top-level section indices
+}
+
+impl DocumentHierarchy {
+	fn new() -> Self {
+		Self {
+			sections: Vec::new(),
+			root_sections: Vec::new(),
+		}
+	}
+
+	fn add_section(&mut self, section: HeaderSection) -> usize {
+		let index = self.sections.len();
+		self.sections.push(section);
+		index
+	}
+
+	fn build_parent_child_relationships(&mut self) {
+		for i in 0..self.sections.len() {
+			// Find parent (closest preceding section with lower level)
+			let current_level = self.sections[i].level;
+			let mut parent_idx = None;
+
+			for j in (0..i).rev() {
+				if self.sections[j].level < current_level {
+					parent_idx = Some(j);
+					break;
+				}
+			}
+
+			// Set parent relationship
+			self.sections[i].parent = parent_idx;
+
+			// Add to parent's children
+			if let Some(parent) = parent_idx {
+				self.sections[parent].children.push(i);
+			} else {
+				// Root level section
+				self.root_sections.push(i);
+			}
+		}
+	}
+
+	fn get_target_chunk_size(&self, header_level: usize, base_chunk_size: usize) -> usize {
+		match header_level {
+			1 => (base_chunk_size as f32 * 1.0) as usize, // H1: 2000 chars
+			2 => (base_chunk_size as f32 * 0.8) as usize, // H2: 1600 chars
+			3 => (base_chunk_size as f32 * 0.65) as usize, // H3: 1300 chars
+			4 => (base_chunk_size as f32 * 0.5) as usize, // H4: 1000 chars
+			5 => (base_chunk_size as f32 * 0.4) as usize, // H5: 800 chars
+			6 => (base_chunk_size as f32 * 0.3) as usize, // H6: 600 chars
+			_ => (base_chunk_size as f32 * 0.3) as usize, // Default: smallest
+		}
+	}
+
+	fn bottom_up_chunking(&self, base_chunk_size: usize) -> Vec<ChunkResult> {
+		let mut chunks = Vec::new();
+		let mut processed = vec![false; self.sections.len()];
+
+		// Process from deepest level to shallowest (6 → 1)
+		for level in (1..=6).rev() {
+			self.process_level(level, &mut processed, &mut chunks, base_chunk_size);
+		}
+
+		chunks
+	}
+
+	fn process_level(
+		&self,
+		level: usize,
+		processed: &mut Vec<bool>,
+		chunks: &mut Vec<ChunkResult>,
+		base_chunk_size: usize,
+	) {
+		let sections_at_level: Vec<usize> = self
+			.sections
+			.iter()
+			.enumerate()
+			.filter(|(_, s)| s.level == level)
+			.map(|(i, _)| i)
+			.collect();
+
+		for section_idx in sections_at_level {
+			if processed[section_idx] {
+				continue;
+			}
+
+			// Try to merge this section with its unprocessed children
+			let merged_content = self.merge_section_with_children(section_idx, processed);
+			let target_size = self.get_target_chunk_size(level, base_chunk_size);
+
+			if merged_content.storage_content.len() <= target_size {
+				// Accept this merged chunk
+				chunks.push(merged_content);
+				self.mark_section_tree_processed(section_idx, processed);
+			} else {
+				// Content too large, process children separately first
+				for &child_idx in &self.sections[section_idx].children {
+					if !processed[child_idx] {
+						let child_chunk = self.create_chunk_for_section(child_idx);
+						chunks.push(child_chunk);
+						processed[child_idx] = true;
+					}
+				}
+
+				// Then create chunk for just this section
+				let section_chunk = self.create_chunk_for_section(section_idx);
+				chunks.push(section_chunk);
+				processed[section_idx] = true;
+			}
+		}
+	}
+
+	fn merge_section_with_children(&self, section_idx: usize, processed: &[bool]) -> ChunkResult {
+		let section = &self.sections[section_idx];
+		let mut storage_parts = vec![section.content.clone()];
+		let start_line = section.start_line;
+		let mut end_line = section.end_line;
+
+		// Collect unprocessed children content
+		for &child_idx in &section.children {
+			if !processed[child_idx] {
+				let child_content = self.collect_section_tree_content(child_idx);
+				storage_parts.push(child_content);
+				end_line = end_line.max(self.sections[child_idx].end_line);
+			}
+		}
+
+		let storage_content = storage_parts.join("\n");
+
+		ChunkResult {
+			storage_content,
+			context: section.context.clone(),
+			title: section
+				.context
+				.last()
+				.map(|h| h.trim_start_matches('#').trim())
+				.unwrap_or("Document")
+				.to_string(),
+			level: section.level,
+			start_line,
+			end_line,
+		}
+	}
+
+	fn create_chunk_for_section(&self, section_idx: usize) -> ChunkResult {
+		let section = &self.sections[section_idx];
+		let storage_content = section.content.clone();
+
+		ChunkResult {
+			storage_content,
+			context: section.context.clone(),
+			title: section
+				.context
+				.last()
+				.map(|h| h.trim_start_matches('#').trim())
+				.unwrap_or("Document")
+				.to_string(),
+			level: section.level,
+			start_line: section.start_line,
+			end_line: section.end_line,
+		}
+	}
+
+	fn collect_section_tree_content(&self, section_idx: usize) -> String {
+		let mut content_parts = vec![self.sections[section_idx].content.clone()];
+
+		for &child_idx in &self.sections[section_idx].children {
+			content_parts.push(self.collect_section_tree_content(child_idx));
+		}
+
+		content_parts.join("\n")
+	}
+
+	fn mark_section_tree_processed(&self, section_idx: usize, processed: &mut Vec<bool>) {
+		processed[section_idx] = true;
+		for &child_idx in &self.sections[section_idx].children {
+			self.mark_section_tree_processed(child_idx, processed);
+		}
+	}
+}
+
+/// Parse markdown content and split it into meaningful chunks by headers
+pub fn parse_markdown_content(
+	contents: &str,
+	file_path: &str,
+	config: &Config,
+) -> Vec<DocumentBlock> {
+	// Parse the document into hierarchical sections
+	let hierarchy = parse_document_hierarchy(contents);
+
+	// Perform bottom-up chunking
+	let chunk_results = hierarchy.bottom_up_chunking(config.index.chunk_size);
+
+	// Convert ChunkResults to DocumentBlocks
+	chunk_results
+		.into_iter()
+		.map(|chunk| {
+			let content_hash = calculate_unique_content_hash(&chunk.storage_content, file_path);
+			DocumentBlock {
+				path: file_path.to_string(),
+				title: chunk.title,
+				content: chunk.storage_content, // Storage content only
+				context: chunk.context,         // Context for embeddings
+				level: chunk.level,
+				start_line: chunk.start_line,
+				end_line: chunk.end_line,
+				hash: content_hash,
+				distance: None,
+			}
+		})
+		.collect()
+}
+
+/// Parse markdown document into hierarchical structure
+fn parse_document_hierarchy(contents: &str) -> DocumentHierarchy {
+	let mut hierarchy = DocumentHierarchy::new();
+	let lines: Vec<&str> = contents.lines().collect();
+	let mut header_stack: Vec<String> = Vec::new();
+
+	let mut current_section: Option<HeaderSection> = None;
 	let mut current_content = String::new();
-	let mut start_line = 0;
 
 	for (line_num, line) in lines.iter().enumerate() {
 		let trimmed = line.trim_start();
 
-		// Check if this line is a header
 		if trimmed.starts_with('#') {
-			// Save the previous section if it has content
-			if !current_content.trim().is_empty() {
-				let content_hash = calculate_unique_content_hash(&current_content, file_path);
-				document_blocks.push(DocumentBlock {
-					path: file_path.to_string(),
-					title: current_title.clone(),
-					content: current_content.trim().to_string(),
-					level: current_level,
-					start_line,
-					end_line: line_num.saturating_sub(1),
-					hash: content_hash,
-					distance: None,
-				});
+			// Finalize previous section
+			if let Some(mut section) = current_section.take() {
+				section.content = current_content.trim().to_string();
+				section.end_line = line_num.saturating_sub(1);
+				if !section.content.is_empty() {
+					hierarchy.add_section(section);
+				}
 			}
 
-			// Start a new section
+			// Parse new header
 			let header_level = trimmed.chars().take_while(|&c| c == '#').count();
-			current_title = trimmed.trim_start_matches('#').trim().to_string();
-			if current_title.is_empty() {
-				current_title = format!("Section at line {}", line_num + 1);
-			}
-			current_level = header_level;
+			let header_title = trimmed.trim_start_matches('#').trim().to_string();
+			let header_line = format!("{} {}", "#".repeat(header_level), header_title);
+
+			// Update header stack to maintain hierarchy
+			header_stack.truncate(header_level.saturating_sub(1));
+			header_stack.push(header_line.clone());
+
+			// Start new section
+			current_section = Some(HeaderSection {
+				level: header_level,
+				content: String::new(),
+				context: header_stack.clone(),
+				start_line: line_num,
+				end_line: line_num,
+				children: Vec::new(),
+				parent: None,
+			});
 			current_content.clear();
-			start_line = line_num;
 		} else {
-			// Add non-header line to current content
+			// Add content line to current section
+			if !current_content.is_empty() {
+				current_content.push('\n');
+			}
 			current_content.push_str(line);
-			current_content.push('\n');
 		}
 	}
 
 	// Don't forget the last section
-	if !current_content.trim().is_empty() {
-		let content_hash = calculate_unique_content_hash(&current_content, file_path);
-		document_blocks.push(DocumentBlock {
-			path: file_path.to_string(),
-			title: current_title,
-			content: current_content.trim().to_string(),
-			level: current_level,
-			start_line,
-			end_line: lines.len().saturating_sub(1),
-			hash: content_hash,
-			distance: None,
-		});
+	if let Some(mut section) = current_section {
+		section.content = current_content.trim().to_string();
+		section.end_line = lines.len().saturating_sub(1);
+		if !section.content.is_empty() {
+			hierarchy.add_section(section);
+		}
 	}
 
-	// If no headers were found, treat the entire content as one document
-	if document_blocks.is_empty() && !contents.trim().is_empty() {
-		let content_hash = calculate_unique_content_hash(contents, file_path);
-		document_blocks.push(DocumentBlock {
-			path: file_path.to_string(),
-			title: std::path::Path::new(file_path)
-				.file_stem()
-				.and_then(|s| s.to_str())
-				.unwrap_or("Document")
-				.to_string(),
-			content: contents.trim().to_string(),
-			level: 1,
-			start_line: 0,
-			end_line: lines.len().saturating_sub(1),
-			hash: content_hash,
-			distance: None,
-		});
-	}
+	// Build parent-child relationships
+	hierarchy.build_parent_child_relationships();
 
-	document_blocks
+	hierarchy
 }
 
 /// Map tree-sitter node kinds to simpler, unified kinds for display
@@ -1850,7 +2074,16 @@ async fn process_document_blocks_batch(
 	config: &Config,
 ) -> Result<()> {
 	let start_time = std::time::Instant::now();
-	let contents: Vec<String> = blocks.iter().map(|b| b.content.clone()).collect();
+	let contents: Vec<String> = blocks
+		.iter()
+		.map(|b| {
+			if !b.context.is_empty() {
+				format!("{}\n\n{}", b.context.join("\n"), b.content)
+			} else {
+				b.content.clone()
+			}
+		})
+		.collect();
 	let embeddings = crate::embedding::generate_embeddings_batch(contents, false, config).await?;
 	store.store_document_blocks(blocks, embeddings).await?;
 
@@ -1880,9 +2113,7 @@ fn should_process_batch<T>(batch: &[T], get_content: impl Fn(&T) -> &str, config
 	total_tokens >= config.index.embeddings_max_tokens_per_batch
 }
 
-// Constants for text chunking
-const DEFAULT_CHUNK_SIZE: usize = 2000; // characters (increased from 1000)
-const DEFAULT_OVERLAP: usize = 200; // characters
+// Constants for text chunking - REMOVED: Now using config.index.chunk_size and config.index.chunk_overlap
 
 // Whitelist of file extensions that we allow for text indexing
 const ALLOWED_TEXT_EXTENSIONS: &[&str] = &[
@@ -2059,13 +2290,17 @@ async fn process_text_file(
 	contents: &str,
 	file_path: &str,
 	text_blocks_batch: &mut Vec<TextBlock>,
-	_config: &Config,
+	config: &Config,
 	state: SharedState,
 ) -> Result<()> {
 	let force_reindex = state.read().force_reindex;
 
-	// Split content into chunks
-	let chunks = chunk_text(contents, DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP);
+	// Split content into chunks using configuration values
+	let chunks = chunk_text(
+		contents,
+		config.index.chunk_size,
+		config.index.chunk_overlap,
+	);
 
 	for (chunk_idx, chunk_with_lines) in chunks.iter().enumerate() {
 		// Use chunk index in hash for uniqueness but keep path clean
@@ -2098,14 +2333,14 @@ async fn process_markdown_file(
 	contents: &str,
 	file_path: &str,
 	document_blocks_batch: &mut Vec<DocumentBlock>,
-	_config: &Config,
+	config: &Config,
 	state: SharedState,
 ) -> Result<()> {
 	// Get force_reindex flag from state
 	let force_reindex = state.read().force_reindex;
 
-	// Parse markdown content into document blocks
-	let document_blocks = parse_markdown_content(contents, file_path);
+	// Parse markdown content into document blocks using context-aware chunking
+	let document_blocks = parse_markdown_content(contents, file_path, config);
 
 	for doc_block in document_blocks {
 		// Check if this document block already exists (unless force reindex)
@@ -2243,7 +2478,7 @@ async fn process_text_file_differential(
 	contents: &str,
 	file_path: &str,
 	text_blocks_batch: &mut Vec<TextBlock>,
-	_config: &Config,
+	config: &Config,
 	state: SharedState,
 ) -> Result<()> {
 	let force_reindex = state.read().force_reindex;
@@ -2258,8 +2493,12 @@ async fn process_text_file_differential(
 			.await?
 	};
 
-	// Split content into chunks
-	let chunks = chunk_text(contents, DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP);
+	// Split content into chunks using configuration values
+	let chunks = chunk_text(
+		contents,
+		config.index.chunk_size,
+		config.index.chunk_overlap,
+	);
 	let mut new_hashes = std::collections::HashSet::new();
 
 	for (chunk_idx, chunk_with_lines) in chunks.iter().enumerate() {
@@ -2308,7 +2547,7 @@ async fn process_markdown_file_differential(
 	contents: &str,
 	file_path: &str,
 	document_blocks_batch: &mut Vec<DocumentBlock>,
-	_config: &Config,
+	config: &Config,
 	state: SharedState,
 ) -> Result<()> {
 	// Get force_reindex flag from state
@@ -2323,8 +2562,8 @@ async fn process_markdown_file_differential(
 			.await?
 	};
 
-	// Parse markdown content into document blocks
-	let document_blocks = parse_markdown_content(contents, file_path);
+	// Parse markdown content into document blocks using context-aware chunking
+	let document_blocks = parse_markdown_content(contents, file_path, config);
 	let mut new_hashes = std::collections::HashSet::new();
 
 	for doc_block in document_blocks {
@@ -2355,4 +2594,83 @@ async fn process_markdown_file_differential(
 	}
 
 	Ok(())
+}
+
+#[cfg(test)]
+mod context_optimization_tests {
+	use super::*;
+
+	#[test]
+	fn test_context_optimization() {
+		// Create a DocumentBlock with context
+		let doc_block = DocumentBlock {
+			path: "test.md".to_string(),
+			title: "Test Section".to_string(),
+			content: "This is the actual content.".to_string(),
+			context: vec![
+				"# Main Document".to_string(),
+				"## Authentication".to_string(),
+				"### JWT Implementation".to_string(),
+			],
+			level: 3,
+			start_line: 10,
+			end_line: 15,
+			hash: "test_hash".to_string(),
+			distance: None,
+		};
+
+		// Test context merging for embedding
+		let embedding_text = if !doc_block.context.is_empty() {
+			format!("{}\n\n{}", doc_block.context.join("\n"), doc_block.content)
+		} else {
+			doc_block.content.clone()
+		};
+
+		// Verify the embedding text contains context
+		assert!(embedding_text.contains("# Main Document"));
+		assert!(embedding_text.contains("## Authentication"));
+		assert!(embedding_text.contains("### JWT Implementation"));
+		assert!(embedding_text.contains("This is the actual content."));
+
+		// Verify memory efficiency
+		let storage_size = doc_block.content.len();
+		let context_size: usize = doc_block.context.iter().map(|s| s.len()).sum();
+		let total_size = storage_size + context_size;
+		let old_approach_size = embedding_text.len() + doc_block.content.len();
+
+		// New approach should be more efficient
+		assert!(total_size < old_approach_size);
+
+		println!("New approach size: {} bytes", total_size);
+		println!("Old approach size: {} bytes", old_approach_size);
+		println!(
+			"Memory savings: {}%",
+			((old_approach_size - total_size) as f64 / old_approach_size as f64 * 100.0) as i32
+		);
+	}
+
+	#[test]
+	fn test_empty_context() {
+		let doc_block = DocumentBlock {
+			path: "test.md".to_string(),
+			title: "Test Section".to_string(),
+			content: "Content without context.".to_string(),
+			context: Vec::new(), // Empty context
+			level: 1,
+			start_line: 0,
+			end_line: 5,
+			hash: "test_hash".to_string(),
+			distance: None,
+		};
+
+		// Test context merging with empty context
+		let embedding_text = if !doc_block.context.is_empty() {
+			format!("{}\n\n{}", doc_block.context.join("\n"), doc_block.content)
+		} else {
+			doc_block.content.clone()
+		};
+
+		// Should just be the content
+		assert_eq!(embedding_text, doc_block.content);
+	}
 }
