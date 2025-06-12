@@ -400,7 +400,7 @@ octocode view "src/**/*.rs" --md        # Specific files in markdown
 ### Watch Mode
 
 ```bash
-# Watch for changes and auto-reindex
+# Watch for changes and auto-index
 octocode watch
 
 # Watch with custom debounce time (1-30 seconds, default: 2)
@@ -456,7 +456,7 @@ octocode watch --debounce 1 --additional-delay 500
 octocode watch --debounce 5 --additional-delay 2000
 
 # Continue development...
-# Files are automatically reindexed as you work
+# Files are automatically indexed as you work
 
 # Stop watching
 pkill -f "octocode watch"
@@ -470,7 +470,7 @@ pkill -f "octocode watch"
 #!/bin/bash
 # Complete reindex script
 octocode clear
-octocode index --reindex
+octocode index
 octocode mcp &
 echo "Octocode ready for development"
 ```
@@ -478,7 +478,8 @@ echo "Octocode ready for development"
 ```bash
 #!/bin/bash
 # Daily maintenance script
-octocode index --reindex
+octocode clear
+octocode index
 octocode graphrag overview --md > docs/project-structure.md
 octocode view "src/**/*.rs" --md > docs/api-reference.md
 ```
@@ -510,7 +511,7 @@ octocode config --show
 octocode clear
 
 # Reindex with verbose output
-octocode index --reindex
+octocode index
 ```
 
 ### MCP Server Debugging

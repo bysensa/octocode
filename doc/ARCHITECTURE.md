@@ -129,4 +129,4 @@ Connections between nodes represent different types of relationships:
 - **Chunking**: Configurable chunk sizes for different file types
 - **Batch Processing**: Efficient embedding generation
 - **Caching**: Vector embeddings cached for reuse
-- **Incremental Updates**: Only reindex changed files
+- **Incremental Updates**: Only index changed files

@@ -41,7 +41,7 @@ Octocode is a powerful code indexer and semantic search engine that builds intel
 - Built-in Model Context Protocol server
 - Seamless integration with AI assistants (Claude Desktop, etc.)
 - **Multi-query search support**: Use arrays like `["auth", "middleware"]` in search_code tool
-- Real-time file watching and auto-reindexing
+- Real-time file watching and auto-indexing
 - Rich tool ecosystem for code analysis
 
 ### ⚡ **Performance & Flexibility**
@@ -229,7 +229,7 @@ octocode watch
 
 | Command | Description | Example |
 |---------|-------------|---------|
-| `octocode index` | Index the codebase | `octocode index --reindex` |
+| `octocode index` | Index the codebase | `octocode index` |
 | `octocode search <query>` | Semantic code search (supports multiple queries) | `octocode search "error handling"` or `octocode search "auth" "middleware"` |
 | `octocode graphrag <operation>` | Knowledge graph operations | `octocode graphrag search --query "auth"` |
 | `octocode view [pattern]` | View code signatures | `octocode view "src/**/*.rs" --md` |
@@ -238,7 +238,7 @@ octocode watch
 | `octocode release` | AI-powered release management | `octocode release --dry-run` |
 | `octocode memory <operation>` | Memory management | `octocode memory remember "auth bugs"` |
 | `octocode mcp` | Start MCP server | `octocode mcp --debug` |
-| `octocode watch` | Auto-reindex on changes | `octocode watch --quiet` |
+| `octocode watch` | Auto-index on changes | `octocode watch --quiet` |
 | `octocode config` | Manage configuration | `octocode config --show` |
 
 ## 🧠 Memory Management

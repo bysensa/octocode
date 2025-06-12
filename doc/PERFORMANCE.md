@@ -108,7 +108,7 @@ max_results = 30                 # Reduce for lower memory usage
 octocode config --code-embedding-model "fastembed:all-MiniLM-L6-v2"
 
 # Batch operations
-octocode index --reindex  # Index all at once vs incremental
+octocode clear && octocode index  # Index all at once vs incremental
 ```
 
 #### API Rate Limiting
@@ -127,7 +127,7 @@ embeddings_batch_size = 16       # Smaller batches for cloud APIs
 RUST_LOG=debug octocode index
 
 # Monitor indexing progress
-octocode index --reindex 2>&1 | grep "Processed"
+octocode clear && octocode index 2>&1 | grep "Processed"
 
 # Check database size
 ls -lh ~/.local/share/octocode/
@@ -149,7 +149,7 @@ du -sh ~/.local/share/octocode/
 
 # Index timing
 echo "Indexing performance:"
-time octocode index --reindex
+time (octocode clear && octocode index)
 
 # Search timing
 echo "Search performance:"
