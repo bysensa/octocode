@@ -84,37 +84,24 @@ pub async fn execute(
 		}
 	};
 
-	// Generate embeddings for the query based on search mode
-	let (code_embeddings, text_embeddings) = match search_mode {
-		"code" => {
-			// Use code model for code searches
-			let embeddings = embedding::generate_embeddings(&args.query, true, config).await?;
-			(embeddings, vec![]) // Only need code embeddings
-		}
-		"docs" | "text" => {
-			// Use text model for documents and text searches
-			let embeddings = embedding::generate_embeddings(&args.query, false, config).await?;
-			(vec![], embeddings) // Only need text embeddings
-		}
-		"all" => {
-			// For "all" mode, we need to check if code and text models are different
-			// If different, generate separate embeddings; if same, use one set
-			let code_model = &config.embedding.code_model;
-			let text_model = &config.embedding.text_model;
+	// Generate embeddings for the query based on search mode using centralized logic
+	let search_embeddings =
+		embedding::generate_search_embeddings(&args.query, search_mode, config).await?;
 
-			if code_model == text_model {
-				// Same model for both - generate once and reuse
-				let embeddings = embedding::generate_embeddings(&args.query, true, config).await?;
-				(embeddings.clone(), embeddings)
-			} else {
-				// Different models - generate separate embeddings
-				let code_embeddings =
-					embedding::generate_embeddings(&args.query, true, config).await?;
-				let text_embeddings =
-					embedding::generate_embeddings(&args.query, false, config).await?;
-				(code_embeddings, text_embeddings)
-			}
-		}
+	// Extract embeddings for backward compatibility
+	let (code_embeddings, text_embeddings) = match search_mode {
+		"code" => (
+			search_embeddings.code_embeddings.unwrap_or_default(),
+			vec![],
+		),
+		"docs" | "text" => (
+			vec![],
+			search_embeddings.text_embeddings.unwrap_or_default(),
+		),
+		"all" => (
+			search_embeddings.code_embeddings.unwrap_or_default(),
+			search_embeddings.text_embeddings.unwrap_or_default(),
+		),
 		_ => unreachable!(),
 	};
 

@@ -186,16 +186,16 @@ pub async fn search_codebase_with_details(
 	// Initialize store
 	let store = Store::new().await?;
 
-	// Generate embeddings for the query
-	let embeddings = match mode {
-		"code" => crate::embedding::generate_embeddings(query, true, config).await?,
-		"docs" | "text" => crate::embedding::generate_embeddings(query, false, config).await?,
-		_ => crate::embedding::generate_embeddings(query, true, config).await?, // Default to code model for "all"
-	};
+	// Generate embeddings for the query using centralized logic
+	let search_embeddings =
+		crate::embedding::generate_search_embeddings(query, mode, config).await?;
 
 	// Perform the search based on mode
 	match mode {
 		"code" => {
+			let embeddings = search_embeddings.code_embeddings.ok_or_else(|| {
+				anyhow::anyhow!("No code embeddings generated for code search mode")
+			})?;
 			let results = store
 				.get_code_blocks_with_config(
 					embeddings,
@@ -209,6 +209,9 @@ pub async fn search_codebase_with_details(
 			))
 		}
 		"text" => {
+			let embeddings = search_embeddings.text_embeddings.ok_or_else(|| {
+				anyhow::anyhow!("No text embeddings generated for text search mode")
+			})?;
 			let results = store
 				.get_text_blocks_with_config(
 					embeddings,
@@ -219,6 +222,9 @@ pub async fn search_codebase_with_details(
 			Ok(format_text_search_results_as_markdown(&results))
 		}
 		"docs" => {
+			let embeddings = search_embeddings.text_embeddings.ok_or_else(|| {
+				anyhow::anyhow!("No text embeddings generated for docs search mode")
+			})?;
 			let results = store
 				.get_document_blocks_with_config(
 					embeddings,
@@ -228,26 +234,33 @@ pub async fn search_codebase_with_details(
 				.await?;
 			Ok(format_doc_search_results_as_markdown(&results))
 		}
-		_ => {
+		"all" => {
 			// "all" mode - search across all types with limited results per type
+			let code_embeddings = search_embeddings.code_embeddings.ok_or_else(|| {
+				anyhow::anyhow!("No code embeddings generated for all search mode")
+			})?;
+			let text_embeddings = search_embeddings.text_embeddings.ok_or_else(|| {
+				anyhow::anyhow!("No text embeddings generated for all search mode")
+			})?;
+
 			let results_per_type = max_results.div_ceil(3); // Distribute results across types
 			let code_results = store
 				.get_code_blocks_with_config(
-					embeddings.clone(),
+					code_embeddings,
 					Some(results_per_type),
 					Some(config.search.similarity_threshold),
 				)
 				.await?;
 			let text_results = store
 				.get_text_blocks_with_config(
-					embeddings.clone(),
+					text_embeddings.clone(),
 					Some(results_per_type),
 					Some(config.search.similarity_threshold),
 				)
 				.await?;
 			let doc_results = store
 				.get_document_blocks_with_config(
-					embeddings,
+					text_embeddings,
 					Some(results_per_type),
 					Some(config.search.similarity_threshold),
 				)
@@ -261,6 +274,10 @@ pub async fn search_codebase_with_details(
 				detail_level,
 			))
 		}
+		_ => Err(anyhow::anyhow!(
+			"Invalid search mode '{}'. Use 'all', 'code', 'docs', or 'text'.",
+			mode
+		)),
 	}
 }
 
@@ -269,16 +286,16 @@ pub async fn search_codebase(query: &str, mode: &str, config: &Config) -> Result
 	// Initialize store
 	let store = Store::new().await?;
 
-	// Generate embeddings for the query
-	let embeddings = match mode {
-		"code" => crate::embedding::generate_embeddings(query, true, config).await?,
-		"docs" | "text" => crate::embedding::generate_embeddings(query, false, config).await?,
-		_ => crate::embedding::generate_embeddings(query, true, config).await?, // Default to code model for "all"
-	};
+	// Generate embeddings for the query using centralized logic
+	let search_embeddings =
+		crate::embedding::generate_search_embeddings(query, mode, config).await?;
 
 	// Perform the search based on mode
 	match mode {
 		"code" => {
+			let embeddings = search_embeddings.code_embeddings.ok_or_else(|| {
+				anyhow::anyhow!("No code embeddings generated for code search mode")
+			})?;
 			let results = store
 				.get_code_blocks_with_config(
 					embeddings,
@@ -289,6 +306,9 @@ pub async fn search_codebase(query: &str, mode: &str, config: &Config) -> Result
 			Ok(format_code_search_results_as_markdown(&results))
 		}
 		"text" => {
+			let embeddings = search_embeddings.text_embeddings.ok_or_else(|| {
+				anyhow::anyhow!("No text embeddings generated for text search mode")
+			})?;
 			let results = store
 				.get_text_blocks_with_config(
 					embeddings,
@@ -299,6 +319,9 @@ pub async fn search_codebase(query: &str, mode: &str, config: &Config) -> Result
 			Ok(format_text_search_results_as_markdown(&results))
 		}
 		"docs" => {
+			let embeddings = search_embeddings.text_embeddings.ok_or_else(|| {
+				anyhow::anyhow!("No text embeddings generated for docs search mode")
+			})?;
 			let results = store
 				.get_document_blocks_with_config(
 					embeddings,
@@ -308,25 +331,32 @@ pub async fn search_codebase(query: &str, mode: &str, config: &Config) -> Result
 				.await?;
 			Ok(format_doc_search_results_as_markdown(&results))
 		}
-		_ => {
-			// "all" mode - search across all types
+		"all" => {
+			// "all" mode - search across all types with proper embeddings
+			let code_embeddings = search_embeddings.code_embeddings.ok_or_else(|| {
+				anyhow::anyhow!("No code embeddings generated for all search mode")
+			})?;
+			let text_embeddings = search_embeddings.text_embeddings.ok_or_else(|| {
+				anyhow::anyhow!("No text embeddings generated for all search mode")
+			})?;
+
 			let code_results = store
 				.get_code_blocks_with_config(
-					embeddings.clone(),
+					code_embeddings,
 					Some(config.search.max_results),
 					Some(config.search.similarity_threshold),
 				)
 				.await?;
 			let text_results = store
 				.get_text_blocks_with_config(
-					embeddings.clone(),
+					text_embeddings.clone(),
 					Some(config.search.max_results),
 					Some(config.search.similarity_threshold),
 				)
 				.await?;
 			let doc_results = store
 				.get_document_blocks_with_config(
-					embeddings,
+					text_embeddings,
 					Some(config.search.max_results),
 					Some(config.search.similarity_threshold),
 				)
@@ -339,6 +369,10 @@ pub async fn search_codebase(query: &str, mode: &str, config: &Config) -> Result
 				&doc_results,
 			))
 		}
+		_ => Err(anyhow::anyhow!(
+			"Invalid search mode '{}'. Use 'all', 'code', 'docs', or 'text'.",
+			mode
+		)),
 	}
 }
 
