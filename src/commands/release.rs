@@ -630,16 +630,12 @@ async fn update_project_version(project_type: &ProjectType, new_version: &str) -
 		}
 		ProjectType::Node(package_path) => {
 			let content = fs::read_to_string(package_path)?;
-			let mut package: serde_json::Value = serde_json::from_str(&content)?;
-			package["version"] = serde_json::Value::String(new_version.to_string());
-			let updated_content = serde_json::to_string_pretty(&package)?;
+			let updated_content = update_json_version(&content, new_version, "version")?;
 			fs::write(package_path, updated_content)?;
 		}
 		ProjectType::Php(composer_path) => {
 			let content = fs::read_to_string(composer_path)?;
-			let mut composer: serde_json::Value = serde_json::from_str(&content)?;
-			composer["version"] = serde_json::Value::String(new_version.to_string());
-			let updated_content = serde_json::to_string_pretty(&composer)?;
+			let updated_content = update_json_version(&content, new_version, "version")?;
 			fs::write(composer_path, updated_content)?;
 		}
 		ProjectType::Go(go_mod_path) => {
@@ -655,29 +651,122 @@ async fn update_project_version(project_type: &ProjectType, new_version: &str) -
 }
 
 fn update_cargo_version(content: &str, new_version: &str) -> Result<String> {
-	let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+	// Find the version line and replace only the version value, preserving all formatting
+	let mut result = content.to_string();
 
-	for line in &mut lines {
-		if line.trim_start().starts_with("version") && line.contains('=') {
-			// Replace the version value while preserving formatting
+	// Look for the version line in the [package] section
+	let lines: Vec<&str> = content.lines().collect();
+	let mut in_package_section = false;
+
+	for (i, line) in lines.iter().enumerate() {
+		let trimmed = line.trim();
+
+		// Check if we're entering the [package] section
+		if trimmed == "[package]" {
+			in_package_section = true;
+			continue;
+		}
+
+		// Check if we're leaving the [package] section
+		if trimmed.starts_with('[') && trimmed != "[package]" {
+			in_package_section = false;
+			continue;
+		}
+
+		// Look for version line in [package] section
+		if in_package_section && line.trim_start().starts_with("version") && line.contains('=') {
 			if let Some(equals_pos) = line.find('=') {
 				let prefix = &line[..equals_pos + 1];
-				let suffix_start = line[equals_pos + 1..].trim_start();
+				let suffix_part = &line[equals_pos + 1..];
 
-				// Determine quote style
-				let quote_char = if suffix_start.starts_with('"') {
-					'"'
+				// Find the start of the value (skip whitespace)
+				let value_start = suffix_part.len() - suffix_part.trim_start().len();
+				let value_part = suffix_part.trim_start();
+
+				// Determine quote style and extract current version
+				let (quote_char, new_value_part) = if value_part.starts_with('"') {
+					('"', format!("\"{}\"", new_version))
+				} else if value_part.starts_with('\'') {
+					('\'', format!("'{}'", new_version))
 				} else {
-					'\''
+					// No quotes, just replace the value
+					(' ', new_version.to_string())
 				};
 
-				*line = format!("{} {}{}{}", prefix, quote_char, new_version, quote_char);
+				// Find the end of the current version value
+				let value_end = if quote_char == ' ' {
+					// For unquoted values, find the end of the word
+					value_part
+						.find(char::is_whitespace)
+						.unwrap_or(value_part.len())
+				} else {
+					// For quoted values, find the closing quote
+					if let Some(end_quote) = value_part[1..].find(quote_char) {
+						end_quote + 2 // +1 for the quote, +1 for 0-based indexing
+					} else {
+						value_part.len()
+					}
+				};
+
+				// Construct the new line
+				let before_value = &suffix_part[..value_start];
+				let after_value = &suffix_part[value_start + value_end..];
+				let new_line = format!(
+					"{}{}{}{}",
+					prefix, before_value, new_value_part, after_value
+				);
+
+				// Replace the entire line in the result
+				let line_start = lines[..i].iter().map(|l| l.len() + 1).sum::<usize>();
+				let line_end = line_start + line.len();
+				result.replace_range(line_start..line_end, &new_line);
 				break;
 			}
 		}
 	}
 
-	Ok(lines.join("\n"))
+	Ok(result)
+}
+
+fn update_json_version(content: &str, new_version: &str, field_name: &str) -> Result<String> {
+	// Find and replace the version field value while preserving all formatting
+	let field_pattern = format!("\"{}\"", field_name);
+	let mut result = content.to_string();
+
+	// Find the field in the JSON
+	if let Some(field_start) = content.find(&field_pattern) {
+		// Find the colon after the field name
+		let search_start = field_start + field_pattern.len();
+		if let Some(colon_pos) = content[search_start..].find(':') {
+			let colon_abs_pos = search_start + colon_pos;
+
+			// Find the start of the value (skip whitespace after colon)
+			let after_colon = &content[colon_abs_pos + 1..];
+			let value_start_offset = after_colon.len() - after_colon.trim_start().len();
+			let value_start = colon_abs_pos + 1 + value_start_offset;
+
+			// Find the actual value part
+			let value_part = after_colon.trim_start();
+
+			if let Some(stripped) = value_part.strip_prefix('"') {
+				// Handle double-quoted string
+				if let Some(end_quote) = stripped.find('"') {
+					let value_end = value_start + 1 + end_quote + 1; // +1 for opening quote, +1 for closing quote
+					let new_value = format!("\"{}\"", new_version);
+					result.replace_range(value_start..value_end, &new_value);
+				}
+			} else if let Some(stripped) = value_part.strip_prefix('\'') {
+				// Handle single-quoted string (less common in JSON but possible)
+				if let Some(end_quote) = stripped.find('\'') {
+					let value_end = value_start + 1 + end_quote + 1;
+					let new_value = format!("'{}'", new_version);
+					result.replace_range(value_start..value_end, &new_value);
+				}
+			}
+		}
+	}
+
+	Ok(result)
 }
 
 async fn update_changelog(changelog_path: &str, new_content: &str) -> Result<()> {
