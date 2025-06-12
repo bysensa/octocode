@@ -917,6 +917,11 @@ impl Store {
 				Field::new("path", DataType::Utf8, false),
 				Field::new("title", DataType::Utf8, false),
 				Field::new("content", DataType::Utf8, false),
+				Field::new(
+					"context",
+					DataType::List(Arc::new(Field::new("item", DataType::Utf8, true))),
+					true,
+				),
 				Field::new("level", DataType::UInt32, false),
 				Field::new("start_line", DataType::UInt32, false),
 				Field::new("end_line", DataType::UInt32, false),
