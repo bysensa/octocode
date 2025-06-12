@@ -553,6 +553,13 @@ struct ChunkResult {
 	end_line: usize,
 }
 
+/// Result of analyzing potential child merges
+#[derive(Debug)]
+struct ChildMergeResult {
+	indices: Vec<usize>,
+	efficiency: f64,
+}
+
 /// Hierarchical document structure for bottom-up processing
 #[derive(Debug)]
 struct DocumentHierarchy {
@@ -621,7 +628,98 @@ impl DocumentHierarchy {
 			self.process_level(level, &mut processed, &mut chunks, base_chunk_size);
 		}
 
-		chunks
+		// Post-process to merge any remaining tiny chunks
+		self.post_process_tiny_chunks(chunks, base_chunk_size)
+	}
+
+	fn post_process_tiny_chunks(
+		&self,
+		chunks: Vec<ChunkResult>,
+		base_chunk_size: usize,
+	) -> Vec<ChunkResult> {
+		let mut result = Vec::new();
+		let mut pending_small_chunks = Vec::new();
+
+		for chunk in chunks {
+			let is_tiny = chunk.storage_content.len() < base_chunk_size / 4; // Less than 25% of target
+
+			if is_tiny {
+				pending_small_chunks.push(chunk);
+			} else {
+				// Process any pending small chunks first
+				if !pending_small_chunks.is_empty() {
+					if let Some(merged) =
+						self.try_merge_tiny_chunks(&pending_small_chunks, base_chunk_size)
+					{
+						result.push(merged);
+					} else {
+						// If can't merge, add them individually (last resort)
+						result.append(&mut pending_small_chunks);
+					}
+					pending_small_chunks.clear();
+				}
+
+				result.push(chunk);
+			}
+		}
+
+		// Handle any remaining small chunks at the end
+		if !pending_small_chunks.is_empty() {
+			if let Some(merged) = self.try_merge_tiny_chunks(&pending_small_chunks, base_chunk_size)
+			{
+				result.push(merged);
+			} else {
+				result.extend(pending_small_chunks);
+			}
+		}
+
+		result
+	}
+
+	fn try_merge_tiny_chunks(
+		&self,
+		tiny_chunks: &[ChunkResult],
+		_base_chunk_size: usize,
+	) -> Option<ChunkResult> {
+		if tiny_chunks.is_empty() {
+			return None;
+		}
+
+		if tiny_chunks.len() == 1 {
+			return None; // Can't merge single chunk
+		}
+
+		// Always try to merge tiny chunks to reduce fragmentation
+
+		// Merge the tiny chunks
+		let first = &tiny_chunks[0];
+		let storage_parts: Vec<String> = tiny_chunks
+			.iter()
+			.map(|c| c.storage_content.clone())
+			.collect();
+
+		let title = if tiny_chunks.len() == 2 {
+			format!("{} & {}", tiny_chunks[0].title, tiny_chunks[1].title)
+		} else {
+			format!("{} (+{} sections)", first.title, tiny_chunks.len() - 1)
+		};
+
+		Some(ChunkResult {
+			storage_content: storage_parts.join("\n\n"),
+			context: first.context.clone(),
+			title,
+			level: first.level,
+			start_line: tiny_chunks
+				.iter()
+				.map(|c| c.start_line)
+				.min()
+				.unwrap_or(first.start_line),
+			end_line: tiny_chunks
+				.iter()
+				.map(|c| c.end_line)
+				.max()
+				.unwrap_or(first.end_line),
+		})
 	}
 
 	fn process_level(
@@ -653,14 +751,8 @@ impl DocumentHierarchy {
 				chunks.push(merged_content);
 				self.mark_section_tree_processed(section_idx, processed);
 			} else {
-				// Content too large, process children separately first
-				for &child_idx in &self.sections[section_idx].children {
-					if !processed[child_idx] {
-						let child_chunk = self.create_chunk_for_section(child_idx);
-						chunks.push(child_chunk);
-						processed[child_idx] = true;
-					}
-				}
+				// Content too large, use smart child processing
+				self.process_children_smartly(section_idx, processed, chunks, base_chunk_size);
 
 				// Then create chunk for just this section
 				let section_chunk = self.create_chunk_for_section(section_idx);
@@ -668,6 +760,201 @@ impl DocumentHierarchy {
 				processed[section_idx] = true;
 			}
 		}
+	}
+
+	fn process_children_smartly(
+		&self,
+		section_idx: usize,
+		processed: &mut [bool],
+		chunks: &mut Vec<ChunkResult>,
+		base_chunk_size: usize,
+	) {
+		let unprocessed_children: Vec<usize> = self.sections[section_idx]
+			.children
+			.iter()
+			.filter(|&&child_idx| !processed[child_idx])
+			.copied()
+			.collect();
+
+		if unprocessed_children.is_empty() {
+			return;
+		}
+
+		// Group children by size and try to merge small ones
+		let mut remaining_children = unprocessed_children;
+
+		while !remaining_children.is_empty() {
+			let best_merge = self.find_best_child_merge(&remaining_children, base_chunk_size);
+
+			if best_merge.indices.len() > 1 {
+				// Merge multiple small children together
+				let merged_chunk = self.merge_multiple_sections(&best_merge.indices);
+				chunks.push(merged_chunk);
+
+				// Mark as processed and remove from remaining
+				for &idx in &best_merge.indices {
+					processed[idx] = true;
+				}
+				remaining_children.retain(|&idx| !best_merge.indices.contains(&idx));
+			} else {
+				// Process single child (couldn't find good merge)
+				let child_idx = remaining_children.remove(0);
+				let child_chunk = self.create_chunk_for_section(child_idx);
+				chunks.push(child_chunk);
+				processed[child_idx] = true;
+			}
+		}
+	}
+
+	fn find_best_child_merge(
+		&self,
+		children: &[usize],
+		base_chunk_size: usize,
+	) -> ChildMergeResult {
+		let mut best_merge = ChildMergeResult {
+			indices: Vec::new(),
+			efficiency: 0.0,
+		};
+
+		// Try different combinations of children to find best merge
+		for i in 0..children.len() {
+			let mut current_merge = vec![children[i]];
+			let mut current_size = self.sections[children[i]].content.len();
+
+			// Get target size for this child's level
+			let target_size =
+				self.get_target_chunk_size(self.sections[children[i]].level, base_chunk_size);
+
+			// Try adding more children if current is small
+			if current_size < target_size / 3 {
+				// If less than 1/3 of target, try to merge
+				for j in (i + 1)..children.len() {
+					let additional_size = self.sections[children[j]].content.len();
+					let new_total = current_size + additional_size;
+
+					// Check if adding this child improves the fit
+					if new_total <= target_size && self.can_merge_sections(children[i], children[j])
+					{
+						current_merge.push(children[j]);
+						current_size = new_total;
+					} else if new_total > target_size {
+						break; // Would exceed target, stop here
+					}
+				}
+			}
+
+			// Calculate efficiency of this merge
+			let efficiency = if current_merge.len() > 1 {
+				// Reward merging multiple small sections
+				let avg_target = current_merge
+					.iter()
+					.map(|&idx| {
+						self.get_target_chunk_size(self.sections[idx].level, base_chunk_size)
+					})
+					.sum::<usize>() / current_merge.len();
+
+				if current_size <= avg_target {
+					(current_size as f64 / avg_target as f64) + 0.5 // Bonus for merging
+				} else {
+					avg_target as f64 / current_size as f64
+				}
+			} else {
+				// Single section efficiency
+				let target =
+					self.get_target_chunk_size(self.sections[children[i]].level, base_chunk_size);
+				if current_size < target / 4 {
+					// Very small section
+					0.2 // Low efficiency to encourage merging
+				} else {
+					current_size as f64 / target as f64
+				}
+			};
+
+			if efficiency > best_merge.efficiency {
+				best_merge = ChildMergeResult {
+					indices: current_merge,
+					efficiency,
+				};
+			}
+		}
+
+		// If we couldn't find a good merge, return single section
+		if best_merge.indices.is_empty() && !children.is_empty() {
+			best_merge.indices.push(children[0]);
+		}
+
+		best_merge
+	}
+
+	fn can_merge_sections(&self, idx1: usize, idx2: usize) -> bool {
+		let section1 = &self.sections[idx1];
+		let section2 = &self.sections[idx2];
+
+		// Can merge if they're at similar levels and adjacent or related
+		let level_diff = (section1.level as i32 - section2.level as i32).abs();
+		level_diff <= 1 && // Similar header levels
+		section2.start_line > section1.start_line // Maintain document order
+	}
+
+	fn merge_multiple_sections(&self, indices: &[usize]) -> ChunkResult {
+		if indices.is_empty() {
+			panic!("Cannot merge empty section list");
+		}
+
+		if indices.len() == 1 {
+			return self.create_chunk_for_section(indices[0]);
+		}
+
+		// Sort indices by start line to maintain document order
+		let mut sorted_indices = indices.to_vec();
+		sorted_indices.sort_by_key(|&idx| self.sections[idx].start_line);
+
+		let first_section = &self.sections[sorted_indices[0]];
+		let mut storage_parts = Vec::new();
+		let combined_context = first_section.context.clone();
+		let start_line = first_section.start_line;
+		let mut end_line = first_section.end_line;
+
+		// Collect content from all sections
+		for &idx in &sorted_indices {
+			let section_content = self.collect_section_tree_content(idx);
+			storage_parts.push(section_content);
+			end_line = end_line.max(self.collect_section_tree_end_line(idx));
+		}
+
+		// Create meaningful title for merged chunk
+		let title = if sorted_indices.len() == 2 {
+			format!(
+				"{} & {}",
+				self.get_section_title(sorted_indices[0]),
+				self.get_section_title(sorted_indices[1])
+			)
+		} else {
+			format!(
+				"{} (+{} more)",
+				self.get_section_title(sorted_indices[0]),
+				sorted_indices.len() - 1
+			)
+		};
+
+		ChunkResult {
+			storage_content: storage_parts.join("\n\n"),
+			context: combined_context,
+			title,
+			level: first_section.level,
+			start_line,
+			end_line,
+		}
+	}
+
+	fn get_section_title(&self, section_idx: usize) -> String {
+		let section = &self.sections[section_idx];
+		section
+			.context
+			.last()
+			.map(|h| h.trim_start_matches('#').trim())
+			.unwrap_or("Section")
+			.to_string()
 	}
 
 	fn merge_section_with_children(&self, section_idx: usize, processed: &[bool]) -> ChunkResult {
@@ -681,7 +968,7 @@ impl DocumentHierarchy {
 			if !processed[child_idx] {
 				let child_content = self.collect_section_tree_content(child_idx);
 				storage_parts.push(child_content);
-				end_line = end_line.max(self.sections[child_idx].end_line);
+				end_line = end_line.max(self.collect_section_tree_end_line(child_idx));
 			}
 		}
 
@@ -704,7 +991,7 @@ impl DocumentHierarchy {
 
 	fn create_chunk_for_section(&self, section_idx: usize) -> ChunkResult {
 		let section = &self.sections[section_idx];
-		let storage_content = section.content.clone();
+		let storage_content = self.collect_section_tree_content(section_idx);
 
 		ChunkResult {
 			storage_content,
@@ -717,7 +1004,7 @@ impl DocumentHierarchy {
 				.to_string(),
 			level: section.level,
 			start_line: section.start_line,
-			end_line: section.end_line,
+			end_line: self.collect_section_tree_end_line(section_idx),
 		}
 	}
 
@@ -729,6 +1016,16 @@ impl DocumentHierarchy {
 		}
 
 		content_parts.join("\n")
+	}
+
+	fn collect_section_tree_end_line(&self, section_idx: usize) -> usize {
+		let mut max_end_line = self.sections[section_idx].end_line;
+
+		for &child_idx in &self.sections[section_idx].children {
+			max_end_line = max_end_line.max(self.collect_section_tree_end_line(child_idx));
+		}
+
+		max_end_line
 	}
 
 	fn mark_section_tree_processed(&self, section_idx: usize, processed: &mut Vec<bool>) {
@@ -2672,5 +2969,60 @@ mod context_optimization_tests {
 
 		// Should just be the content
 		assert_eq!(embedding_text, doc_block.content);
+	}
+
+	#[test]
+	fn test_smart_chunking_eliminates_tiny_chunks() {
+		// Test markdown content that would create tiny chunks
+		let test_content = r#"# Main Document
+
+## Section A
+Some content here.
+
+### Tiny Subsection
+Only 33 symbols here - very small!
+
+### Another Tiny
+Also small content.
+
+## Section B
+This has more substantial content that should be fine on its own.
+It has multiple lines and provides good context for understanding.
+
+### Small Child
+Brief content.
+"#;
+
+		let hierarchy = parse_document_hierarchy(test_content);
+		let chunks = hierarchy.bottom_up_chunking(2000); // 2000 char target
+
+		// Verify no chunks are extremely tiny (less than 100 chars as reasonable minimum)
+		let tiny_chunks: Vec<&ChunkResult> = chunks
+			.iter()
+			.filter(|chunk| chunk.storage_content.len() < 100)
+			.collect();
+
+		println!("Generated {} chunks total", chunks.len());
+		for (i, chunk) in chunks.iter().enumerate() {
+			println!(
+				"Chunk {}: {} chars - '{}'",
+				i + 1,
+				chunk.storage_content.len(),
+				chunk.title
+			);
+		}
+
+		if !tiny_chunks.is_empty() {
+			println!("Found {} tiny chunks:", tiny_chunks.len());
+			for chunk in &tiny_chunks {
+				println!("- '{}': {} chars", chunk.title, chunk.storage_content.len());
+			}
+		}
+
+		// The smart chunking should eliminate most tiny chunks through merging
+		assert!(
+			tiny_chunks.len() <= 1,
+			"Should have at most 1 tiny chunk after smart merging"
+		);
 	}
 }
