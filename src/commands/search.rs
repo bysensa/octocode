@@ -20,11 +20,37 @@ use octocode::indexer;
 use octocode::reranker::Reranker;
 use octocode::storage;
 use octocode::store::Store;
+use std::cmp::Ordering;
+use std::collections::HashMap;
+
+const MAX_QUERIES: usize = 3;
+
+fn validate_queries(queries: &[String]) -> Result<(), anyhow::Error> {
+	if queries.is_empty() {
+		return Err(anyhow::anyhow!("At least one query is required"));
+	}
+	if queries.len() > MAX_QUERIES {
+		return Err(anyhow::anyhow!(
+			"Maximum {} queries allowed, got {}. Use fewer, more specific terms.",
+			MAX_QUERIES,
+			queries.len()
+		));
+	}
+	for (i, query) in queries.iter().enumerate() {
+		if query.trim().is_empty() {
+			return Err(anyhow::anyhow!("Query {} is empty", i + 1));
+		}
+		if query.len() > 500 {
+			return Err(anyhow::anyhow!("Query {} too long (max 500 chars)", i + 1));
+		}
+	}
+	Ok(())
+}
 
 #[derive(Args, Debug)]
 pub struct SearchArgs {
-	/// Search query
-	pub query: String,
+	/// Search queries (maximum 3 queries supported for optimal performance)
+	pub queries: Vec<String>,
 
 	/// Expand all symbols in matching code blocks
 	#[arg(long, short)]
@@ -48,6 +74,373 @@ pub struct SearchArgs {
 	pub threshold: f32,
 }
 
+#[derive(Debug)]
+struct QuerySearchResult {
+	query_index: usize,
+	code_blocks: Vec<octocode::store::CodeBlock>,
+	doc_blocks: Vec<octocode::store::DocumentBlock>,
+	text_blocks: Vec<octocode::store::TextBlock>,
+}
+
+async fn generate_batch_embeddings_for_queries(
+	queries: &[String],
+	mode: &str,
+	config: &Config,
+) -> Result<Vec<embedding::SearchModeEmbeddings>, anyhow::Error> {
+	match mode {
+		"code" => {
+			// Batch generate code embeddings for all queries
+			let code_embeddings =
+				embedding::generate_embeddings_batch(queries.to_vec(), true, config).await?;
+			Ok(code_embeddings
+				.into_iter()
+				.map(|emb| embedding::SearchModeEmbeddings {
+					code_embeddings: Some(emb),
+					text_embeddings: None,
+				})
+				.collect())
+		}
+		"docs" | "text" => {
+			// Batch generate text embeddings for all queries
+			let text_embeddings =
+				embedding::generate_embeddings_batch(queries.to_vec(), false, config).await?;
+			Ok(text_embeddings
+				.into_iter()
+				.map(|emb| embedding::SearchModeEmbeddings {
+					code_embeddings: None,
+					text_embeddings: Some(emb),
+				})
+				.collect())
+		}
+		"all" => {
+			let code_model = &config.embedding.code_model;
+			let text_model = &config.embedding.text_model;
+
+			if code_model == text_model {
+				// Same model - generate once and reuse (efficient!)
+				let embeddings =
+					embedding::generate_embeddings_batch(queries.to_vec(), true, config).await?;
+				Ok(embeddings
+					.into_iter()
+					.map(|emb| embedding::SearchModeEmbeddings {
+						code_embeddings: Some(emb.clone()),
+						text_embeddings: Some(emb),
+					})
+					.collect())
+			} else {
+				// Different models - generate both types in parallel
+				let (code_embeddings, text_embeddings) = tokio::try_join!(
+					embedding::generate_embeddings_batch(queries.to_vec(), true, config),
+					embedding::generate_embeddings_batch(queries.to_vec(), false, config)
+				)?;
+
+				Ok(code_embeddings
+					.into_iter()
+					.zip(text_embeddings.into_iter())
+					.map(|(code_emb, text_emb)| embedding::SearchModeEmbeddings {
+						code_embeddings: Some(code_emb),
+						text_embeddings: Some(text_emb),
+					})
+					.collect())
+			}
+		}
+		_ => Err(anyhow::anyhow!("Invalid search mode: {}", mode)),
+	}
+}
+
+async fn execute_single_search_with_embeddings(
+	store: &Store,
+	query: &str,
+	embeddings: embedding::SearchModeEmbeddings,
+	mode: &str,
+	limit: usize,
+	query_index: usize,
+) -> Result<QuerySearchResult, anyhow::Error> {
+	let (code_blocks, doc_blocks, text_blocks) = match mode {
+		"code" => {
+			let code_embeddings = embeddings
+				.code_embeddings
+				.ok_or_else(|| anyhow::anyhow!("No code embeddings for code search"))?;
+			let mut blocks = store
+				.get_code_blocks_with_config(code_embeddings, Some(limit), Some(1.01))
+				.await?;
+			blocks = Reranker::rerank_code_blocks(blocks, query);
+			Reranker::tf_idf_boost(&mut blocks, query);
+			(blocks, vec![], vec![])
+		}
+		"docs" => {
+			let text_embeddings = embeddings
+				.text_embeddings
+				.ok_or_else(|| anyhow::anyhow!("No text embeddings for docs search"))?;
+			let mut blocks = store
+				.get_document_blocks_with_config(text_embeddings, Some(limit), Some(1.01))
+				.await?;
+			blocks = Reranker::rerank_document_blocks(blocks, query);
+			(vec![], blocks, vec![])
+		}
+		"text" => {
+			let text_embeddings = embeddings
+				.text_embeddings
+				.ok_or_else(|| anyhow::anyhow!("No text embeddings for text search"))?;
+			let mut blocks = store
+				.get_text_blocks_with_config(text_embeddings, Some(limit), Some(1.01))
+				.await?;
+			blocks = Reranker::rerank_text_blocks(blocks, query);
+			(vec![], vec![], blocks)
+		}
+		"all" => {
+			// Execute all three searches in parallel
+			let code_embeddings = embeddings
+				.code_embeddings
+				.ok_or_else(|| anyhow::anyhow!("No code embeddings for all search"))?;
+			let text_embeddings = embeddings
+				.text_embeddings
+				.ok_or_else(|| anyhow::anyhow!("No text embeddings for all search"))?;
+
+			let (mut code_blocks, mut doc_blocks, mut text_blocks) = tokio::try_join!(
+				store.get_code_blocks_with_config(code_embeddings, Some(limit), Some(1.01)),
+				store.get_document_blocks_with_config(
+					text_embeddings.clone(),
+					Some(limit),
+					Some(1.01)
+				),
+				store.get_text_blocks_with_config(text_embeddings, Some(limit), Some(1.01))
+			)?;
+
+			// Apply reranking
+			code_blocks = Reranker::rerank_code_blocks(code_blocks, query);
+			doc_blocks = Reranker::rerank_document_blocks(doc_blocks, query);
+			text_blocks = Reranker::rerank_text_blocks(text_blocks, query);
+
+			Reranker::tf_idf_boost(&mut code_blocks, query);
+
+			(code_blocks, doc_blocks, text_blocks)
+		}
+		_ => unreachable!(),
+	};
+
+	Ok(QuerySearchResult {
+		query_index,
+		code_blocks,
+		doc_blocks,
+		text_blocks,
+	})
+}
+
+async fn execute_parallel_searches(
+	store: &Store,
+	query_embeddings: Vec<(String, embedding::SearchModeEmbeddings)>,
+	mode: &str,
+	config: &Config,
+) -> Result<Vec<QuerySearchResult>, anyhow::Error> {
+	let per_query_limit = (config.search.max_results * 2) / query_embeddings.len().max(1);
+
+	let search_futures: Vec<_> = query_embeddings
+		.into_iter()
+		.enumerate()
+		.map(|(index, (query, embeddings))| async move {
+			execute_single_search_with_embeddings(
+				store,
+				&query,
+				embeddings,
+				mode,
+				per_query_limit,
+				index,
+			)
+			.await
+		})
+		.collect();
+
+	// Execute all searches concurrently
+	futures::future::try_join_all(search_futures).await
+}
+
+fn apply_multi_query_bonus_code(
+	block: &mut octocode::store::CodeBlock,
+	query_indices: &[usize],
+	total_queries: usize,
+) {
+	if query_indices.len() > 1 && total_queries > 1 {
+		let coverage_ratio = query_indices.len() as f32 / total_queries as f32;
+		let bonus_factor = 1.0 - (coverage_ratio * 0.1).min(0.2); // Up to 20% bonus
+
+		if let Some(distance) = block.distance {
+			block.distance = Some(distance * bonus_factor);
+		}
+	}
+}
+
+fn apply_multi_query_bonus_doc(
+	block: &mut octocode::store::DocumentBlock,
+	query_indices: &[usize],
+	total_queries: usize,
+) {
+	if query_indices.len() > 1 && total_queries > 1 {
+		let coverage_ratio = query_indices.len() as f32 / total_queries as f32;
+		let bonus_factor = 1.0 - (coverage_ratio * 0.1).min(0.2); // Up to 20% bonus
+
+		if let Some(distance) = block.distance {
+			block.distance = Some(distance * bonus_factor);
+		}
+	}
+}
+
+fn apply_multi_query_bonus_text(
+	block: &mut octocode::store::TextBlock,
+	query_indices: &[usize],
+	total_queries: usize,
+) {
+	if query_indices.len() > 1 && total_queries > 1 {
+		let coverage_ratio = query_indices.len() as f32 / total_queries as f32;
+		let bonus_factor = 1.0 - (coverage_ratio * 0.1).min(0.2); // Up to 20% bonus
+
+		if let Some(distance) = block.distance {
+			block.distance = Some(distance * bonus_factor);
+		}
+	}
+}
+
+fn deduplicate_and_merge_results(
+	search_results: Vec<QuerySearchResult>,
+	queries: &[String],
+	threshold: f32,
+) -> (
+	Vec<octocode::store::CodeBlock>,
+	Vec<octocode::store::DocumentBlock>,
+	Vec<octocode::store::TextBlock>,
+) {
+	// Deduplicate code blocks
+	let mut code_map: HashMap<String, (octocode::store::CodeBlock, Vec<usize>)> = HashMap::new();
+
+	for result in &search_results {
+		for block in &result.code_blocks {
+			match code_map.entry(block.hash.clone()) {
+				std::collections::hash_map::Entry::Vacant(e) => {
+					e.insert((block.clone(), vec![result.query_index]));
+				}
+				std::collections::hash_map::Entry::Occupied(mut e) => {
+					let (existing_block, query_indices) = e.get_mut();
+					query_indices.push(result.query_index);
+					// Keep block with better score (lower distance)
+					if block.distance < existing_block.distance {
+						*existing_block = block.clone();
+					}
+				}
+			}
+		}
+	}
+
+	// Deduplicate document blocks
+	let mut doc_map: HashMap<String, (octocode::store::DocumentBlock, Vec<usize>)> = HashMap::new();
+
+	for result in &search_results {
+		for block in &result.doc_blocks {
+			match doc_map.entry(block.hash.clone()) {
+				std::collections::hash_map::Entry::Vacant(e) => {
+					e.insert((block.clone(), vec![result.query_index]));
+				}
+				std::collections::hash_map::Entry::Occupied(mut e) => {
+					let (existing_block, query_indices) = e.get_mut();
+					query_indices.push(result.query_index);
+					if block.distance < existing_block.distance {
+						*existing_block = block.clone();
+					}
+				}
+			}
+		}
+	}
+
+	// Deduplicate text blocks
+	let mut text_map: HashMap<String, (octocode::store::TextBlock, Vec<usize>)> = HashMap::new();
+
+	for result in &search_results {
+		for block in &result.text_blocks {
+			match text_map.entry(block.hash.clone()) {
+				std::collections::hash_map::Entry::Vacant(e) => {
+					e.insert((block.clone(), vec![result.query_index]));
+				}
+				std::collections::hash_map::Entry::Occupied(mut e) => {
+					let (existing_block, query_indices) = e.get_mut();
+					query_indices.push(result.query_index);
+					if block.distance < existing_block.distance {
+						*existing_block = block.clone();
+					}
+				}
+			}
+		}
+	}
+
+	// Apply multi-query bonuses and filter
+	let mut final_code_blocks: Vec<octocode::store::CodeBlock> = code_map
+		.into_values()
+		.map(|(mut block, query_indices)| {
+			apply_multi_query_bonus_code(&mut block, &query_indices, queries.len());
+			block
+		})
+		.filter(|block| {
+			if let Some(distance) = block.distance {
+				distance <= threshold
+			} else {
+				true
+			}
+		})
+		.collect();
+
+	let mut final_doc_blocks: Vec<octocode::store::DocumentBlock> = doc_map
+		.into_values()
+		.map(|(mut block, query_indices)| {
+			apply_multi_query_bonus_doc(&mut block, &query_indices, queries.len());
+			block
+		})
+		.filter(|block| {
+			if let Some(distance) = block.distance {
+				distance <= threshold
+			} else {
+				true
+			}
+		})
+		.collect();
+
+	let mut final_text_blocks: Vec<octocode::store::TextBlock> = text_map
+		.into_values()
+		.map(|(mut block, query_indices)| {
+			apply_multi_query_bonus_text(&mut block, &query_indices, queries.len());
+			block
+		})
+		.filter(|block| {
+			if let Some(distance) = block.distance {
+				distance <= threshold
+			} else {
+				true
+			}
+		})
+		.collect();
+
+	// Sort by relevance
+	final_code_blocks.sort_by(|a, b| match (a.distance, b.distance) {
+		(Some(dist_a), Some(dist_b)) => dist_a.partial_cmp(&dist_b).unwrap_or(Ordering::Equal),
+		(Some(_), None) => Ordering::Less,
+		(None, Some(_)) => Ordering::Greater,
+		(None, None) => Ordering::Equal,
+	});
+
+	final_doc_blocks.sort_by(|a, b| match (a.distance, b.distance) {
+		(Some(dist_a), Some(dist_b)) => dist_a.partial_cmp(&dist_b).unwrap_or(Ordering::Equal),
+		(Some(_), None) => Ordering::Less,
+		(None, Some(_)) => Ordering::Greater,
+		(None, None) => Ordering::Equal,
+	});
+
+	final_text_blocks.sort_by(|a, b| match (a.distance, b.distance) {
+		(Some(dist_a), Some(dist_b)) => dist_a.partial_cmp(&dist_b).unwrap_or(Ordering::Equal),
+		(Some(_), None) => Ordering::Less,
+		(None, Some(_)) => Ordering::Greater,
+		(None, None) => Ordering::Equal,
+	});
+
+	(final_code_blocks, final_doc_blocks, final_text_blocks)
+}
+
 pub async fn execute(
 	store: &Store,
 	args: &SearchArgs,
@@ -64,6 +457,9 @@ pub async fn execute(
 			"No index found. Please run 'octocode index' first to create an index."
 		));
 	}
+
+	// Validate queries
+	validate_queries(&args.queries)?;
 
 	// Validate similarity threshold
 	if args.threshold < 0.0 || args.threshold > 1.0 {
@@ -84,200 +480,92 @@ pub async fn execute(
 		}
 	};
 
-	// Generate embeddings for the query based on search mode using centralized logic
-	let search_embeddings =
-		embedding::generate_search_embeddings(&args.query, search_mode, config).await?;
-
-	// Extract embeddings for backward compatibility
-	let (code_embeddings, text_embeddings) = match search_mode {
-		"code" => (
-			search_embeddings.code_embeddings.unwrap_or_default(),
-			vec![],
-		),
-		"docs" | "text" => (
-			vec![],
-			search_embeddings.text_embeddings.unwrap_or_default(),
-		),
-		"all" => (
-			search_embeddings.code_embeddings.unwrap_or_default(),
-			search_embeddings.text_embeddings.unwrap_or_default(),
-		),
-		_ => unreachable!(),
-	};
-
-	// Convert similarity threshold to distance threshold once
-	// Distance = 1.0 - Similarity (for cosine distance)
-	// Use command-line parameter instead of config
+	// Convert similarity threshold to distance threshold
 	let distance_threshold = 1.0 - args.threshold;
 
-	// Search based on mode
+	// Generate batch embeddings for all queries
+	let embeddings =
+		generate_batch_embeddings_for_queries(&args.queries, search_mode, config).await?;
+
+	// Zip queries with embeddings
+	let query_embeddings: Vec<_> = args
+		.queries
+		.iter()
+		.cloned()
+		.zip(embeddings.into_iter())
+		.collect();
+
+	// Execute parallel searches
+	let search_results =
+		execute_parallel_searches(store, query_embeddings, search_mode, config).await?;
+
+	// Deduplicate and merge with multi-query bonuses
+	let (mut code_blocks, mut doc_blocks, mut text_blocks) =
+		deduplicate_and_merge_results(search_results, &args.queries, distance_threshold);
+
+	// Apply global result limits
+	code_blocks.truncate(config.search.max_results);
+	doc_blocks.truncate(config.search.max_results);
+	text_blocks.truncate(config.search.max_results);
+
+	// Symbol expansion if requested
+	if args.expand && !code_blocks.is_empty() {
+		println!("Expanding symbols...");
+		code_blocks = indexer::expand_symbols(store, code_blocks).await?;
+	}
+
+	// Use EXISTING output formatting (completely unchanged)
 	match search_mode {
 		"code" => {
-			// Search only code blocks with higher limit for reranking
-			let mut results = store
-				.get_code_blocks_with_config(
-					code_embeddings,
-					Some(config.search.max_results * 2), // Get more results for reranking
-					Some(1.01),                          // Use a very permissive threshold initially
-				)
-				.await?;
-
-			// Apply reranking to improve relevance
-			results = Reranker::rerank_code_blocks(results, &args.query);
-
-			// Apply tf-idf boost for better term matching
-			Reranker::tf_idf_boost(&mut results, &args.query);
-
-			// Apply final similarity threshold after reranking
-			results.retain(|block| {
-				if let Some(distance) = block.distance {
-					distance <= distance_threshold
-				} else {
-					true
-				}
-			});
-
-			// Limit to requested max_results
-			results.truncate(config.search.max_results);
-
-			// If expand flag is set, expand symbols in the results
-			if args.expand {
-				println!("Expanding symbols...");
-				results = indexer::expand_symbols(store, results).await?;
-			}
-
-			// Output the results
 			if args.json {
-				indexer::render_results_json(&results)?
+				indexer::render_results_json(&code_blocks)?
 			} else if args.md {
-				let markdown = indexer::code_blocks_to_markdown_with_config(&results, config);
+				let markdown = indexer::code_blocks_to_markdown_with_config(&code_blocks, config);
 				println!("{}", markdown);
 			} else {
-				indexer::render_code_blocks_with_config(&results, config);
+				indexer::render_code_blocks_with_config(&code_blocks, config);
 			}
 		}
 		"docs" => {
-			// Search only document blocks with reranking
-			let mut results = store
-				.get_document_blocks_with_config(
-					text_embeddings,
-					Some(config.search.max_results * 2), // Get more results for reranking
-					Some(1.01),                          // Use a more permissive threshold initially
-				)
-				.await?;
-
-			// Apply reranking to improve relevance
-			results = Reranker::rerank_document_blocks(results, &args.query);
-
-			// Apply final similarity threshold after reranking
-			results.retain(|block| {
-				if let Some(distance) = block.distance {
-					distance <= distance_threshold
-				} else {
-					true
-				}
-			});
-
-			// Limit to requested max_results
-			results.truncate(config.search.max_results);
-
-			// Output the results
 			if args.json {
-				let json = serde_json::to_string_pretty(&results)?;
+				let json = serde_json::to_string_pretty(&doc_blocks)?;
 				println!("{}", json);
 			} else if args.md {
-				let markdown = indexer::document_blocks_to_markdown_with_config(&results, config);
+				let markdown =
+					indexer::document_blocks_to_markdown_with_config(&doc_blocks, config);
 				println!("{}", markdown);
 			} else {
-				// Render documents in a readable format
-				render_document_blocks_with_config(&results, config);
+				render_document_blocks_with_config(&doc_blocks, config);
 			}
 		}
 		"text" => {
-			// Search only text blocks with reranking
-			let mut results = store
-				.get_text_blocks_with_config(
-					text_embeddings,
-					Some(config.search.max_results * 2), // Get more results for reranking
-					Some(1.01),                          // Use a more permissive threshold initially
-				)
-				.await?;
-
-			// Apply reranking to improve relevance
-			results = Reranker::rerank_text_blocks(results, &args.query);
-
-			// Apply final similarity threshold after reranking
-			results.retain(|block| {
-				if let Some(distance) = block.distance {
-					distance <= distance_threshold
-				} else {
-					true
-				}
-			});
-
-			// Limit to requested max_results
-			results.truncate(config.search.max_results);
-
-			// Output the results
 			if args.json {
-				let json = serde_json::to_string_pretty(&results)?;
+				let json = serde_json::to_string_pretty(&text_blocks)?;
 				println!("{}", json);
 			} else if args.md {
-				let markdown = indexer::text_blocks_to_markdown_with_config(&results, config);
+				let markdown = indexer::text_blocks_to_markdown_with_config(&text_blocks, config);
 				println!("{}", markdown);
 			} else {
-				// Render text blocks in a readable format
-				render_text_blocks_with_config(&results, config);
+				render_text_blocks_with_config(&text_blocks, config);
 			}
 		}
 		"all" => {
-			// Search code, documents, and text blocks with reranking
-			let mut code_results = store
-				.get_code_blocks_with_config(
-					code_embeddings,
-					Some(config.search.max_results * 2), // Get more results for reranking
-					Some(1.01),                          // Use a more permissive threshold initially
-				)
-				.await?;
-			let mut doc_results = store
-				.get_document_blocks_with_config(
-					text_embeddings.clone(),
-					Some(config.search.max_results * 2), // Get more results for reranking
-					Some(1.01),                          // Use a more permissive threshold initially
-				)
-				.await?;
-			let mut text_results = store
-				.get_text_blocks_with_config(
-					text_embeddings,
-					Some(config.search.max_results * 2), // Get more results for reranking
-					Some(1.01),                          // Use a more permissive threshold initially
-				)
-				.await?;
-
-			// Apply reranking to improve relevance
-			code_results = Reranker::rerank_code_blocks(code_results, &args.query);
-			doc_results = Reranker::rerank_document_blocks(doc_results, &args.query);
-			text_results = Reranker::rerank_text_blocks(text_results, &args.query);
-
-			// Apply tf-idf boost for code results
-			Reranker::tf_idf_boost(&mut code_results, &args.query);
-
-			// Apply final similarity threshold after reranking
-			code_results.retain(|block| {
+			// Filter final results by threshold again
+			code_blocks.retain(|block| {
 				if let Some(distance) = block.distance {
 					distance <= distance_threshold
 				} else {
 					true
 				}
 			});
-			doc_results.retain(|block| {
+			doc_blocks.retain(|block| {
 				if let Some(distance) = block.distance {
 					distance <= distance_threshold
 				} else {
 					true
 				}
 			});
-			text_results.retain(|block| {
+			text_blocks.retain(|block| {
 				if let Some(distance) = block.distance {
 					distance <= distance_threshold
 				} else {
@@ -285,70 +573,26 @@ pub async fn execute(
 				}
 			});
 
-			// If expand flag is set, expand symbols in code results
-			let mut final_code_results = code_results;
+			let mut final_code_results = code_blocks;
 			if args.expand {
 				println!("Expanding symbols...");
 				final_code_results = indexer::expand_symbols(store, final_code_results).await?;
 			}
 
-			// Combine and sort all results by relevance for better display order
-			let mut all_results_with_scores: Vec<(f32, String, String)> = Vec::new();
-
-			// Add code results
-			for block in &final_code_results {
-				if let Some(distance) = block.distance {
-					all_results_with_scores.push((
-						distance,
-						"code".to_string(),
-						block.path.clone(),
-					));
-				}
-			}
-
-			// Add document results
-			for block in &doc_results {
-				if let Some(distance) = block.distance {
-					all_results_with_scores.push((
-						distance,
-						"docs".to_string(),
-						block.path.clone(),
-					));
-				}
-			}
-
-			// Add text results
-			for block in &text_results {
-				if let Some(distance) = block.distance {
-					all_results_with_scores.push((
-						distance,
-						"text".to_string(),
-						block.path.clone(),
-					));
-				}
-			}
-
-			// Sort by relevance (distance) - lower distance means higher similarity
-			all_results_with_scores
-				.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-
-			// Output combined results
 			if args.json {
-				// Create a combined JSON structure
 				let combined = serde_json::json!({
 					"code_blocks": final_code_results,
-					"document_blocks": doc_results,
-					"text_blocks": text_results
+					"document_blocks": doc_blocks,
+					"text_blocks": text_blocks
 				});
 				println!("{}", serde_json::to_string_pretty(&combined)?);
 			} else if args.md {
-				// Render all sections in markdown
 				let mut combined_markdown = String::new();
 
-				if !doc_results.is_empty() {
+				if !doc_blocks.is_empty() {
 					combined_markdown.push_str("# Documentation Results\n\n");
 					combined_markdown.push_str(&indexer::document_blocks_to_markdown_with_config(
-						&doc_results,
+						&doc_blocks,
 						config,
 					));
 					combined_markdown.push('\n');
@@ -363,10 +607,10 @@ pub async fn execute(
 					combined_markdown.push('\n');
 				}
 
-				if !text_results.is_empty() {
+				if !text_blocks.is_empty() {
 					combined_markdown.push_str("# Text Results\n\n");
 					combined_markdown.push_str(&indexer::text_blocks_to_markdown_with_config(
-						&text_results,
+						&text_blocks,
 						config,
 					));
 				}
@@ -377,10 +621,9 @@ pub async fn execute(
 
 				println!("{}", combined_markdown);
 			} else {
-				// Render all sections in text format
-				if !doc_results.is_empty() {
+				if !doc_blocks.is_empty() {
 					println!("=== DOCUMENTATION RESULTS ===\n");
-					render_document_blocks_with_config(&doc_results, config);
+					render_document_blocks_with_config(&doc_blocks, config);
 					println!("\n");
 				}
 
@@ -390,14 +633,12 @@ pub async fn execute(
 					println!("\n");
 				}
 
-				if !text_results.is_empty() {
+				if !text_blocks.is_empty() {
 					println!("=== TEXT RESULTS ===\n");
-					render_text_blocks_with_config(&text_results, config);
+					render_text_blocks_with_config(&text_blocks, config);
 				}
 
-				if doc_results.is_empty()
-					&& final_code_results.is_empty()
-					&& text_results.is_empty()
+				if doc_blocks.is_empty() && final_code_results.is_empty() && text_blocks.is_empty()
 				{
 					println!("No results found for the query.");
 				}

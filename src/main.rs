@@ -152,7 +152,7 @@ async fn main() -> Result<(), anyhow::Error> {
 		Commands::Search(search_args) => {
 			commands::search::execute(&store, search_args, &config).await?
 		}
-		Commands::View(view_args) => commands::view::execute(&store, view_args, &config).await?,
+		Commands::View(view_args) => commands::view::execute(view_args).await?,
 		Commands::Watch(watch_args) => {
 			commands::watch::execute(&store, &config, watch_args).await?
 		}

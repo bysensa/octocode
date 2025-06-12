@@ -153,11 +153,45 @@ git push origin main --tags
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
-| **search_code** | Semantic code search across the codebase | `query` (string), `mode` (string: all/code/docs/text) |
+| **search_code** | Semantic code search across the codebase (supports multi-query) | `query` (string or array), `mode` (string: all/code/docs/text), `detail_level` (string), `max_results` (integer) |
 | **search_graphrag** | Relationship-aware search using GraphRAG | `query` (string) |
 | **memorize** | Store important information for future reference | `title` (string), `content` (string), `tags` (array) |
 | **remember** | Retrieve stored information by query | `query` (string) |
 | **forget** | Remove stored information | `query` (string), `confirm` (boolean) |
+
+#### search_code Tool Details
+
+**Single Query (Traditional):**
+```json
+{
+  "query": "authentication functions",
+  "mode": "code",
+  "detail_level": "partial",
+  "max_results": 5
+}
+```
+
+**Multi-Query Search (NEW!):**
+```json
+{
+  "query": ["authentication", "middleware"],
+  "mode": "all",
+  "detail_level": "full",
+  "max_results": 10
+}
+```
+
+**Parameters:**
+- `query`: String or array of strings (max 3 queries for optimal performance)
+- `mode`: Search scope - "all" (default), "code", "docs", or "text"
+- `detail_level`: Content detail - "signatures", "partial" (default), or "full"
+- `max_results`: Maximum results to return (1-20, default: 3)
+
+**Multi-Query Benefits:**
+- **Comprehensive Results**: Find code related to multiple concepts
+- **Smart Deduplication**: Same code blocks shown once even if matching multiple queries
+- **Relevance Boosting**: Results matching multiple queries get higher scores
+- **Parallel Processing**: Fast execution with concurrent search processing
 
 ### Key Features
 
@@ -179,6 +213,36 @@ octocode search "API documentation" --mode docs    # Only docs
 octocode search "configuration" --mode text        # Only text files
 octocode search "error handling" --mode all        # All content types
 ```
+
+### Multi-Query Search (NEW!)
+
+Combine multiple search terms for comprehensive results. Maximum 3 queries supported for optimal performance.
+
+```bash
+# Basic multi-query search
+octocode search "authentication" "middleware"
+octocode search "jwt" "token" "validation"
+
+# Multi-query with specific modes
+octocode search "error" "handling" --mode code
+octocode search "api" "documentation" --mode docs
+
+# Multi-query with other options
+octocode search "database" "connection" --threshold 0.7 --expand
+octocode search "auth" "security" --json
+```
+
+**How Multi-Query Works:**
+- **Parallel Processing**: Each query runs simultaneously for speed
+- **Smart Deduplication**: Same code blocks from different queries shown once
+- **Relevance Boosting**: Results matching multiple queries get higher scores
+- **Same Output Format**: Results look identical to single-query search
+
+**Best Practices:**
+- Use related terms: `"jwt" "token"` instead of unrelated terms
+- Combine concepts: `"authentication" "middleware"` for auth middleware code
+- Use specific terms: `"database" "connection"` instead of vague terms
+- Limit to 3 queries: More queries don't necessarily improve results
 
 ### Similarity Thresholds
 

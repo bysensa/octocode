@@ -819,3 +819,435 @@ fn ensure_relative_path(path: &str) -> String {
 	// If path is already relative or we can't determine relative path, return as-is
 	path.to_string()
 }
+
+// Enhanced search function for MCP server with multi-query support and detail level control
+pub async fn search_codebase_with_details_multi_query(
+	queries: &[String],
+	mode: &str,
+	detail_level: &str,
+	max_results: usize,
+	config: &Config,
+) -> Result<String> {
+	// Initialize store
+	let store = Store::new().await?;
+
+	// Validate queries (same as CLI)
+	if queries.is_empty() {
+		return Err(anyhow::anyhow!("At least one query is required"));
+	}
+	if queries.len() > 3 {
+		return Err(anyhow::anyhow!(
+			"Maximum 3 queries allowed, got {}. Use fewer, more specific terms.",
+			queries.len()
+		));
+	}
+
+	// Generate batch embeddings for all queries
+	let embeddings = generate_batch_embeddings_for_queries_mcp(queries, mode, config).await?;
+
+	// Zip queries with embeddings
+	let query_embeddings: Vec<_> = queries
+		.iter()
+		.cloned()
+		.zip(embeddings.into_iter())
+		.collect();
+
+	// Execute parallel searches
+	let search_results =
+		execute_parallel_searches_mcp(&store, query_embeddings, mode, max_results).await?;
+
+	// Convert similarity threshold (use default from config)
+	let distance_threshold = 1.0 - config.search.similarity_threshold;
+
+	// Deduplicate and merge with multi-query bonuses
+	let (mut code_blocks, mut doc_blocks, mut text_blocks) =
+		deduplicate_and_merge_results_mcp(search_results, queries, distance_threshold);
+
+	// Apply global result limits
+	code_blocks.truncate(max_results);
+	doc_blocks.truncate(max_results);
+	text_blocks.truncate(max_results);
+
+	// Format results based on mode with detail level control
+	match mode {
+		"code" => Ok(format_code_search_results_with_detail(
+			&code_blocks,
+			detail_level,
+		)),
+		"text" => Ok(format_text_search_results_as_markdown(&text_blocks)),
+		"docs" => Ok(format_doc_search_results_as_markdown(&doc_blocks)),
+		"all" => Ok(format_combined_search_results_with_detail(
+			&code_blocks,
+			&text_blocks,
+			&doc_blocks,
+			detail_level,
+		)),
+		_ => Err(anyhow::anyhow!(
+			"Invalid search mode '{}'. Use 'all', 'code', 'docs', or 'text'.",
+			mode
+		)),
+	}
+}
+
+// Helper functions for MCP multi-query search
+async fn generate_batch_embeddings_for_queries_mcp(
+	queries: &[String],
+	mode: &str,
+	config: &Config,
+) -> Result<Vec<crate::embedding::SearchModeEmbeddings>> {
+	match mode {
+		"code" => {
+			let code_embeddings =
+				crate::embedding::generate_embeddings_batch(queries.to_vec(), true, config).await?;
+			Ok(code_embeddings
+				.into_iter()
+				.map(|emb| crate::embedding::SearchModeEmbeddings {
+					code_embeddings: Some(emb),
+					text_embeddings: None,
+				})
+				.collect())
+		}
+		"docs" | "text" => {
+			let text_embeddings =
+				crate::embedding::generate_embeddings_batch(queries.to_vec(), false, config)
+					.await?;
+			Ok(text_embeddings
+				.into_iter()
+				.map(|emb| crate::embedding::SearchModeEmbeddings {
+					code_embeddings: None,
+					text_embeddings: Some(emb),
+				})
+				.collect())
+		}
+		"all" => {
+			let code_model = &config.embedding.code_model;
+			let text_model = &config.embedding.text_model;
+
+			if code_model == text_model {
+				let embeddings =
+					crate::embedding::generate_embeddings_batch(queries.to_vec(), true, config)
+						.await?;
+				Ok(embeddings
+					.into_iter()
+					.map(|emb| crate::embedding::SearchModeEmbeddings {
+						code_embeddings: Some(emb.clone()),
+						text_embeddings: Some(emb),
+					})
+					.collect())
+			} else {
+				let (code_embeddings, text_embeddings) = tokio::try_join!(
+					crate::embedding::generate_embeddings_batch(queries.to_vec(), true, config),
+					crate::embedding::generate_embeddings_batch(queries.to_vec(), false, config)
+				)?;
+
+				Ok(code_embeddings
+					.into_iter()
+					.zip(text_embeddings.into_iter())
+					.map(
+						|(code_emb, text_emb)| crate::embedding::SearchModeEmbeddings {
+							code_embeddings: Some(code_emb),
+							text_embeddings: Some(text_emb),
+						},
+					)
+					.collect())
+			}
+		}
+		_ => Err(anyhow::anyhow!("Invalid search mode: {}", mode)),
+	}
+}
+
+#[derive(Debug)]
+struct QuerySearchResultMcp {
+	query_index: usize,
+	code_blocks: Vec<CodeBlock>,
+	doc_blocks: Vec<crate::store::DocumentBlock>,
+	text_blocks: Vec<crate::store::TextBlock>,
+}
+
+async fn execute_parallel_searches_mcp(
+	store: &Store,
+	query_embeddings: Vec<(String, crate::embedding::SearchModeEmbeddings)>,
+	mode: &str,
+	max_results: usize,
+) -> Result<Vec<QuerySearchResultMcp>> {
+	let per_query_limit = (max_results * 2) / query_embeddings.len().max(1);
+
+	let search_futures: Vec<_> = query_embeddings
+		.into_iter()
+		.enumerate()
+		.map(|(index, (query, embeddings))| async move {
+			execute_single_search_with_embeddings_mcp(
+				store,
+				&query,
+				embeddings,
+				mode,
+				per_query_limit,
+				index,
+			)
+			.await
+		})
+		.collect();
+
+	futures::future::try_join_all(search_futures).await
+}
+
+async fn execute_single_search_with_embeddings_mcp(
+	store: &Store,
+	query: &str,
+	embeddings: crate::embedding::SearchModeEmbeddings,
+	mode: &str,
+	limit: usize,
+	query_index: usize,
+) -> Result<QuerySearchResultMcp> {
+	let (code_blocks, doc_blocks, text_blocks) = match mode {
+		"code" => {
+			let code_embeddings = embeddings
+				.code_embeddings
+				.ok_or_else(|| anyhow::anyhow!("No code embeddings for code search"))?;
+			let mut blocks = store
+				.get_code_blocks_with_config(code_embeddings, Some(limit), Some(1.01))
+				.await?;
+			blocks = crate::reranker::Reranker::rerank_code_blocks(blocks, query);
+			crate::reranker::Reranker::tf_idf_boost(&mut blocks, query);
+			(blocks, vec![], vec![])
+		}
+		"docs" => {
+			let text_embeddings = embeddings
+				.text_embeddings
+				.ok_or_else(|| anyhow::anyhow!("No text embeddings for docs search"))?;
+			let mut blocks = store
+				.get_document_blocks_with_config(text_embeddings, Some(limit), Some(1.01))
+				.await?;
+			blocks = crate::reranker::Reranker::rerank_document_blocks(blocks, query);
+			(vec![], blocks, vec![])
+		}
+		"text" => {
+			let text_embeddings = embeddings
+				.text_embeddings
+				.ok_or_else(|| anyhow::anyhow!("No text embeddings for text search"))?;
+			let mut blocks = store
+				.get_text_blocks_with_config(text_embeddings, Some(limit), Some(1.01))
+				.await?;
+			blocks = crate::reranker::Reranker::rerank_text_blocks(blocks, query);
+			(vec![], vec![], blocks)
+		}
+		"all" => {
+			let code_embeddings = embeddings
+				.code_embeddings
+				.ok_or_else(|| anyhow::anyhow!("No code embeddings for all search"))?;
+			let text_embeddings = embeddings
+				.text_embeddings
+				.ok_or_else(|| anyhow::anyhow!("No text embeddings for all search"))?;
+
+			let (mut code_blocks, mut doc_blocks, mut text_blocks) = tokio::try_join!(
+				store.get_code_blocks_with_config(code_embeddings, Some(limit), Some(1.01)),
+				store.get_document_blocks_with_config(
+					text_embeddings.clone(),
+					Some(limit),
+					Some(1.01)
+				),
+				store.get_text_blocks_with_config(text_embeddings, Some(limit), Some(1.01))
+			)?;
+
+			code_blocks = crate::reranker::Reranker::rerank_code_blocks(code_blocks, query);
+			doc_blocks = crate::reranker::Reranker::rerank_document_blocks(doc_blocks, query);
+			text_blocks = crate::reranker::Reranker::rerank_text_blocks(text_blocks, query);
+
+			crate::reranker::Reranker::tf_idf_boost(&mut code_blocks, query);
+
+			(code_blocks, doc_blocks, text_blocks)
+		}
+		_ => unreachable!(),
+	};
+
+	Ok(QuerySearchResultMcp {
+		query_index,
+		code_blocks,
+		doc_blocks,
+		text_blocks,
+	})
+}
+
+fn deduplicate_and_merge_results_mcp(
+	search_results: Vec<QuerySearchResultMcp>,
+	queries: &[String],
+	threshold: f32,
+) -> (
+	Vec<CodeBlock>,
+	Vec<crate::store::DocumentBlock>,
+	Vec<crate::store::TextBlock>,
+) {
+	use std::cmp::Ordering;
+	use std::collections::HashMap;
+
+	// Deduplicate code blocks
+	let mut code_map: HashMap<String, (CodeBlock, Vec<usize>)> = HashMap::new();
+
+	for result in &search_results {
+		for block in &result.code_blocks {
+			match code_map.entry(block.hash.clone()) {
+				std::collections::hash_map::Entry::Vacant(e) => {
+					e.insert((block.clone(), vec![result.query_index]));
+				}
+				std::collections::hash_map::Entry::Occupied(mut e) => {
+					let (existing_block, query_indices) = e.get_mut();
+					query_indices.push(result.query_index);
+					if block.distance < existing_block.distance {
+						*existing_block = block.clone();
+					}
+				}
+			}
+		}
+	}
+
+	// Similar logic for doc and text blocks...
+	let mut doc_map: HashMap<String, (crate::store::DocumentBlock, Vec<usize>)> = HashMap::new();
+	let mut text_map: HashMap<String, (crate::store::TextBlock, Vec<usize>)> = HashMap::new();
+
+	for result in &search_results {
+		for block in &result.doc_blocks {
+			match doc_map.entry(block.hash.clone()) {
+				std::collections::hash_map::Entry::Vacant(e) => {
+					e.insert((block.clone(), vec![result.query_index]));
+				}
+				std::collections::hash_map::Entry::Occupied(mut e) => {
+					let (existing_block, query_indices) = e.get_mut();
+					query_indices.push(result.query_index);
+					if block.distance < existing_block.distance {
+						*existing_block = block.clone();
+					}
+				}
+			}
+		}
+
+		for block in &result.text_blocks {
+			match text_map.entry(block.hash.clone()) {
+				std::collections::hash_map::Entry::Vacant(e) => {
+					e.insert((block.clone(), vec![result.query_index]));
+				}
+				std::collections::hash_map::Entry::Occupied(mut e) => {
+					let (existing_block, query_indices) = e.get_mut();
+					query_indices.push(result.query_index);
+					if block.distance < existing_block.distance {
+						*existing_block = block.clone();
+					}
+				}
+			}
+		}
+	}
+
+	// Apply multi-query bonuses and filter
+	let mut final_code_blocks: Vec<CodeBlock> = code_map
+		.into_values()
+		.map(|(mut block, query_indices)| {
+			apply_multi_query_bonus_code_mcp(&mut block, &query_indices, queries.len());
+			block
+		})
+		.filter(|block| {
+			if let Some(distance) = block.distance {
+				distance <= threshold
+			} else {
+				true
+			}
+		})
+		.collect();
+
+	let mut final_doc_blocks: Vec<crate::store::DocumentBlock> = doc_map
+		.into_values()
+		.map(|(mut block, query_indices)| {
+			apply_multi_query_bonus_doc_mcp(&mut block, &query_indices, queries.len());
+			block
+		})
+		.filter(|block| {
+			if let Some(distance) = block.distance {
+				distance <= threshold
+			} else {
+				true
+			}
+		})
+		.collect();
+
+	let mut final_text_blocks: Vec<crate::store::TextBlock> = text_map
+		.into_values()
+		.map(|(mut block, query_indices)| {
+			apply_multi_query_bonus_text_mcp(&mut block, &query_indices, queries.len());
+			block
+		})
+		.filter(|block| {
+			if let Some(distance) = block.distance {
+				distance <= threshold
+			} else {
+				true
+			}
+		})
+		.collect();
+
+	// Sort by relevance
+	final_code_blocks.sort_by(|a, b| match (a.distance, b.distance) {
+		(Some(dist_a), Some(dist_b)) => dist_a.partial_cmp(&dist_b).unwrap_or(Ordering::Equal),
+		(Some(_), None) => Ordering::Less,
+		(None, Some(_)) => Ordering::Greater,
+		(None, None) => Ordering::Equal,
+	});
+
+	final_doc_blocks.sort_by(|a, b| match (a.distance, b.distance) {
+		(Some(dist_a), Some(dist_b)) => dist_a.partial_cmp(&dist_b).unwrap_or(Ordering::Equal),
+		(Some(_), None) => Ordering::Less,
+		(None, Some(_)) => Ordering::Greater,
+		(None, None) => Ordering::Equal,
+	});
+
+	final_text_blocks.sort_by(|a, b| match (a.distance, b.distance) {
+		(Some(dist_a), Some(dist_b)) => dist_a.partial_cmp(&dist_b).unwrap_or(Ordering::Equal),
+		(Some(_), None) => Ordering::Less,
+		(None, Some(_)) => Ordering::Greater,
+		(None, None) => Ordering::Equal,
+	});
+
+	(final_code_blocks, final_doc_blocks, final_text_blocks)
+}
+
+fn apply_multi_query_bonus_code_mcp(
+	block: &mut CodeBlock,
+	query_indices: &[usize],
+	total_queries: usize,
+) {
+	if query_indices.len() > 1 && total_queries > 1 {
+		let coverage_ratio = query_indices.len() as f32 / total_queries as f32;
+		let bonus_factor = 1.0 - (coverage_ratio * 0.1).min(0.2);
+
+		if let Some(distance) = block.distance {
+			block.distance = Some(distance * bonus_factor);
+		}
+	}
+}
+
+fn apply_multi_query_bonus_doc_mcp(
+	block: &mut crate::store::DocumentBlock,
+	query_indices: &[usize],
+	total_queries: usize,
+) {
+	if query_indices.len() > 1 && total_queries > 1 {
+		let coverage_ratio = query_indices.len() as f32 / total_queries as f32;
+		let bonus_factor = 1.0 - (coverage_ratio * 0.1).min(0.2);
+
+		if let Some(distance) = block.distance {
+			block.distance = Some(distance * bonus_factor);
+		}
+	}
+}
+
+fn apply_multi_query_bonus_text_mcp(
+	block: &mut crate::store::TextBlock,
+	query_indices: &[usize],
+	total_queries: usize,
+) {
+	if query_indices.len() > 1 && total_queries > 1 {
+		let coverage_ratio = query_indices.len() as f32 / total_queries as f32;
+		let bonus_factor = 1.0 - (coverage_ratio * 0.1).min(0.2);
+
+		if let Some(distance) = block.distance {
+			block.distance = Some(distance * bonus_factor);
+		}
+	}
+}

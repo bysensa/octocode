@@ -17,7 +17,9 @@ use serde_json::{json, Value};
 use tracing::debug;
 
 use crate::config::Config;
-use crate::indexer::search::search_codebase_with_details;
+use crate::indexer::search::{
+	search_codebase_with_details, search_codebase_with_details_multi_query,
+};
 use crate::indexer::{extract_file_signatures, signatures_to_markdown, NoindexWalker, PathUtils};
 use crate::mcp::types::McpTool;
 
@@ -39,15 +41,31 @@ impl SemanticCodeProvider {
 	pub fn get_tool_definition() -> McpTool {
 		McpTool {
 			name: "search_code".to_string(),
-			description: "Search through the codebase using semantic vector search to find relevant code snippets, functions, classes, documentation, or text content. Use NATURAL LANGUAGE queries (not code syntax). Returns 3 most relevant results by default, formatted as markdown with file paths, line numbers, relevance scores, and syntax-highlighted code blocks.".to_string(),
+			description: "Search through the codebase using semantic vector search to find relevant code snippets, functions, classes, documentation, or text content. Use NATURAL LANGUAGE queries (not code syntax). Supports both single and multiple queries for comprehensive search. Returns 3 most relevant results by default, formatted as markdown with file paths, line numbers, relevance scores, and syntax-highlighted code blocks.".to_string(),
 			input_schema: json!({
 				"type": "object",
 				"properties": {
 					"query": {
-						"type": "string",
-						"description": "Natural language search query describing what you're looking for (avoid control characters and escape sequences). Use descriptive phrases, NOT code syntax. GOOD examples: 'authentication functions', 'error handling code', 'database connection setup', 'API endpoints for user management', 'configuration parsing logic', 'HTTP request handlers'. BAD examples: 'fn authenticate()', 'class UserAuth', 'import database'",
-						"minLength": 3,
-						"maxLength": 500
+						"oneOf": [
+							{
+								"type": "string",
+								"description": "Single search query describing what you're looking for",
+								"minLength": 3,
+								"maxLength": 500
+							},
+							{
+								"type": "array",
+								"items": {
+									"type": "string",
+									"minLength": 3,
+									"maxLength": 500
+								},
+								"minItems": 1,
+								"maxItems": 3,
+								"description": "Multiple search queries (maximum 3) for comprehensive search. Example: ['authentication', 'middleware'] to find code related to both terms"
+							}
+						],
+						"description": "Natural language search query(ies) describing what you're looking for (avoid control characters and escape sequences). Use descriptive phrases, NOT code syntax. GOOD examples: 'authentication functions', 'error handling code', 'database connection setup', 'API endpoints for user management', 'configuration parsing logic', 'HTTP request handlers'. BAD examples: 'fn authenticate()', 'class UserAuth', 'import database'. For multi-query: use related terms like ['jwt', 'token'] or ['database', 'connection'] to find more comprehensive results."
 					},
 					"mode": {
 						"type": "string",
@@ -113,21 +131,51 @@ impl SemanticCodeProvider {
 
 	/// Execute the search_code tool
 	pub async fn execute_search(&self, arguments: &Value) -> Result<String> {
-		let query = arguments
-			.get("query")
-			.and_then(|v| v.as_str())
-			.ok_or_else(|| anyhow::anyhow!("Missing required parameter 'query': must be a non-empty string describing what to search for"))?;
+		// Parse queries - handle both string and array inputs
+		let queries: Vec<String> = match arguments.get("query") {
+			Some(Value::String(s)) => vec![s.clone()],
+			Some(Value::Array(arr)) => {
+				let queries: Vec<String> = arr
+					.iter()
+					.filter_map(|v| v.as_str().map(String::from))
+					.collect();
 
-		// Validate query length
-		if query.len() < 3 {
+				if queries.is_empty() {
+					return Err(anyhow::anyhow!(
+						"Invalid query array: must contain at least one non-empty string"
+					));
+				}
+
+				queries
+			}
+			_ => {
+				return Err(anyhow::anyhow!(
+					"Missing required parameter 'query': must be a string or array of strings describing what to search for"
+				));
+			}
+		};
+
+		// Validate queries
+		if queries.len() > 3 {
 			return Err(anyhow::anyhow!(
-				"Invalid query: must be at least 3 characters long"
+				"Too many queries: maximum 3 queries allowed, got {}. Use fewer, more specific terms.",
+				queries.len()
 			));
 		}
-		if query.len() > 500 {
-			return Err(anyhow::anyhow!(
-				"Invalid query: must be no more than 500 characters long"
-			));
+
+		for (i, query) in queries.iter().enumerate() {
+			if query.len() < 3 {
+				return Err(anyhow::anyhow!(
+					"Invalid query {}: must be at least 3 characters long",
+					i + 1
+				));
+			}
+			if query.len() > 500 {
+				return Err(anyhow::anyhow!(
+					"Invalid query {}: must be no more than 500 characters long",
+					i + 1
+				));
+			}
 		}
 
 		let mode = arguments
@@ -171,22 +219,35 @@ impl SemanticCodeProvider {
 
 		// Use structured logging instead of console output for MCP protocol compliance
 		debug!(
-			query = %query,
+			queries = ?queries,
 			mode = %mode,
 			detail_level = %detail_level,
 			max_results = %max_results,
 			working_directory = %self.working_directory.display(),
-			"Executing semantic code search"
+			"Executing semantic code search with {} queries",
+			queries.len()
 		);
 
 		// Change to the working directory for the search
 		let _original_dir = std::env::current_dir()?;
 		std::env::set_current_dir(&self.working_directory)?;
 
-		// Use the enhanced search functionality with detail level control
-		let results =
-			search_codebase_with_details(query, mode, detail_level, max_results, &self.config)
-				.await;
+		// Use the enhanced search functionality with multi-query support
+		let results = if queries.len() == 1 {
+			// Single query - use existing function
+			search_codebase_with_details(&queries[0], mode, detail_level, max_results, &self.config)
+				.await
+		} else {
+			// Multi-query - use new function
+			search_codebase_with_details_multi_query(
+				&queries,
+				mode,
+				detail_level,
+				max_results,
+				&self.config,
+			)
+			.await
+		};
 
 		// Restore original directory
 		std::env::set_current_dir(&_original_dir)?;

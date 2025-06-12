@@ -13,6 +13,7 @@ Octocode is a powerful code indexer and semantic search engine that builds intel
 
 ### 🔍 **Semantic Code Search**
 - Natural language queries across your entire codebase
+- **Multi-query search**: Combine multiple terms for comprehensive results (e.g., `"auth" "middleware"`)
 - Multi-mode search (code, documentation, text, or all)
 - Intelligent ranking with similarity scoring
 - Symbol expansion for comprehensive results
@@ -39,6 +40,7 @@ Octocode is a powerful code indexer and semantic search engine that builds intel
 ### 🔌 **MCP Server Integration**
 - Built-in Model Context Protocol server
 - Seamless integration with AI assistants (Claude Desktop, etc.)
+- **Multi-query search support**: Use arrays like `["auth", "middleware"]` in search_code tool
 - Real-time file watching and auto-reindexing
 - Rich tool ecosystem for code analysis
 
@@ -130,8 +132,12 @@ export OPENROUTER_API_KEY="your-openrouter-api-key"
 # Index your current directory
 octocode index
 
-# Search your codebase
+# Search your codebase with single query
 octocode search "HTTP request handling"
+
+# Search with multiple queries for comprehensive results (NEW!)
+octocode search "authentication" "middleware"
+octocode search "jwt" "token" "validation"
 
 # View code signatures
 octocode view "src/**/*.rs"
@@ -160,7 +166,32 @@ octocode mcp
 # Provides: search_code, search_graphrag, memorize, remember, forget
 ```
 
-### 5. Memory Management
+### 5. Multi-Query Search (NEW!)
+```bash
+# Single query (traditional)
+octocode search "authentication"
+
+# Multi-query for comprehensive results
+octocode search "authentication" "middleware"
+octocode search "jwt" "token" "validation"
+octocode search "database" "connection" "pool"
+
+# Works with all search modes
+octocode search "error" "handling" --mode code
+octocode search "api" "documentation" --mode docs
+
+# MCP also supports multi-query
+# In Claude Desktop: search_code with query: ["auth", "middleware"]
+```
+
+**How Multi-Query Works:**
+- **Parallel Processing**: Each query runs simultaneously for speed
+- **Smart Deduplication**: Same code blocks from different queries shown once
+- **Relevance Boosting**: Results matching multiple queries get higher scores
+- **Maximum 3 queries**: Optimal balance of functionality vs performance
+- **Same Output Format**: Results look identical to single-query search
+
+### 6. Memory Management
 ```bash
 # Store important insights and decisions
 octocode memory memorize \
@@ -181,7 +212,7 @@ octocode memory for-files src/auth.rs
 octocode memory clear-all --yes
 ```
 
-### 6. Advanced Features
+### 7. Advanced Features
 ```bash
 # Enable GraphRAG with AI descriptions (requires OpenRouter API key)
 octocode config --graphrag-enabled true
@@ -199,7 +230,7 @@ octocode watch
 | Command | Description | Example |
 |---------|-------------|---------|
 | `octocode index` | Index the codebase | `octocode index --reindex` |
-| `octocode search <query>` | Semantic code search | `octocode search "error handling"` |
+| `octocode search <query>` | Semantic code search (supports multiple queries) | `octocode search "error handling"` or `octocode search "auth" "middleware"` |
 | `octocode graphrag <operation>` | Knowledge graph operations | `octocode graphrag search --query "auth"` |
 | `octocode view [pattern]` | View code signatures | `octocode view "src/**/*.rs" --md` |
 | `octocode commit` | AI-powered git commit | `octocode commit --all` |
