@@ -383,9 +383,9 @@ octocode config --model "openai/gpt-4o-mini"
 ```
 
 ### Default Models
-- **Code embedding**: `voyage:voyage-code-2` (Voyage AI)
-- **Text embedding**: `voyage:voyage-2` (Voyage AI)
-- **LLM**: `openai/gpt-4o-mini` (via OpenRouter)
+- **Code embedding**: `voyage:voyage-code-3` (Voyage AI)
+- **Text embedding**: `voyage:voyage-3.5-lite` (Voyage AI)
+- **LLM**: `openai/gpt-4.1-mini` (via OpenRouter)
 
 ### Platform Support
 - **Windows/Linux**: Cloud embeddings only (Voyage AI, Jina AI, Google)
