@@ -31,6 +31,10 @@ pub struct IndexArgs {
 	/// List all files currently indexed in the database
 	#[arg(long)]
 	pub list_files: bool,
+
+	/// Show all chunks for a specific file with metadata
+	#[arg(long, value_name = "FILE_PATH")]
+	pub show_file: Option<String>,
 }
 
 pub async fn execute(
@@ -42,6 +46,13 @@ pub async fn execute(
 	if args.list_files {
 		println!("Listing all files currently indexed in the database...");
 		store.list_indexed_files().await?;
+		return Ok(());
+	}
+
+	// Handle show-file option
+	if let Some(file_path) = &args.show_file {
+		println!("Showing all chunks for file: {}", file_path);
+		store.show_file_chunks(file_path).await?;
 		return Ok(());
 	}
 

@@ -2753,4 +2753,199 @@ impl Store {
 		println!("\n📊 Total indexed files: {}", total_files);
 		Ok(())
 	}
+
+	// Show all chunks for a specific file path across all tables
+	pub async fn show_file_chunks(&self, file_path: &str) -> Result<()> {
+		let table_names = self.db.table_names().execute().await?;
+		let mut total_chunks = 0;
+		let mut found_in_any_table = false;
+
+		println!("🔍 Searching for chunks of file: {}", file_path);
+		println!("{}", "=".repeat(80));
+
+		// Check code_blocks table
+		if table_names.contains(&"code_blocks".to_string()) {
+			if let Ok(chunks) = self.get_file_code_blocks(file_path).await {
+				if !chunks.is_empty() {
+					found_in_any_table = true;
+					println!("\n📦 CODE BLOCKS ({} chunks)", chunks.len());
+					println!("{}", "-".repeat(40));
+
+					for (i, chunk) in chunks.iter().enumerate() {
+						println!("🔹 Chunk #{} (Code)", i + 1);
+						println!("   📍 Lines: {}-{}", chunk.start_line, chunk.end_line);
+						println!("   🏷️  Language: {}", chunk.language);
+						println!("   🔑 Hash: {}", chunk.hash);
+						if !chunk.symbols.is_empty() {
+							println!("   🎯 Symbols: {}", chunk.symbols.join(", "));
+						}
+						println!("   📝 Content ({} chars):", chunk.content.len());
+						// Show first few lines of content
+						let content_lines: Vec<&str> = chunk.content.lines().collect();
+						let preview_lines = content_lines
+							.iter()
+							.take(5)
+							.map(|line| format!("      {}", line))
+							.collect::<Vec<_>>();
+						println!("{}", preview_lines.join("\n"));
+						if content_lines.len() > 5 {
+							println!("      ... ({} more lines)", content_lines.len() - 5);
+						}
+						println!();
+					}
+					total_chunks += chunks.len();
+				}
+			}
+		}
+
+		// Check text_blocks table
+		if table_names.contains(&"text_blocks".to_string()) {
+			if let Ok(chunks) = self.get_file_text_blocks(file_path).await {
+				if !chunks.is_empty() {
+					found_in_any_table = true;
+					println!("\n📄 TEXT BLOCKS ({} chunks)", chunks.len());
+					println!("{}", "-".repeat(40));
+
+					for (i, chunk) in chunks.iter().enumerate() {
+						println!("🔹 Chunk #{} (Text)", i + 1);
+						println!("   📍 Lines: {}-{}", chunk.start_line, chunk.end_line);
+						println!("   🏷️  Language: {}", chunk.language);
+						println!("   🔑 Hash: {}", chunk.hash);
+						println!("   📝 Content ({} chars):", chunk.content.len());
+						// Show first few lines of content
+						let content_lines: Vec<&str> = chunk.content.lines().collect();
+						let preview_lines = content_lines
+							.iter()
+							.take(5)
+							.map(|line| format!("      {}", line))
+							.collect::<Vec<_>>();
+						println!("{}", preview_lines.join("\n"));
+						if content_lines.len() > 5 {
+							println!("      ... ({} more lines)", content_lines.len() - 5);
+						}
+						println!();
+					}
+					total_chunks += chunks.len();
+				}
+			}
+		}
+
+		// Check document_blocks table
+		if table_names.contains(&"document_blocks".to_string()) {
+			if let Ok(chunks) = self.get_file_document_blocks(file_path).await {
+				if !chunks.is_empty() {
+					found_in_any_table = true;
+					println!("\n📚 DOCUMENT BLOCKS ({} chunks)", chunks.len());
+					println!("{}", "-".repeat(40));
+
+					for (i, chunk) in chunks.iter().enumerate() {
+						println!("🔹 Chunk #{} (Document)", i + 1);
+						println!("   📍 Lines: {}-{}", chunk.start_line, chunk.end_line);
+						println!("   📑 Title: {}", chunk.title);
+						println!("   📊 Level: {}", chunk.level);
+						println!("   🔑 Hash: {}", chunk.hash);
+						println!("   📝 Content ({} chars):", chunk.content.len());
+						// Show first few lines of content
+						let content_lines: Vec<&str> = chunk.content.lines().collect();
+						let preview_lines = content_lines
+							.iter()
+							.take(5)
+							.map(|line| format!("      {}", line))
+							.collect::<Vec<_>>();
+						println!("{}", preview_lines.join("\n"));
+						if content_lines.len() > 5 {
+							println!("      ... ({} more lines)", content_lines.len() - 5);
+						}
+						println!();
+					}
+					total_chunks += chunks.len();
+				}
+			}
+		}
+
+		println!("{}", "=".repeat(80));
+		if found_in_any_table {
+			println!("📊 Total chunks found: {}", total_chunks);
+		} else {
+			println!("❌ No chunks found for file: {}", file_path);
+			println!("💡 Make sure the file path is correct and the file has been indexed.");
+		}
+
+		Ok(())
+	}
+
+	// Get all code blocks for a specific file
+	async fn get_file_code_blocks(&self, file_path: &str) -> Result<Vec<CodeBlock>> {
+		let table = self.db.open_table("code_blocks").execute().await?;
+		let escaped_path = file_path.replace("'", "''");
+
+		let mut results = table
+			.query()
+			.only_if(format!("path = '{}'", escaped_path))
+			.execute()
+			.await?;
+
+		let mut blocks = Vec::new();
+		while let Some(batch) = results.try_next().await? {
+			if batch.num_rows() > 0 {
+				let converter = BatchConverter::new(self.code_vector_dim);
+				let mut chunk_blocks = converter.batch_to_code_blocks(&batch, None)?;
+				blocks.append(&mut chunk_blocks);
+			}
+		}
+
+		// Sort by start_line for logical order
+		blocks.sort_by_key(|block| block.start_line);
+		Ok(blocks)
+	}
+
+	// Get all text blocks for a specific file
+	async fn get_file_text_blocks(&self, file_path: &str) -> Result<Vec<TextBlock>> {
+		let table = self.db.open_table("text_blocks").execute().await?;
+		let escaped_path = file_path.replace("'", "''");
+
+		let mut results = table
+			.query()
+			.only_if(format!("path = '{}'", escaped_path))
+			.execute()
+			.await?;
+
+		let mut blocks = Vec::new();
+		while let Some(batch) = results.try_next().await? {
+			if batch.num_rows() > 0 {
+				let converter = BatchConverter::new(self.text_vector_dim);
+				let mut chunk_blocks = converter.batch_to_text_blocks(&batch, None)?;
+				blocks.append(&mut chunk_blocks);
+			}
+		}
+
+		// Sort by start_line for logical order
+		blocks.sort_by_key(|block| block.start_line);
+		Ok(blocks)
+	}
+
+	// Get all document blocks for a specific file
+	async fn get_file_document_blocks(&self, file_path: &str) -> Result<Vec<DocumentBlock>> {
+		let table = self.db.open_table("document_blocks").execute().await?;
+		let escaped_path = file_path.replace("'", "''");
+
+		let mut results = table
+			.query()
+			.only_if(format!("path = '{}'", escaped_path))
+			.execute()
+			.await?;
+
+		let mut blocks = Vec::new();
+		while let Some(batch) = results.try_next().await? {
+			if batch.num_rows() > 0 {
+				let converter = BatchConverter::new(self.text_vector_dim);
+				let mut chunk_blocks = converter.batch_to_document_blocks(&batch, None)?;
+				blocks.append(&mut chunk_blocks);
+			}
+		}
+
+		// Sort by start_line for logical order
+		blocks.sort_by_key(|block| block.start_line);
+		Ok(blocks)
+	}
 }
