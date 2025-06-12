@@ -84,13 +84,13 @@ impl GraphRagProvider {
 		);
 
 		// Change to the working directory for the search
-		let _original_dir = std::env::current_dir()?;
+		let original_dir = std::env::current_dir()?;
 		std::env::set_current_dir(&self.working_directory)?;
 
 		let results = self.graphrag.search(query).await;
 
 		// Restore original directory
-		std::env::set_current_dir(&_original_dir)?;
+		std::env::set_current_dir(&original_dir)?;
 
 		let results = results?;
 		Ok(Self::format_results_as_markdown(results))

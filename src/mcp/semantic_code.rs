@@ -229,7 +229,7 @@ impl SemanticCodeProvider {
 		);
 
 		// Change to the working directory for the search
-		let _original_dir = std::env::current_dir()?;
+		let original_dir = std::env::current_dir()?;
 		std::env::set_current_dir(&self.working_directory)?;
 
 		// Use the enhanced search functionality with multi-query support
@@ -250,7 +250,7 @@ impl SemanticCodeProvider {
 		};
 
 		// Restore original directory
-		std::env::set_current_dir(&_original_dir)?;
+		std::env::set_current_dir(&original_dir)?;
 
 		results
 	}
@@ -298,7 +298,7 @@ impl SemanticCodeProvider {
 		);
 
 		// Change to the working directory for processing
-		let _original_dir = std::env::current_dir()?;
+		let original_dir = std::env::current_dir()?;
 		std::env::set_current_dir(&self.working_directory)?;
 
 		// Get files matching patterns
@@ -310,7 +310,7 @@ impl SemanticCodeProvider {
 			let glob_pattern = match globset::Glob::new(pattern) {
 				Ok(g) => g.compile_matcher(),
 				Err(e) => {
-					std::env::set_current_dir(&_original_dir)?;
+					std::env::set_current_dir(&original_dir)?;
 					return Err(anyhow::anyhow!("Invalid glob pattern '{}': {}", pattern, e));
 				}
 			};
@@ -348,7 +348,7 @@ impl SemanticCodeProvider {
 		let matching_files: Vec<_> = matching_files.into_iter().collect();
 
 		if matching_files.is_empty() {
-			std::env::set_current_dir(&_original_dir)?;
+			std::env::set_current_dir(&original_dir)?;
 			return Ok("No matching files found for the specified patterns.".to_string());
 		}
 
@@ -356,13 +356,13 @@ impl SemanticCodeProvider {
 		let signatures = match extract_file_signatures(&matching_files) {
 			Ok(sigs) => sigs,
 			Err(e) => {
-				std::env::set_current_dir(&_original_dir)?;
+				std::env::set_current_dir(&original_dir)?;
 				return Err(anyhow::anyhow!("Failed to extract signatures: {}", e));
 			}
 		};
 
 		// Restore original directory
-		std::env::set_current_dir(&_original_dir)?;
+		std::env::set_current_dir(&original_dir)?;
 
 		// Always return markdown format
 		let markdown = signatures_to_markdown(&signatures);
