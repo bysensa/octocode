@@ -2080,6 +2080,74 @@ impl Store {
 		Ok(())
 	}
 
+	// Clear only the code_blocks table
+	pub async fn clear_code_table(&self) -> Result<()> {
+		let table_names = self.db.table_names().execute().await?;
+
+		if table_names.contains(&"code_blocks".to_string()) {
+			if let Err(e) = self.db.drop_table("code_blocks").await {
+				eprintln!("Warning: Failed to drop code_blocks table: {}", e);
+			} else {
+				println!("Dropped table: code_blocks");
+			}
+		} else {
+			println!("Table code_blocks does not exist, skipping.");
+		}
+
+		Ok(())
+	}
+
+	// Clear only the document_blocks table
+	pub async fn clear_docs_table(&self) -> Result<()> {
+		let table_names = self.db.table_names().execute().await?;
+
+		if table_names.contains(&"document_blocks".to_string()) {
+			if let Err(e) = self.db.drop_table("document_blocks").await {
+				eprintln!("Warning: Failed to drop document_blocks table: {}", e);
+			} else {
+				println!("Dropped table: document_blocks");
+			}
+		} else {
+			println!("Table document_blocks does not exist, skipping.");
+		}
+
+		Ok(())
+	}
+
+	// Clear only the text_blocks table
+	pub async fn clear_text_table(&self) -> Result<()> {
+		let table_names = self.db.table_names().execute().await?;
+
+		if table_names.contains(&"text_blocks".to_string()) {
+			if let Err(e) = self.db.drop_table("text_blocks").await {
+				eprintln!("Warning: Failed to drop text_blocks table: {}", e);
+			} else {
+				println!("Dropped table: text_blocks");
+			}
+		} else {
+			println!("Table text_blocks does not exist, skipping.");
+		}
+
+		Ok(())
+	}
+
+	// Clear git metadata table to force full re-scan
+	pub async fn clear_git_metadata(&self) -> Result<()> {
+		let table_names = self.db.table_names().execute().await?;
+
+		if table_names.contains(&"git_metadata".to_string()) {
+			if let Err(e) = self.db.drop_table("git_metadata").await {
+				eprintln!("Warning: Failed to drop git_metadata table: {}", e);
+			} else {
+				println!("Dropped table: git_metadata (to force full re-scan)");
+			}
+		} else {
+			println!("Table git_metadata does not exist, skipping.");
+		}
+
+		Ok(())
+	}
+
 	// Check if tables exist in the database
 	pub async fn tables_exist(&self, table_names: &[&str]) -> Result<bool> {
 		let existing_tables = self.db.table_names().execute().await?;

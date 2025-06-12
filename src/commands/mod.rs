@@ -28,6 +28,7 @@ pub mod view;
 pub mod watch;
 
 // Re-export all the command structs and enums
+pub use clear::ClearArgs;
 pub use commit::CommitArgs;
 pub use config::ConfigArgs;
 pub use format::FormatArgs;

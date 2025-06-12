@@ -59,8 +59,8 @@ enum Commands {
 	/// Memory management for storing and retrieving information
 	Memory(commands::MemoryArgs),
 
-	/// Clear all database tables (useful for debugging)
-	Clear,
+	/// Clear database tables (useful for debugging)
+	Clear(commands::ClearArgs),
 
 	/// Generate and create git commit with AI assistance
 	Commit(commands::CommitArgs),
@@ -159,7 +159,7 @@ async fn main() -> Result<(), anyhow::Error> {
 		Commands::GraphRAG(graphrag_args) => {
 			commands::graphrag::execute(&store, graphrag_args, &config).await?
 		}
-		Commands::Clear => commands::clear::execute(&store).await?,
+		Commands::Clear(clear_args) => commands::clear::execute(&store, clear_args).await?,
 		Commands::Config(_) => unreachable!(), // Already handled above
 		Commands::Mcp(_) => unreachable!(),    // Already handled above
 		Commands::Commit(_) => unreachable!(), // Already handled above
