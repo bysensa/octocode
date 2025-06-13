@@ -41,7 +41,7 @@ impl SemanticCodeProvider {
 	pub fn get_tool_definition() -> McpTool {
 		McpTool {
 			name: "search_code".to_string(),
-			description: "Search through the codebase using semantic vector search to find relevant code snippets, functions, classes, documentation, or text content. Use NATURAL LANGUAGE queries (not code syntax). Supports both single and multiple queries for comprehensive search. Returns 3 most relevant results by default, formatted as markdown with file paths, line numbers, relevance scores, and syntax-highlighted code blocks.".to_string(),
+			description: "🔍 **PREFER MULTI-TERM SEARCH** - Search through the codebase using semantic vector search to find relevant code snippets, functions, classes, documentation, or text content. 🚀 **USE MULTI-TERM SEARCH (RECOMMENDED)**: Multiple related queries in one call like ['authentication', 'login', 'jwt'] finds comprehensive results across all related concepts. 3x more efficient than separate searches with better context and relationships. **Use single term only for specific function names or unique identifiers.** Returns 3 most relevant results by default, formatted as markdown with file paths, line numbers, relevance scores, and syntax-highlighted code blocks.".to_string(),
 			input_schema: json!({
 				"type": "object",
 				"properties": {
@@ -49,7 +49,7 @@ impl SemanticCodeProvider {
 						"oneOf": [
 							{
 								"type": "string",
-								"description": "Single search query describing what you're looking for",
+								"description": "Single search query - use ONLY for very specific searches like exact function names or unique identifiers",
 								"minLength": 3,
 								"maxLength": 500
 							},
@@ -62,10 +62,10 @@ impl SemanticCodeProvider {
 								},
 								"minItems": 1,
 								"maxItems": 3,
-								"description": "Multiple search queries (maximum 3) for comprehensive search. Example: ['authentication', 'middleware'] to find code related to both terms"
+								"description": "🚀 RECOMMENDED: Array of related search terms for comprehensive results. Example: ['authentication', 'middleware', 'jwt'] finds all auth-related code in one search"
 							}
 						],
-						"description": "Natural language search query(ies) describing what you're looking for (avoid control characters and escape sequences). Use descriptive phrases, NOT code syntax. GOOD examples: 'authentication functions', 'error handling code', 'database connection setup', 'API endpoints for user management', 'configuration parsing logic', 'HTTP request handlers'. BAD examples: 'fn authenticate()', 'class UserAuth', 'import database'. For multi-query: use related terms like ['jwt', 'token'] or ['database', 'connection'] to find more comprehensive results."
+						"description": "🎯 **PREFER ARRAY OF RELATED TERMS**: ['auth', 'login', 'session'] for comprehensive search. Single string only for very specific searches. **ALWAYS use multi-term for:** ✅ Feature exploration: ['database', 'connection', 'query'] ✅ Related concepts: ['error', 'handling', 'exception'] ✅ Broad investigation: ['config', 'settings', 'environment'] ✅ System understanding: ['session', 'chat', 'message']. **Use single term only for:** ✅ Specific function names: 'execute_single_query' ✅ Unique identifiers: 'McpToolCall'. Use descriptive phrases, NOT code syntax. GOOD multi-term examples: ['authentication', 'middleware', 'jwt'], ['database', 'connection', 'pool'], ['error', 'handling', 'exception']. BAD: using single terms when multi-term would be better."
 					},
 					"mode": {
 						"type": "string",
