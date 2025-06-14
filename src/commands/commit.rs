@@ -33,11 +33,24 @@ pub struct CommitArgs {
 	#[arg(short, long)]
 	pub yes: bool,
 
-	/// Skip pre-commit and commit-msg hooks
+	/// Skip pre-commit hooks and commit-msg hooks
+	/// Note: Pre-commit hooks run automatically if pre-commit binary and config are detected
 	#[arg(short, long)]
 	pub no_verify: bool,
 }
 
+/// Execute the commit command with intelligent pre-commit hook integration.
+///
+/// Pre-commit hooks are automatically detected and run if:
+/// - The `pre-commit` binary is available in PATH
+/// - A `.pre-commit-config.yaml` or `.pre-commit-config.yml` file exists
+/// - The `--no-verify` flag is not used
+///
+/// When `--all` is specified, pre-commit runs with `--all-files`.
+/// Otherwise, it runs only on staged files (default behavior).
+///
+/// If pre-commit modifies files, they are automatically re-staged before
+/// generating the commit message with AI.
 pub async fn execute(config: &Config, args: &CommitArgs) -> Result<()> {
 	let current_dir = std::env::current_dir()?;
 

@@ -30,7 +30,7 @@ Octocode is a powerful code indexer and semantic search engine that builds intel
 - Tree-sitter based parsing for accurate symbol extraction
 
 ### 🧠 **AI-Powered Features**
-- Smart commit message generation
+- Smart commit message generation with **automatic pre-commit hook integration**
 - Code review with best practices analysis
 - **Memory system** for storing insights, decisions, and context
 - **Semantic memory search** with vector similarity
@@ -145,9 +145,15 @@ octocode view "src/**/*.rs"
 
 ### 3. AI-Powered Git Workflow (Requires OpenRouter API Key)
 ```bash
-# Generate intelligent commit messages
+# Generate intelligent commit messages with automatic pre-commit hook integration
 git add .
 octocode commit
+
+# Or add all files and commit in one step
+octocode commit --all
+
+# Skip pre-commit hooks if needed
+octocode commit --no-verify
 
 # Review code for best practices
 octocode review
@@ -191,7 +197,34 @@ octocode search "api" "documentation" --mode docs
 - **Maximum 3 queries**: Optimal balance of functionality vs performance
 - **Same Output Format**: Results look identical to single-query search
 
-### 6. Memory Management
+### 6. Pre-commit Hook Integration
+```bash
+# Automatic pre-commit integration when available
+octocode commit --all
+
+# Pre-commit runs automatically if:
+# - pre-commit binary is in PATH
+# - .pre-commit-config.yaml exists
+# - --no-verify flag is not used
+
+# Skip pre-commit hooks when needed
+octocode commit --no-verify
+
+# Pre-commit behavior:
+# - With --all: runs "pre-commit run --all-files"
+# - Without --all: runs "pre-commit run" (staged files only)
+# - Modified files are automatically re-staged
+# - AI commit message generated after pre-commit completes
+```
+
+**Pre-commit Integration Features:**
+- **Smart Detection**: Automatically detects pre-commit availability and configuration
+- **Intelligent Execution**: Uses `--all-files` when `--all` flag is specified
+- **Auto Re-staging**: Modified files are automatically added back to staging area
+- **Seamless Workflow**: AI commit message generation happens after pre-commit
+- **Silent Fallback**: No errors if pre-commit is not available or configured
+
+### 7. Memory Management
 ```bash
 # Store important insights and decisions
 octocode memory memorize \
@@ -212,7 +245,7 @@ octocode memory for-files src/auth.rs
 octocode memory clear-all --yes
 ```
 
-### 7. Advanced Features
+### 8. Advanced Features
 ```bash
 # Enable GraphRAG with AI descriptions (requires OpenRouter API key)
 octocode config --graphrag-enabled true
