@@ -435,15 +435,20 @@ async fn calculate_version_with_ai(
 		"Analyze git commits and determine the next semantic version.\n\n\
         CURRENT VERSION: {}\n\n\
         COMMIT ANALYSIS:\n{}\n\n\
-        SEMANTIC VERSIONING RULES:\n\
+        SEMANTIC VERSIONING RULES (STRICT):\n\
         - MAJOR (x.0.0): Breaking changes, BREAKING CHANGE keyword, or commits with '!'\n\
         - MINOR (0.x.0): New features (feat:) without breaking changes\n\
-        - PATCH (0.0.x): Bug fixes (fix:), docs, chore, style, refactor, test\n\
-        - Follow semantic versioning 2.0.0 specification\n\
-        - Consider the cumulative impact of all changes\n\
-        - Default to PATCH if uncertain\n\n\
+        - PATCH (0.0.x): Bug fixes (fix:), docs, chore, style, refactor, test, perf, ci, build\\n\
+        - Follow semantic versioning 2.0.0 specification exactly\\n\\n\
+        DECISION GUIDELINES:\\n\
+        - If ANY commit has breaking changes → MAJOR version\\n\
+        - If NO breaking changes but ANY new features → MINOR version\\n\
+        - If ONLY fixes/improvements/docs/chores → PATCH version\\n\
+        - Consider cumulative impact: multiple features may warrant MINOR even if individual commits seem small\\n\
+        - When uncertain between MINOR/PATCH: choose PATCH for safety\\n\
+        - When uncertain between MAJOR/MINOR: choose MAJOR for safety\\n\\n\
         IMPORTANT: Preserve all commit information exactly as provided. Do not modify or summarize commit messages.\n\n\
-        Respond with valid JSON only:\n\
+        Respond with valid JSON only (no markdown, no additional text):\n\
         {{\n\
         \"current_version\": \"{}\",\n\
         \"new_version\": \"X.Y.Z\",\n\
@@ -826,16 +831,16 @@ async fn generate_ai_changelog_summary(
 
 	let prompt = format!(
 		"Generate a concise, professional release summary based on these grouped commits:\\n\\n{}\\n\\
-        Requirements:\\n\\
+        REQUIREMENTS:\\n\\
         - Write 2-3 sentences maximum\\n\\
-        - Focus on user-facing changes and improvements\\n\\
-        - Use professional, clear language\\n\\
-        - Don't repeat commit hashes or technical details\\n\\
+        - Focus on user-facing changes and improvements (not implementation details)\\n\\
+        - Use professional, clear language suitable for end users\\n\\
+        - Don't repeat commit hashes, technical jargon, or internal references\\n\\
         - Group similar changes together (e.g., 'Several bug fixes improve...')\\n\\
-        - Prioritize breaking changes and new features\\n\\
+        - Prioritize in order: breaking changes → new features → improvements → bug fixes\\n\\
         - Avoid redundancy - merge similar commits into broader statements\\n\\
         - End with a period\\n\\
-        - Create only a high-level summary for users\\n\\n\\
+        - Create only a high-level summary for users, not developers\\n\\n\\
         Example: \\\"This release introduces multi-query search capabilities and enhanced memory management features. Performance improvements include optimized indexing with better batch processing and reduced memory usage. Several bug fixes improve search relevance, error handling, and system stability.\\\"\\n\\n\\
         Generate summary:",
 		commits_context

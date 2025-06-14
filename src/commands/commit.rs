@@ -197,12 +197,27 @@ async fn generate_commit_message(
 		- Use imperative mood: \"add\" not \"added\"\n\
 		- Focus on WHAT functionality changed, not implementation details\n\
 		- If user guidance provided, use it to understand the INTENT but create your own message{}\n\n\
-		BREAKING CHANGE DETECTION:\n\
-		- Look for function signature changes, API modifications, removed public methods\n\
-		- Check for interface/trait changes, configuration schema changes\n\
-		- Identify database migrations, dependency version bumps\n\
-		- If breaking changes detected, use type! format and add BREAKING CHANGE footer\n\n\
-		BODY RULES (add body with bullet points if ANY of these apply):\n\
+		COMMIT TYPE SELECTION (CRITICAL - READ CAREFULLY):\\n\
+		- feat: NEW functionality being added (new features, new capabilities, new commands)\\n\
+		- fix: CORRECTING bugs, errors, or broken functionality (including fixes to existing features)\\n\
+		- refactor: IMPROVING existing code without changing functionality (code restructuring)\\n\
+		- perf: OPTIMIZING performance without adding features\\n\
+		- docs: DOCUMENTATION changes only\\n\
+		- test: ADDING or fixing tests\\n\
+		- chore: MAINTENANCE tasks (dependencies, build, tooling)\\n\\n\
+		FEATURE vs FIX DISTINCTION (VERY IMPORTANT):\\n\
+		- If code was working but had bugs/errors → use 'fix' (even for features)\\n\
+		- If adding completely new functionality that didn't exist → use 'feat'\\n\
+		- If improving existing working code structure → use 'refactor' or 'perf'\\n\
+		- Examples: 'fix(auth): resolve token validation error', 'feat(auth): add OAuth2 support'\\n\
+		- When fixing issues in recently added features → use 'fix(scope): correct feature-name issue'\\n\
+		- When in doubt between feat/fix: choose 'fix' if addressing problems, 'feat' if adding completely new\\n\\n\
+		BREAKING CHANGE DETECTION:\\n\
+		- Look for function signature changes, API modifications, removed public methods\\n\
+		- Check for interface/trait changes, configuration schema changes\\n\
+		- Identify database migrations, dependency version bumps\\n\
+		- If breaking changes detected, use type! format and add BREAKING CHANGE footer\\n\\n\
+		BODY RULES (add body with bullet points if ANY of these apply):\\n\
 		- 4+ files changed OR 25+ lines changed\n\
 		- Multiple different types of changes (feat+fix, refactor+feat, etc.)\n\
 		- Complex refactoring or architectural changes\n\
