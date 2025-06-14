@@ -181,6 +181,10 @@ pub async fn execute(config: &Config, args: &ReleaseArgs) -> Result<()> {
 	update_project_version(&project_type, &version_calculation.new_version).await?;
 	println!("✅ Updated project files");
 
+	// Update lock files after version change
+	update_lock_files(&project_type).await?;
+	println!("✅ Updated lock files");
+
 	// Update changelog
 	update_changelog(&args.changelog, &changelog_content).await?;
 	println!("✅ Updated {}", args.changelog);
@@ -428,23 +432,23 @@ async fn calculate_version_with_ai(
 	let analysis_json = serde_json::to_string_pretty(analysis)?;
 
 	let prompt = format!(
-		"Analyze the following git commits and calculate the next semantic version.\\n\\n\
-        CURRENT VERSION: {}\\n\\n\
-        COMMIT ANALYSIS:\\n{}\\n\\n\
-        RULES:\\n\
-        - MAJOR (x.0.0): Breaking changes or BREAKING CHANGE in commits\\n\
-        - MINOR (0.x.0): New features (feat) without breaking changes\\n\
-        - PATCH (0.0.x): Bug fixes (fix) and other changes without new features\\n\
-        - Follow semantic versioning strictly\\n\
-        - Consider the impact and scope of changes\\n\
-        - PRESERVE all existing commit information exactly as provided\\n\
-        - Do NOT modify, summarize, or alter commit messages\\n\\n\
-        Respond with JSON in this exact format:\\n\
-        {{\\n\
-        \\\"current_version\\\": \\\"{}\\\",\\n\
-        \\\"new_version\\\": \\\"X.Y.Z\\\",\\n\
-        \\\"version_type\\\": \\\"major|minor|patch\\\",\\n\
-        \\\"reasoning\\\": \\\"Brief explanation of version choice\\\"\\n\
+		"Analyze git commits and determine the next semantic version.\n\n\
+        CURRENT VERSION: {}\n\n\
+        COMMIT ANALYSIS:\n{}\n\n\
+        SEMANTIC VERSIONING RULES:\n\
+        - MAJOR (x.0.0): Breaking changes, BREAKING CHANGE keyword, or commits with '!'\n\
+        - MINOR (0.x.0): New features (feat:) without breaking changes\n\
+        - PATCH (0.0.x): Bug fixes (fix:), docs, chore, style, refactor, test\n\
+        - Follow semantic versioning 2.0.0 specification\n\
+        - Consider the cumulative impact of all changes\n\
+        - Default to PATCH if uncertain\n\n\
+        IMPORTANT: Preserve all commit information exactly as provided. Do not modify or summarize commit messages.\n\n\
+        Respond with valid JSON only:\n\
+        {{\n\
+        \"current_version\": \"{}\",\n\
+        \"new_version\": \"X.Y.Z\",\n\
+        \"version_type\": \"major|minor|patch\",\n\
+        \"reasoning\": \"Clear explanation of version choice based on changes\"\n\
         }}",
 		current_version, analysis_json, current_version
 	);
@@ -606,9 +610,16 @@ async fn generate_changelog_content(
 		}
 	}
 
+	// Calculate counts before using vectors in loops
+	let total_commits = analysis.commits.len();
+	let breaking_count = breaking_commits.len();
+	let feature_count = feature_commits.len();
+	let fix_count = fix_commits.len();
+	let other_count = other_commits.len();
+
 	if !breaking_commits.is_empty() {
 		content.push_str("### ⚠️ BREAKING CHANGES\n\n");
-		for commit in breaking_commits {
+		for commit in &breaking_commits {
 			content.push_str(&format_commit_entry(commit));
 		}
 		content.push('\n');
@@ -616,7 +627,7 @@ async fn generate_changelog_content(
 
 	if !feature_commits.is_empty() {
 		content.push_str("### ✨ Features\n\n");
-		for commit in feature_commits {
+		for commit in &feature_commits {
 			content.push_str(&format_commit_entry(commit));
 		}
 		content.push('\n');
@@ -624,7 +635,7 @@ async fn generate_changelog_content(
 
 	if !fix_commits.is_empty() {
 		content.push_str("### 🐛 Bug Fixes\n\n");
-		for commit in fix_commits {
+		for commit in &fix_commits {
 			content.push_str(&format_commit_entry(commit));
 		}
 		content.push('\n');
@@ -632,28 +643,47 @@ async fn generate_changelog_content(
 
 	if !other_commits.is_empty() {
 		content.push_str("### 🔧 Other Changes\n\n");
-		for commit in other_commits {
+		for commit in &other_commits {
 			content.push_str(&format_commit_entry(commit));
 		}
 		content.push('\n');
 	}
 
-	// Add all commits section for complete reference
+	// Add commit summary with counts instead of listing all commits
 	if !analysis.commits.is_empty() {
-		content.push_str("### 📝 All Commits\n\n");
-		for commit in &analysis.commits {
-			let short_hash = &commit.hash[..8];
-			let author = if commit.author.len() > 20 {
-				format!("{}...", &commit.author[..17])
-			} else {
-				commit.author.clone()
-			};
+		content.push_str("### 📊 Commit Summary\n\n");
 
+		content.push_str(&format!("**Total commits**: {}\n", total_commits));
+
+		if breaking_count > 0 {
 			content.push_str(&format!(
-				"- [`{}`] {} *by {}*\n",
-				short_hash, commit.message, author
+				"- ⚠️  {} breaking change{}\n",
+				breaking_count,
+				if breaking_count == 1 { "" } else { "s" }
 			));
 		}
+		if feature_count > 0 {
+			content.push_str(&format!(
+				"- ✨ {} new feature{}\n",
+				feature_count,
+				if feature_count == 1 { "" } else { "s" }
+			));
+		}
+		if fix_count > 0 {
+			content.push_str(&format!(
+				"- 🐛 {} bug fix{}\n",
+				fix_count,
+				if fix_count == 1 { "" } else { "es" }
+			));
+		}
+		if other_count > 0 {
+			content.push_str(&format!(
+				"- 🔧 {} other change{}\n",
+				other_count,
+				if other_count == 1 { "" } else { "s" }
+			));
+		}
+
 		content.push('\n');
 	}
 
@@ -679,7 +709,7 @@ fn format_commit_entry(commit: &CommitInfo) -> String {
 	};
 
 	entry.push_str(&format!(
-		"- {}{} ([`{}`])\n",
+		"- {}{} ({})\n",
 		scope_text, display_text, short_hash
 	));
 
@@ -741,28 +771,74 @@ async fn generate_ai_changelog_summary(
 	config: &Config,
 	analysis: &CommitAnalysis,
 ) -> Result<String> {
-	let commits_summary = analysis
-		.commits
-		.iter()
-		.map(|c| format!("- {} ({}): {}", c.commit_type, &c.hash[..8], c.message))
-		.collect::<Vec<_>>()
-		.join("\n");
+	// Group commits by type for better summary context
+	let mut breaking_msgs = Vec::new();
+	let mut feature_msgs = Vec::new();
+	let mut fix_msgs = Vec::new();
+	let mut other_msgs = Vec::new();
+
+	for commit in &analysis.commits {
+		let msg = &commit.message;
+		if commit.breaking {
+			breaking_msgs.push(msg);
+		} else {
+			match commit.commit_type.as_str() {
+				"feat" => feature_msgs.push(msg),
+				"fix" => fix_msgs.push(msg),
+				_ => other_msgs.push(msg),
+			}
+		}
+	}
+
+	let mut commits_context = String::new();
+
+	if !breaking_msgs.is_empty() {
+		commits_context.push_str("BREAKING CHANGES:\\n");
+		for msg in &breaking_msgs {
+			commits_context.push_str(&format!("- {}\\n", msg));
+		}
+		commits_context.push_str("\\n");
+	}
+
+	if !feature_msgs.is_empty() {
+		commits_context.push_str("NEW FEATURES:\\n");
+		for msg in &feature_msgs {
+			commits_context.push_str(&format!("- {}\\n", msg));
+		}
+		commits_context.push_str("\\n");
+	}
+
+	if !fix_msgs.is_empty() {
+		commits_context.push_str("BUG FIXES:\\n");
+		for msg in &fix_msgs {
+			commits_context.push_str(&format!("- {}\\n", msg));
+		}
+		commits_context.push_str("\\n");
+	}
+
+	if !other_msgs.is_empty() {
+		commits_context.push_str("OTHER CHANGES:\\n");
+		for msg in &other_msgs {
+			commits_context.push_str(&format!("- {}\\n", msg));
+		}
+		commits_context.push_str("\\n");
+	}
 
 	let prompt = format!(
-		"Generate a concise, professional release summary based on these commits:\\n\\n{}\\n\\n\
-		Requirements:\\n\
-		- Write 2-3 sentences maximum\\n\
-		- Focus on user-facing changes and improvements\\n\
-		- Use professional, clear language\\n\
-		- Don't repeat commit hashes or technical details\\n\
-		- Highlight the most important changes\\n\
-		- End with a period\\n\
-		- PRESERVE all existing commit information exactly as provided\\n\
-		- Do NOT modify, summarize, or alter individual commit messages\\n\
-		- Only create a high-level summary, keep all original commits intact\\n\\n\
-		Example good summary: \\\"This release introduces multi-query search capabilities, allowing users to combine multiple search terms for more comprehensive results. Performance improvements include optimized indexing with better batch processing. Several bug fixes improve memory search relevance and error handling.\\\"\\n\\n\
-		Generate summary:",
-		commits_summary
+		"Generate a concise, professional release summary based on these grouped commits:\\n\\n{}\\n\\
+        Requirements:\\n\\
+        - Write 2-3 sentences maximum\\n\\
+        - Focus on user-facing changes and improvements\\n\\
+        - Use professional, clear language\\n\\
+        - Don't repeat commit hashes or technical details\\n\\
+        - Group similar changes together (e.g., 'Several bug fixes improve...')\\n\\
+        - Prioritize breaking changes and new features\\n\\
+        - Avoid redundancy - merge similar commits into broader statements\\n\\
+        - End with a period\\n\\
+        - Create only a high-level summary for users\\n\\n\\
+        Example: \\\"This release introduces multi-query search capabilities and enhanced memory management features. Performance improvements include optimized indexing with better batch processing and reduced memory usage. Several bug fixes improve search relevance, error handling, and system stability.\\\"\\n\\n\\
+        Generate summary:",
+		commits_context
 	);
 
 	call_llm_for_version_calculation(&prompt, config).await
@@ -792,6 +868,83 @@ async fn update_project_version(project_type: &ProjectType, new_version: &str) -
 		}
 		ProjectType::Unknown => {
 			// No project file to update
+		}
+	}
+	Ok(())
+}
+
+async fn update_lock_files(project_type: &ProjectType) -> Result<()> {
+	match project_type {
+		ProjectType::Rust(_) => {
+			// Update Cargo.lock by running cargo check
+			println!("🔄 Updating Cargo.lock...");
+			let output = Command::new("cargo").args(["check", "--quiet"]).output()?;
+
+			if !output.status.success() {
+				return Err(anyhow::anyhow!(
+					"Failed to update Cargo.lock: {}",
+					String::from_utf8_lossy(&output.stderr)
+				));
+			}
+		}
+		ProjectType::Node(_) => {
+			// Update package-lock.json or yarn.lock
+			println!("🔄 Updating Node.js lock file...");
+
+			// Check if using yarn or npm
+			let current_dir = std::env::current_dir()?;
+			if current_dir.join("yarn.lock").exists() {
+				let output = Command::new("yarn")
+					.args(["install", "--frozen-lockfile"])
+					.output()?;
+
+				if !output.status.success() {
+					return Err(anyhow::anyhow!(
+						"Failed to update yarn.lock: {}",
+						String::from_utf8_lossy(&output.stderr)
+					));
+				}
+			} else {
+				let output = Command::new("npm")
+					.args(["install", "--package-lock-only"])
+					.output()?;
+
+				if !output.status.success() {
+					return Err(anyhow::anyhow!(
+						"Failed to update package-lock.json: {}",
+						String::from_utf8_lossy(&output.stderr)
+					));
+				}
+			}
+		}
+		ProjectType::Php(_) => {
+			// Update composer.lock
+			println!("🔄 Updating composer.lock...");
+			let output = Command::new("composer")
+				.args(["update", "--lock"])
+				.output()?;
+
+			if !output.status.success() {
+				return Err(anyhow::anyhow!(
+					"Failed to update composer.lock: {}",
+					String::from_utf8_lossy(&output.stderr)
+				));
+			}
+		}
+		ProjectType::Go(_) => {
+			// Update go.sum and go.mod
+			println!("🔄 Updating go.mod and go.sum...");
+			let output = Command::new("go").args(["mod", "tidy"]).output()?;
+
+			if !output.status.success() {
+				return Err(anyhow::anyhow!(
+					"Failed to update go.mod/go.sum: {}",
+					String::from_utf8_lossy(&output.stderr)
+				));
+			}
+		}
+		ProjectType::Unknown => {
+			// No lock file to update
 		}
 	}
 	Ok(())
@@ -985,15 +1138,50 @@ async fn update_changelog(changelog_path: &str, new_content: &str) -> Result<()>
 async fn stage_release_files(changelog_path: &str, project_type: &ProjectType) -> Result<()> {
 	let mut files_to_stage = vec![changelog_path.to_string()];
 
-	// Add project files
+	// Add project files and lock files
+	let current_dir = std::env::current_dir()?;
 	match project_type {
-		ProjectType::Rust(path) => files_to_stage.push(path.to_string_lossy().to_string()),
-		ProjectType::Node(path) => files_to_stage.push(path.to_string_lossy().to_string()),
-		ProjectType::Php(path) => files_to_stage.push(path.to_string_lossy().to_string()),
+		ProjectType::Rust(path) => {
+			files_to_stage.push(path.to_string_lossy().to_string());
+			// Add Cargo.lock if it exists
+			let cargo_lock = current_dir.join("Cargo.lock");
+			if cargo_lock.exists() {
+				files_to_stage.push(cargo_lock.to_string_lossy().to_string());
+			}
+		}
+		ProjectType::Node(path) => {
+			files_to_stage.push(path.to_string_lossy().to_string());
+			// Add package-lock.json or yarn.lock if they exist
+			let package_lock = current_dir.join("package-lock.json");
+			let yarn_lock = current_dir.join("yarn.lock");
+			if package_lock.exists() {
+				files_to_stage.push(package_lock.to_string_lossy().to_string());
+			}
+			if yarn_lock.exists() {
+				files_to_stage.push(yarn_lock.to_string_lossy().to_string());
+			}
+		}
+		ProjectType::Php(path) => {
+			files_to_stage.push(path.to_string_lossy().to_string());
+			// Add composer.lock if it exists
+			let composer_lock = current_dir.join("composer.lock");
+			if composer_lock.exists() {
+				files_to_stage.push(composer_lock.to_string_lossy().to_string());
+			}
+		}
 		ProjectType::Go(go_mod_path) => {
 			// Stage the VERSION file for Go projects
 			let version_file = go_mod_path.parent().unwrap().join("VERSION");
 			files_to_stage.push(version_file.to_string_lossy().to_string());
+			// Add go.mod and go.sum if they exist
+			let go_mod = current_dir.join("go.mod");
+			let go_sum = current_dir.join("go.sum");
+			if go_mod.exists() {
+				files_to_stage.push(go_mod.to_string_lossy().to_string());
+			}
+			if go_sum.exists() {
+				files_to_stage.push(go_sum.to_string_lossy().to_string());
+			}
 		}
 		ProjectType::Unknown => {}
 	}
