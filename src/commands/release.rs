@@ -920,8 +920,18 @@ async fn update_changelog(changelog_path: &str, new_content: &str) -> Result<()>
 	let changelog_path = Path::new(changelog_path);
 
 	if changelog_path.exists() {
-		// Read existing changelog
-		let existing_content = fs::read_to_string(changelog_path)?;
+		// Read existing changelog as bytes to preserve exact formatting
+		let existing_bytes = fs::read(changelog_path)?;
+		let existing_content = String::from_utf8_lossy(&existing_bytes);
+
+		// Detect original line ending style and file ending
+		let has_final_newline =
+			existing_content.ends_with('\n') || existing_content.ends_with("\r\n");
+		let line_ending = if existing_content.contains("\r\n") {
+			"\r\n"
+		} else {
+			"\n"
+		};
 
 		// Find where to insert new content (after the first heading)
 		let lines: Vec<&str> = existing_content.lines().collect();
@@ -939,20 +949,29 @@ async fn update_changelog(changelog_path: &str, new_content: &str) -> Result<()>
 			}
 		}
 
-		// Insert new content
+		// Insert new content while preserving original formatting
 		let mut new_lines = Vec::new();
 		for (i, line) in lines.iter().enumerate() {
 			if i == insert_index {
-				new_lines.push(new_content.trim_end());
-				new_lines.push("");
+				// Add new content with proper line ending
+				new_lines.push(new_content.trim_end().to_string());
+				new_lines.push("".to_string());
 			}
-			new_lines.push(line);
+			new_lines.push(line.to_string());
 		}
 
-		let updated_content = new_lines.join("\n");
+		// Join with original line ending and preserve final newline if it existed
+		let mut updated_content = new_lines.join(line_ending);
+		if has_final_newline
+			&& !updated_content.ends_with('\n')
+			&& !updated_content.ends_with("\r\n")
+		{
+			updated_content.push_str(line_ending);
+		}
+
 		fs::write(changelog_path, updated_content)?;
 	} else {
-		// Create new changelog
+		// Create new changelog with proper formatting
 		let content = format!(
             "# Changelog\n\nAll notable changes to this project will be documented in this file.\n\n{}\n",
             new_content.trim_end()
