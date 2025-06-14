@@ -9,45 +9,45 @@ This release enhances search functionality by increasing the maximum allowed que
 
 ### ✨ Features
 
-- **indexer**: increase max allowed queries from 3 to 5 ([`9098d58e`])
-- **commit,release**: improve handling of breaking changes in commands ([`67f06276`])
-- **search**: add text output format for search results ([`b2cbbbfe`])
+- **indexer**: increase max allowed queries from 3 to 5 (9098d58e)
+- **commit,release**: improve handling of breaking changes in commands (67f06276)
+- **search**: add text output format for search results (b2cbbbfe)
 
 ### 🐛 Bug Fixes
 
-- **release**: preserve trailing newline in changelog on update ([`cebc98e0`])
-- **memory**: add UTF-8 sanitization and lock timeout handling ([`85cb6356`])
-- **tests**: fix test failures and apply code formatting ([`7e645ae2`])
-- **memory,commit,review**: use char count for truncation limits ([`4ed5e732`])
-- **mcp**: use actually used original_dir variable for cwd restore ([`60ec9b77`])
+- **release**: preserve trailing newline in changelog on update (cebc98e0)
+- **memory**: add UTF-8 sanitization and lock timeout handling (85cb6356)
+- **tests**: fix test failures and apply code formatting (7e645ae2)
+- **memory,commit,review**: use char count for truncation limits (4ed5e732)
+- **mcp**: use actually used original_dir variable for cwd restore (60ec9b77)
 
 ### 🔧 Other Changes
 
-- **mcp**: reduce token usage in tool definitions and schemas ([`04db399f`])
-- **semantic_code**: clarify multi-term search usage in tool descript... ([`0f931263`])
-- **graphrag**: unify and improve text output formatting ([`27476075`])
-- **memory**: unify memory formatting and remove sanitization ([`00e72942`])
-- **commands**: unify output format handling with OutputFormat enum ([`9f95e7bc`])
-- add Cargo.lock and track it in repo ([`b34051b2`])
-- **changelog**: add initial release notes for v0.1.0 ([`91ae04ff`])
+- **mcp**: reduce token usage in tool definitions and schemas (04db399f)
+- **semantic_code**: clarify multi-term search usage in tool descript... (0f931263)
+- **graphrag**: unify and improve text output formatting (27476075)
+- **memory**: unify memory formatting and remove sanitization (00e72942)
+- **commands**: unify output format handling with OutputFormat enum (9f95e7bc)
+- add Cargo.lock and track it in repo (b34051b2)
+- **changelog**: add initial release notes for v0.1.0 (91ae04ff)
 
 ### 📝 All Commits
 
-- [`cebc98e0`] fix(release): preserve trailing newline in changelog on update *by Don Hardman*
-- [`9098d58e`] feat(indexer): increase max allowed queries from 3 to 5 *by Don Hardman*
-- [`04db399f`] perf(mcp): reduce token usage in tool definitions and schemas *by Don Hardman*
-- [`0f931263`] docs(semantic_code): clarify multi-term search usage in tool descript... *by Don Hardman*
-- [`27476075`] refactor(graphrag): unify and improve text output formatting *by Don Hardman*
-- [`85cb6356`] fix(memory): add UTF-8 sanitization and lock timeout handling *by Don Hardman*
-- [`67f06276`] feat(commit,release): improve handling of breaking changes in commands *by Don Hardman*
-- [`7e645ae2`] fix(tests): fix test failures and apply code formatting *by Don Hardman*
-- [`00e72942`] refactor(memory): unify memory formatting and remove sanitization *by Don Hardman*
-- [`4ed5e732`] fix(memory,commit,review): use char count for truncation limits *by Don Hardman*
-- [`9f95e7bc`] refactor(commands): unify output format handling with OutputFormat enum *by Don Hardman*
-- [`b2cbbbfe`] feat(search): add text output format for search results *by Don Hardman*
-- [`b34051b2`] chore: add Cargo.lock and track it in repo *by Don Hardman*
-- [`60ec9b77`] fix(mcp): use actually used original_dir variable for cwd restore *by Don Hardman*
-- [`91ae04ff`] docs(changelog): add initial release notes for v0.1.0 *by Don Hardman*
+- cebc98e0 fix(release): preserve trailing newline in changelog on update *by Don Hardman*
+- 9098d58e feat(indexer): increase max allowed queries from 3 to 5 *by Don Hardman*
+- 04db399f perf(mcp): reduce token usage in tool definitions and schemas *by Don Hardman*
+- 0f931263 docs(semantic_code): clarify multi-term search usage in tool descript... *by Don Hardman*
+- 27476075 refactor(graphrag): unify and improve text output formatting *by Don Hardman*
+- 85cb6356 fix(memory): add UTF-8 sanitization and lock timeout handling *by Don Hardman*
+- 67f06276 feat(commit,release): improve handling of breaking changes in commands *by Don Hardman*
+- 7e645ae2 fix(tests): fix test failures and apply code formatting *by Don Hardman*
+- 00e72942 refactor(memory): unify memory formatting and remove sanitization *by Don Hardman*
+- 4ed5e732 fix(memory,commit,review): use char count for truncation limits *by Don Hardman*
+- 9f95e7bc refactor(commands): unify output format handling with OutputFormat enum *by Don Hardman*
+- b2cbbbfe feat(search): add text output format for search results *by Don Hardman*
+- b34051b2 chore: add Cargo.lock and track it in repo *by Don Hardman*
+- 60ec9b77 fix(mcp): use actually used original_dir variable for cwd restore *by Don Hardman*
+- 91ae04ff docs(changelog): add initial release notes for v0.1.0 *by Don Hardman*
 
 All notable changes to this project will be documented in this file.
 
