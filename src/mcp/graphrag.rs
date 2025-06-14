@@ -48,7 +48,7 @@ impl GraphRagProvider {
 				"properties": {
 					"query": {
 						"type": "string",
-						"description": "Complex architectural query about code relationships, dependencies, or system interactions (avoid control characters and escape sequences). GOOD examples: 'How does user authentication flow through the system?', 'What components depend on the database layer?', 'Show me the data flow for order processing', 'Find all error handling patterns across modules', 'How are configuration settings propagated through the application?'. BAD examples: 'find login function', 'get user class', 'show database code' (use search_code for these)",
+						"description": "Complex architectural query about code relationships, dependencies, or system interactions. GOOD examples: 'How does user authentication flow through the system?', 'What components depend on the database layer?', 'Show me the data flow for order processing', 'Find all error handling patterns across modules', 'How are configuration settings propagated through the application?'. BAD examples: 'find login function', 'get user class', 'show database code' (use search_code for these)",
 						"minLength": 10,
 						"maxLength": 1000
 					}

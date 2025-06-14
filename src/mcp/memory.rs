@@ -59,13 +59,13 @@ impl MemoryProvider {
 					"properties": {
 						"title": {
 							"type": "string",
-							"description": "Short, descriptive title for the memory (avoid control characters and escape sequences)",
+							"description": "Short, descriptive title for the memory",
 							"minLength": 5,
 							"maxLength": 200
 						},
 						"content": {
 							"type": "string",
-							"description": "Detailed content to remember – explanations, code snippets, insights, decisions, etc. (avoid control characters and escape sequences)",
+							"description": "Detailed content to remember - explanations, code snippets, insights, decisions, etc.",
 							"minLength": 10,
 							"maxLength": 10000
 						},
@@ -105,13 +105,13 @@ impl MemoryProvider {
 			},
 			McpTool {
 				name: "remember".to_string(),
-				description: "Search and retrieve stored memories using semantic search. Find relevant past information, decisions, patterns, or context based on your query. ".to_string(),
+				description: "Search and retrieve stored memories using semantic search. Find relevant past information, decisions, patterns, or context based on your query.".to_string(),
 				input_schema: json!({
 					"type": "object",
 					"properties": {
 						"query": {
 							"type": "string",
-							"description": "What you want to remember or search for in stored memories (avoid control characters and escape sequences)",
+							"description": "What you want to remember or search for in stored memories",
 							"minLength": 3,
 							"maxLength": 500
 						},
