@@ -87,6 +87,39 @@ pub async fn execute(config: &Config, args: &CommitArgs) -> Result<()> {
 		println!("  • {}", file);
 	}
 
+	// Run pre-commit hooks if available and not skipped
+	if !args.no_verify {
+		run_precommit_hooks(&current_dir, args.all).await?;
+	}
+
+	// Check staged changes again after pre-commit (files might have been modified)
+	let output = Command::new("git")
+		.args(["diff", "--cached", "--name-only"])
+		.current_dir(&current_dir)
+		.output()?;
+
+	if !output.status.success() {
+		return Err(anyhow::anyhow!(
+			"Failed to check staged changes after pre-commit: {}",
+			String::from_utf8_lossy(&output.stderr)
+		));
+	}
+
+	let final_staged_files = String::from_utf8(output.stdout)?;
+	if final_staged_files.trim().is_empty() {
+		return Err(anyhow::anyhow!(
+			"❌ No staged changes remaining after pre-commit hooks."
+		));
+	}
+
+	// Show updated staged files if they changed
+	if final_staged_files != staged_files {
+		println!("\n📋 Updated staged files after pre-commit:");
+		for file in final_staged_files.lines() {
+			println!("  • {}", file);
+		}
+	}
+
 	// Generate commit message using AI (always, but with optional context)
 	println!("\n🤖 Generating commit message...");
 	let commit_message =
@@ -351,4 +384,121 @@ async fn call_llm_for_commit_message(prompt: &str, config: &Config) -> Result<St
 		.ok_or_else(|| anyhow::anyhow!("Invalid response format from LLM"))?;
 
 	Ok(message.to_string())
+}
+
+/// Check if pre-commit binary is available in PATH
+fn is_precommit_available() -> bool {
+	Command::new("pre-commit")
+		.arg("--version")
+		.output()
+		.map(|output| output.status.success())
+		.unwrap_or(false)
+}
+
+/// Check if pre-commit is configured in the repository
+fn has_precommit_config(repo_path: &std::path::Path) -> bool {
+	repo_path.join(".pre-commit-config.yaml").exists()
+		|| repo_path.join(".pre-commit-config.yml").exists()
+}
+
+/// Run pre-commit hooks intelligently based on the situation
+async fn run_precommit_hooks(repo_path: &std::path::Path, run_all: bool) -> Result<()> {
+	// Check if pre-commit is available and configured
+	if !is_precommit_available() {
+		// No pre-commit binary available, skip silently
+		return Ok(());
+	}
+
+	if !has_precommit_config(repo_path) {
+		// No pre-commit config found, skip silently
+		return Ok(());
+	}
+
+	println!("🔧 Running pre-commit hooks...");
+
+	// Determine which pre-commit command to run
+	let pre_commit_args = if run_all {
+		// When --all flag is used, run on all files
+		vec!["run", "--all-files"]
+	} else {
+		// Run only on staged files (default pre-commit behavior)
+		vec!["run"]
+	};
+
+	let output = Command::new("pre-commit")
+		.args(&pre_commit_args)
+		.current_dir(repo_path)
+		.output()?;
+
+	// Pre-commit can return non-zero exit codes for various reasons:
+	// - Code 0: All hooks passed
+	// - Code 1: Some hooks failed or made changes
+	// - Code 3: No hooks to run
+	match output.status.code() {
+		Some(0) => {
+			println!("✅ Pre-commit hooks passed successfully");
+		}
+		Some(1) => {
+			// Hooks made changes or failed
+			let stderr = String::from_utf8_lossy(&output.stderr);
+			let stdout = String::from_utf8_lossy(&output.stdout);
+
+			if !stdout.is_empty() {
+				println!("📝 Pre-commit output:\n{}", stdout);
+			}
+
+			// Check if files were modified by pre-commit
+			let modified_output = Command::new("git")
+				.args(["diff", "--name-only"])
+				.current_dir(repo_path)
+				.output()?;
+
+			if modified_output.status.success() {
+				let modified_files = String::from_utf8_lossy(&modified_output.stdout);
+				if !modified_files.trim().is_empty() {
+					println!("🔄 Pre-commit hooks modified files:");
+					for file in modified_files.lines() {
+						println!("  • {}", file);
+					}
+
+					// Re-add modified files to staging area
+					println!("📂 Re-staging modified files...");
+					for file in modified_files.lines() {
+						let add_output = Command::new("git")
+							.args(["add", file.trim()])
+							.current_dir(repo_path)
+							.output()?;
+
+						if !add_output.status.success() {
+							eprintln!(
+								"⚠️  Warning: Failed to re-stage {}: {}",
+								file,
+								String::from_utf8_lossy(&add_output.stderr)
+							);
+						}
+					}
+					println!("✅ Modified files re-staged successfully");
+				}
+			}
+
+			// If there were actual failures (not just modifications), show them
+			if !stderr.is_empty() && stderr.contains("FAILED") {
+				println!("⚠️  Some pre-commit hooks failed:\n{}", stderr);
+				// Don't fail the commit process, let user decide
+			}
+		}
+		Some(3) => {
+			println!("ℹ️  No pre-commit hooks configured to run");
+		}
+		Some(code) => {
+			let stderr = String::from_utf8_lossy(&output.stderr);
+			println!("⚠️  Pre-commit exited with code {}: {}", code, stderr);
+			// Don't fail the commit process for other exit codes
+		}
+		None => {
+			println!("⚠️  Pre-commit was terminated by signal");
+		}
+	}
+
+	Ok(())
 }
