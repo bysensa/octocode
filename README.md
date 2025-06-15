@@ -169,7 +169,7 @@ octocode release            # Create the actual release
 octocode mcp
 
 # Use with Claude Desktop or other MCP-compatible tools
-# Provides: semantic_search, search_graphrag, memorize, remember, forget
+# Provides: semantic_search, graphrag_search, memorize, remember, forget
 ```
 
 ### 5. Multi-Query Search (NEW!)

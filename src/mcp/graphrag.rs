@@ -38,10 +38,10 @@ impl GraphRagProvider {
 		}
 	}
 
-	/// Get the tool definition for search_graphrag
+	/// Get the tool definition for graphrag_search
 	pub fn get_tool_definition() -> McpTool {
 		McpTool {
-			name: "search_graphrag".to_string(),
+			name: "graphrag_search".to_string(),
 			description: "Advanced relationship-aware search using GraphRAG (Graph Retrieval-Augmented Generation). This tool understands code relationships, dependencies, and semantic connections between different parts of the codebase. USE THIS TOOL for complex architectural queries about component interactions, data flows, dependency relationships, and cross-cutting concerns. DO NOT use for simple code searches - use semantic_search instead for finding specific functions or classes.".to_string(),
 			input_schema: json!({
 				"type": "object",
@@ -59,7 +59,7 @@ impl GraphRagProvider {
 		}
 	}
 
-	/// Execute the search_graphrag tool
+	/// Execute the graphrag_search tool
 	pub async fn execute_search(&self, arguments: &Value) -> Result<String> {
 		let query = arguments
 			.get("query")
