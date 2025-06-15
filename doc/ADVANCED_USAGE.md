@@ -153,13 +153,13 @@ git push origin main --tags
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
-| **search_code** | Semantic code search across the codebase (supports multi-query) | `query` (string or array), `mode` (string: all/code/docs/text), `detail_level` (string), `max_results` (integer) |
+| **semantic_search** | Semantic code search across the codebase (supports multi-query) | `query` (string or array), `mode` (string: all/code/docs/text), `detail_level` (string), `max_results` (integer) |
 | **search_graphrag** | Relationship-aware search using GraphRAG | `query` (string) |
 | **memorize** | Store important information for future reference | `title` (string), `content` (string), `tags` (array) |
 | **remember** | Retrieve stored information by query | `query` (string) |
 | **forget** | Remove stored information | `query` (string), `confirm` (boolean) |
 
-#### search_code Tool Details
+#### semantic_search Tool Details
 
 **Single Query (Traditional):**
 ```json

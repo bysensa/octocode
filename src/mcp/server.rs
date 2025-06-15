@@ -629,7 +629,7 @@ impl McpServer {
 					"version": "0.1.0",
 					"description": "Semantic code search server with vector embeddings, memory system, and optional GraphRAG support"
 				},
-				"instructions": "This server provides modular AI tools: semantic code search, memory management, and GraphRAG. Use 'search_code' for code/documentation searches, memory tools for storing/retrieving context, and 'search_graphrag' (if available) for relationship queries."
+				"instructions": "This server provides modular AI tools: semantic code search, memory management, and GraphRAG. Use 'semantic_search' for code/documentation searches, memory tools for storing/retrieving context, and 'search_graphrag' (if available) for relationship queries."
 			})),
 			error: None,
 		}
@@ -721,7 +721,7 @@ impl McpServer {
 		}
 
 		let result = match tool_name {
-			"search_code" => self.semantic_code.execute_search(arguments).await,
+			"semantic_search" => self.semantic_code.execute_search(arguments).await,
 			"view_signatures" => self.semantic_code.execute_view_signatures(arguments).await,
 			"search_graphrag" => match &self.graphrag {
 				Some(provider) => provider.execute_search(arguments).await,
@@ -739,7 +739,7 @@ impl McpServer {
 				Some(provider) => provider.execute_forget(arguments).await,
 				None => Err(anyhow::anyhow!("Memory system is not available")),
 			},
-			_ => Err(anyhow::anyhow!("Unknown tool '{}'. Available tools: search_code, view_signatures{}{}",
+			_ => Err(anyhow::anyhow!("Unknown tool '{}'. Available tools: semantic_search, view_signatures{}{}",
 				tool_name,
 				if self.graphrag.is_some() { ", search_graphrag" } else { "" },
 				if self.memory.is_some() { ", memorize, remember, forget" } else { "" }

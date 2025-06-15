@@ -40,7 +40,7 @@ Octocode is a powerful code indexer and semantic search engine that builds intel
 ### 🔌 **MCP Server Integration**
 - Built-in Model Context Protocol server
 - Seamless integration with AI assistants (Claude Desktop, etc.)
-- **Multi-query search support**: Use arrays like `["auth", "middleware"]` in search_code tool
+- **Multi-query search support**: Use arrays like `["auth", "middleware"]` in semantic_search tool
 - Real-time file watching and auto-indexing
 - Rich tool ecosystem for code analysis
 
@@ -169,7 +169,7 @@ octocode release            # Create the actual release
 octocode mcp
 
 # Use with Claude Desktop or other MCP-compatible tools
-# Provides: search_code, search_graphrag, memorize, remember, forget
+# Provides: semantic_search, search_graphrag, memorize, remember, forget
 ```
 
 ### 5. Multi-Query Search (NEW!)
@@ -187,7 +187,7 @@ octocode search "error" "handling" --mode code
 octocode search "api" "documentation" --mode docs
 
 # MCP also supports multi-query
-# In Claude Desktop: search_code with query: ["auth", "middleware"]
+# In Claude Desktop: semantic_search with query: ["auth", "middleware"]
 ```
 
 **How Multi-Query Works:**

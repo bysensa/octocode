@@ -37,10 +37,10 @@ impl SemanticCodeProvider {
 		}
 	}
 
-	/// Get the tool definition for search_code
+	/// Get the tool definition for semantic_search
 	pub fn get_tool_definition() -> McpTool {
 		McpTool {
-			name: "search_code".to_string(),
+			name: "semantic_search".to_string(),
 			description: "PREFER MULTI-TERM SEARCH - Search codebase using semantic vector search to find relevant code snippets, functions, classes, documentation, or text content. USE MULTI-TERM SEARCH: Multiple related queries in one call like ['authentication', 'login', 'jwt'] finds comprehensive results across all related concepts. 3x more efficient than separate searches with better context and relationships. Use single term only for specific function names or unique identifiers. Returns 3 most relevant results by default with file paths, line numbers, relevance scores, and syntax-highlighted code blocks.".to_string(),
 			input_schema: json!({
 				"type": "object",
@@ -129,7 +129,7 @@ impl SemanticCodeProvider {
 		}
 	}
 
-	/// Execute the search_code tool
+	/// Execute the semantic_search tool
 	pub async fn execute_search(&self, arguments: &Value) -> Result<String> {
 		// Parse queries - handle both string and array inputs
 		let queries: Vec<String> = match arguments.get("query") {
