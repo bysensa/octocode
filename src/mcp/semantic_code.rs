@@ -41,7 +41,7 @@ impl SemanticCodeProvider {
 	pub fn get_tool_definition() -> McpTool {
 		McpTool {
 			name: "semantic_search".to_string(),
-			description: "PREFER MULTI-TERM SEARCH - Search codebase using semantic vector search to find relevant code snippets, functions, classes, documentation, or text content. USE MULTI-TERM SEARCH: Multiple related queries in one call like ['authentication', 'login', 'jwt'] finds comprehensive results across all related concepts. 3x more efficient than separate searches with better context and relationships. Use single term only for specific function names or unique identifiers. Returns 3 most relevant results by default with file paths, line numbers, relevance scores, and syntax-highlighted code blocks.".to_string(),
+			description: "PREFER MULTI-TERM SEARCH - Search codebase using semantic vector search to find relevant code snippets, functions, classes, documentation, or text content. USE MULTI-TERM SEARCH: Multiple related queries in one call like ['user authentication flow', 'login validation', 'jwt token handling'] finds comprehensive results across all related concepts. 3x more efficient than separate searches with better context and relationships. Use descriptive phrases, NOT code syntax. Examples: ['user authentication flow', 'password validation logic'], ['database connection pooling', 'query result caching']. This is SEMANTIC search - use concepts and descriptions, NOT exact symbol names. Returns 3 most relevant results by default with file paths, line numbers, relevance scores, and syntax-highlighted code blocks.".to_string(),
 			input_schema: json!({
 				"type": "object",
 				"properties": {
@@ -49,7 +49,7 @@ impl SemanticCodeProvider {
 						"oneOf": [
 							{
 								"type": "string",
-								"description": "Single search query - use ONLY for very specific searches like specific function names, express in human terms for semantic search",
+								"description": "Single search query - use ONLY for very specific searches. Express in human terms for semantic search, NOT exact code symbols",
 								"minLength": 3,
 								"maxLength": 500
 							},
@@ -62,10 +62,10 @@ impl SemanticCodeProvider {
 								},
 								"minItems": 1,
 								"maxItems": 5,
-								"description": "RECOMMENDED: Array of related search terms for comprehensive results. Example: ['authentication', 'middleware', 'jwt'] finds all auth-related code in one search"
+								"description": "RECOMMENDED: Array of related search terms for comprehensive results. Example: ['user authentication flow', 'login middleware logic', 'jwt token validation'] finds all auth-related code in one search"
 							}
 						],
-						"description": "PREFER ARRAY OF RELATED TERMS: ['auth', 'login', 'session'] for comprehensive search. Single string only for very specific searches. Use multi-term for: Feature exploration: ['database', 'connection', 'query'], Related concepts: ['error', 'handling', 'exception'], System understanding: ['session', 'chat', 'message']. Use single term only for specific function names: 'execute_single_query', unique identifiers: 'McpToolCall'. Use descriptive phrases, NOT code syntax. Examples: ['authentication', 'middleware', 'jwt'], ['database', 'connection', 'pool']."
+						"description": "PREFER ARRAY OF RELATED TERMS: ['user authentication flow', 'login session management', 'password validation'] for comprehensive search. Single string only for very specific searches. Use multi-term for: Feature exploration: ['database connection handling', 'query result processing', 'data persistence layer'], Related concepts: ['error handling patterns', 'exception recovery logic', 'failure notification'], System understanding: ['chat message routing', 'session state management', 'user interaction flow']. Use descriptive phrases, NOT code syntax. Examples: ['user authentication flow', 'password validation logic'], ['database connection pooling', 'query result caching']. This is SEMANTIC search - use concepts and descriptions, NOT exact symbol names."
 					},
 					"mode": {
 						"type": "string",
