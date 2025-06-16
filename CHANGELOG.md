@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.4.0] - 2025-06-16
+
+### 📋 Release Summary
+
+This release introduces LSP integration with external server support and enhanced pre-commit hook automation for streamlined workflows. Documentation has been expanded with detailed usage examples and development instructions, while several refinements improve versioning prompts and semantic search clarity. Minor bug fixes address changelog formatting for better readability.
+
+
+### ✨ Features
+
+- **docs**: add LSP integration docs and CLI usage examples (7dfd5c20)
+- **mcp**: add LSP support with external server integration (29bbf98a)
+- **commit**: add automatic pre-commit hook integration with AI commi... (07a48fde)
+- **commit**: run pre-commit hooks before generating commit message (92aaf04a)
+- **release**: update versioning prompt and add lock file update (786e1fe3)
+
+### 🐛 Bug Fixes
+
+- **docs**: remove brackets from commit hashes in changelog (92bad9dd)
+
+### 🔧 Other Changes
+
+- **docker**: remove Cargo.lock from .dockerignore (d72ae449)
+- **cargo**: narrow Tokio and dependencies features for leaner build (3e6b6789)
+- add comprehensive Octocode development instructions (75c3add1)
+- **cli**: set version from Cargo.toml environment variable (6ad09c16)
+- **mcp/lsp**: simplify LSP tool inputs by replacing character wi... (616032e8)
+- **lsp**: simplify LSP responses to plain text format (5f8487a8)
+- **mcp**: clarify semantic search guidance in tool description (83551bba)
+- **mcp**: rename search_graphrag to graphrag_search for consistency (cf1d8428)
+- **mcp**: rename search_code tool to semantic_search to avoid AI... (93ca7008)
+- **commit**: clarify commit message rules and types (380cadcc)
+
+### 📊 Commit Summary
+
+**Total commits**: 16
+- ✨ 5 new features
+- 🐛 1 bug fix
+- 🔧 10 other changes
+
 ## [0.3.0] - 2025-06-14
 
 ### 📋 Release Summary
