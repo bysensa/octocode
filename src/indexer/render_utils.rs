@@ -200,7 +200,7 @@ pub fn signatures_to_markdown(signatures: &[FileSignature]) -> String {
 }
 
 /// Render signatures as text string (token-efficient)
-pub fn signatures_to_text(signatures: &[FileSignature]) -> String {
+pub fn render_signatures_text(signatures: &[FileSignature]) -> String {
 	let mut output = String::new();
 
 	if signatures.is_empty() {
@@ -500,8 +500,8 @@ pub fn document_blocks_to_markdown_with_config(
 	markdown
 }
 
-/// Render signatures as text output
-pub fn render_signatures_text(signatures: &[FileSignature]) {
+/// Render signatures as CLI output with box drawing
+pub fn render_signatures_cli(signatures: &[FileSignature]) {
 	if signatures.is_empty() {
 		println!("No signatures found.");
 		return;

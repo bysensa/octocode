@@ -20,7 +20,7 @@ use crate::config::Config;
 use crate::indexer::search::{
 	search_codebase_with_details_multi_query_text, search_codebase_with_details_text,
 };
-use crate::indexer::{extract_file_signatures, signatures_to_text, NoindexWalker, PathUtils};
+use crate::indexer::{extract_file_signatures, render_signatures_text, NoindexWalker, PathUtils};
 use crate::mcp::types::McpTool;
 
 /// Semantic code search tool provider
@@ -456,7 +456,7 @@ impl SemanticCodeProvider {
 		}
 
 		// Return text format for token efficiency
-		let text_output = signatures_to_text(&signatures);
+		let text_output = render_signatures_text(&signatures);
 		Ok(text_output)
 	}
 }
