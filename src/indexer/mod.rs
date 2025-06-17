@@ -27,7 +27,9 @@ pub use languages::*;
 pub use search::*;
 
 use crate::config::Config;
-use crate::embedding::{calculate_unique_content_hash, count_tokens};
+use crate::embedding::{
+	calculate_content_hash_with_lines, calculate_unique_content_hash, count_tokens,
+};
 use crate::mcp::logging::{
 	log_file_processing_error, log_indexing_progress, log_performance_metrics,
 };
@@ -1050,7 +1052,12 @@ pub fn parse_markdown_content(
 	chunk_results
 		.into_iter()
 		.map(|chunk| {
-			let content_hash = calculate_unique_content_hash(&chunk.storage_content, file_path);
+			let content_hash = calculate_content_hash_with_lines(
+				&chunk.storage_content,
+				file_path,
+				chunk.start_line,
+				chunk.end_line,
+			);
 			DocumentBlock {
 				path: file_path.to_string(),
 				title: chunk.title,
@@ -1971,8 +1978,13 @@ async fn process_file(
 	let mut graphrag_blocks_added = 0;
 
 	for region in code_regions {
-		// Use a hash that's unique to both content and path
-		let content_hash = calculate_unique_content_hash(&region.content, file_path);
+		// Use a hash that includes content, path, and line ranges
+		let content_hash = calculate_content_hash_with_lines(
+			&region.content,
+			file_path,
+			region.start_line,
+			region.end_line,
+		);
 
 		// Skip the check if force_reindex is true
 		let exists = !force_reindex
@@ -2703,8 +2715,13 @@ async fn process_file_differential(
 	let mut graphrag_blocks_added = 0;
 
 	for region in code_regions {
-		// Use a hash that's unique to both content and path
-		let content_hash = calculate_unique_content_hash(&region.content, file_path);
+		// Use a hash that includes content, path, and line ranges
+		let content_hash = calculate_content_hash_with_lines(
+			&region.content,
+			file_path,
+			region.start_line,
+			region.end_line,
+		);
 		new_hashes.insert(content_hash.clone());
 
 		// Skip the check if force_reindex is true
