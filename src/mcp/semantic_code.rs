@@ -41,7 +41,7 @@ impl SemanticCodeProvider {
 	pub fn get_tool_definition() -> McpTool {
 		McpTool {
 			name: "semantic_search".to_string(),
-			description: "PREFER MULTI-TERM SEARCH - Search codebase using semantic vector search to find relevant code snippets, functions, classes, documentation, or text content. USE MULTI-TERM SEARCH: Multiple related queries in one call like ['user authentication flow', 'login validation', 'jwt token handling'] finds comprehensive results across all related concepts. 3x more efficient than separate searches with better context and relationships. Use descriptive phrases, NOT code syntax. Examples: ['user authentication flow', 'password validation logic'], ['database connection pooling', 'query result caching']. This is SEMANTIC search - use concepts and descriptions, NOT exact symbol names. Returns 3 most relevant results by default with file paths, line numbers, relevance scores, and syntax-highlighted code blocks.".to_string(),
+			description: "PREFER MULTI-TERM SEARCH - Search codebase using semantic vector search to find relevant code snippets, functions, classes, documentation, or text content. USE MULTI-TERM SEARCH: Multiple related queries in one call like ['user authentication flow', 'login validation', 'jwt token handling'] finds comprehensive results across all related concepts. 3x more efficient than separate searches with better context and relationships. Use descriptive phrases, NOT code syntax. Examples: ['user authentication flow', 'password validation logic'], ['database connection pooling', 'query result caching']. This is SEMANTIC search - use concepts and descriptions, NOT exact symbol names. Returns 3 most relevant results by default with file paths, 1-indexed line ranges, relevance scores, and code blocks with 1-indexed line numbers prefixed to each line.".to_string(),
 			input_schema: json!({
 				"type": "object",
 				"properties": {
@@ -108,7 +108,7 @@ impl SemanticCodeProvider {
 	pub fn get_view_signatures_tool_definition() -> McpTool {
 		McpTool {
 			name: "view_signatures".to_string(),
-			description: "Extract and view function signatures, class definitions, and other meaningful code structures from files. Shows method signatures, class definitions, interfaces, and other declarations without full implementation details. Perfect for getting an overview of code structure and available APIs. Output is always in markdown format.".to_string(),
+			description: "Extract and view function signatures, class definitions, and other meaningful code structures from files. Shows method signatures, class definitions, interfaces, and other declarations without full implementation details. Perfect for getting an overview of code structure and available APIs. Output includes 1-indexed line ranges and signature code with 1-indexed line numbers prefixed to each line.".to_string(),
 			input_schema: json!({
 				"type": "object",
 				"properties": {

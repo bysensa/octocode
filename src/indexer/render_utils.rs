@@ -224,25 +224,32 @@ pub fn render_signatures_text(signatures: &[FileSignature]) -> String {
 		} else {
 			for signature in &file.signatures {
 				// Display line range
-				let line_display = if signature.start_line == signature.end_line {
-					format!("{}", signature.start_line + 1)
-				} else {
-					format!("{}-{}", signature.start_line + 1, signature.end_line + 1)
-				};
+				// let line_display = if signature.start_line == signature.end_line {
+				// 	format!("{}", signature.start_line + 1)
+				// } else {
+				// 	format!("{}-{}", signature.start_line + 1, signature.end_line + 1)
+				// };
 
-				output.push_str(&format!(
-					"{} {} (line {})\n",
-					signature.kind, signature.name, line_display
-				));
+				// output.push_str(&format!(
+				// 	"{} {} (line {})\n",
+				// 	signature.kind, signature.name, line_display
+				// ));
 
 				// Show description if available
 				if let Some(desc) = &signature.description {
 					output.push_str(&format!("Description: {}\n", desc.replace('\n', " ")));
 				}
 
-				// Add signature content as-is without truncation
-				output.push_str(&signature.signature);
-				if !signature.signature.ends_with('\n') {
+				// Add signature content with line numbers
+				let content_with_lines = signature
+					.signature
+					.lines()
+					.enumerate()
+					.map(|(i, line)| format!("{}: {}", signature.start_line + 1 + i, line))
+					.collect::<Vec<_>>()
+					.join("\n");
+				output.push_str(&content_with_lines);
+				if !content_with_lines.ends_with('\n') {
 					output.push('\n');
 				}
 				output.push('\n');
