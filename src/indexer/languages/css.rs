@@ -50,7 +50,7 @@ impl Language for Css {
 				// Extract selectors from CSS rules
 				for child in node.children(&mut node.walk()) {
 					if child.kind() == "selectors" {
-						self.extract_css_selectors(child, contents, &mut symbols);
+						Self::extract_css_selectors(child, contents, &mut symbols);
 						break;
 					}
 				}
@@ -163,7 +163,7 @@ impl Language for Css {
 
 impl Css {
 	/// Extract CSS selectors from a selectors node
-	pub fn extract_css_selectors(&self, node: Node, contents: &str, symbols: &mut Vec<String>) {
+	pub fn extract_css_selectors(node: Node, contents: &str, symbols: &mut Vec<String>) {
 		let mut cursor = node.walk();
 		if cursor.goto_first_child() {
 			loop {
@@ -195,7 +195,7 @@ impl Css {
 					}
 					_ => {
 						// Recursively process other selector components
-						self.extract_css_selectors(child, contents, symbols);
+						Self::extract_css_selectors(child, contents, symbols);
 					}
 				}
 
