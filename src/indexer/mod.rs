@@ -648,6 +648,9 @@ impl DocumentHierarchy {
 			} else {
 				// Process any pending small chunks first
 				if !pending_small_chunks.is_empty() {
+					// Sort chunks by start_line before merging
+					pending_small_chunks.sort_by_key(|c| c.start_line);
+
 					if let Some(merged) =
 						self.try_merge_tiny_chunks(&pending_small_chunks, base_chunk_size)
 					{
@@ -665,6 +668,9 @@ impl DocumentHierarchy {
 
 		// Handle any remaining small chunks at the end
 		if !pending_small_chunks.is_empty() {
+			// Sort chunks by start_line before merging
+			pending_small_chunks.sort_by_key(|c| c.start_line);
+
 			if let Some(merged) = self.try_merge_tiny_chunks(&pending_small_chunks, base_chunk_size)
 			{
 				result.push(merged);
@@ -691,7 +697,7 @@ impl DocumentHierarchy {
 
 		// Always try to merge tiny chunks to reduce fragmentation
 
-		// Merge the tiny chunks
+		// Merge the tiny chunks (already sorted by caller)
 		let first = &tiny_chunks[0];
 		let storage_parts: Vec<String> = tiny_chunks
 			.iter()
@@ -709,16 +715,8 @@ impl DocumentHierarchy {
 			context: first.context.clone(),
 			title,
 			level: first.level,
-			start_line: tiny_chunks
-				.iter()
-				.map(|c| c.start_line)
-				.min()
-				.unwrap_or(first.start_line),
-			end_line: tiny_chunks
-				.iter()
-				.map(|c| c.end_line)
-				.max()
-				.unwrap_or(first.end_line),
+			start_line: first.start_line, // Use first chunk's start_line, not minimum
+			end_line: tiny_chunks.last().unwrap().end_line, // Use last chunk's end_line
 		})
 	}
 
