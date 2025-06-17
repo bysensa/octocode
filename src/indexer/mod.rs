@@ -296,6 +296,7 @@ pub fn detect_language(path: &std::path::Path) -> Option<&str> {
 		"sh" | "bash" => Some("bash"),
 		"rb" => Some("ruby"),
 		"svelte" => Some("svelte"),
+		"css" | "scss" | "sass" => Some("css"),
 		"md" => Some("markdown"),
 		_ => None,
 	}
