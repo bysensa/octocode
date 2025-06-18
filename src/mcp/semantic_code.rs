@@ -24,6 +24,7 @@ use crate::indexer::{extract_file_signatures, render_signatures_text, NoindexWal
 use crate::mcp::types::McpTool;
 
 /// Semantic code search tool provider
+#[derive(Clone)]
 pub struct SemanticCodeProvider {
 	config: Config,
 	working_directory: std::path::PathBuf,
