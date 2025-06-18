@@ -240,14 +240,26 @@ pub fn render_signatures_text(signatures: &[FileSignature]) -> String {
 					output.push_str(&format!("Description: {}\n", desc.replace('\n', " ")));
 				}
 
-				// Add signature content with line numbers
-				let content_with_lines = signature
-					.signature
-					.lines()
-					.enumerate()
-					.map(|(i, line)| format!("{}: {}", signature.start_line + 1 + i, line))
-					.collect::<Vec<_>>()
-					.join("\n");
+				// Add signature content with line numbers (truncate to 5 lines like CLI/markdown)
+				let lines = signature.signature.lines().collect::<Vec<_>>();
+				let content_with_lines = if lines.len() > 5 {
+					let truncated: Vec<String> = lines
+						.iter()
+						.take(5)
+						.enumerate()
+						.map(|(i, line)| format!("{}: {}", signature.start_line + 1 + i, line))
+						.collect();
+					let mut result = truncated.join("\n");
+					result.push_str(&format!("\n// ... {} more lines", lines.len() - 5));
+					result
+				} else {
+					lines
+						.iter()
+						.enumerate()
+						.map(|(i, line)| format!("{}: {}", signature.start_line + 1 + i, line))
+						.collect::<Vec<_>>()
+						.join("\n")
+				};
 				output.push_str(&content_with_lines);
 				if !content_with_lines.ends_with('\n') {
 					output.push('\n');
