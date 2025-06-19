@@ -37,6 +37,19 @@ use crate::state;
 use crate::state::SharedState;
 use crate::store::{CodeBlock, DocumentBlock, Store, TextBlock};
 pub use render_utils::*;
+
+// Import the new modular utilities
+mod file_utils;
+mod git_utils;
+mod path_utils;
+mod text_processing;
+
+use self::file_utils::FileUtils;
+use self::git_utils::GitUtils;
+use self::text_processing::{TextChunkWithLines, TextProcessor};
+
+// Re-export for external use
+pub use self::path_utils::PathUtils;
 use std::fs;
 // We're using ignore::WalkBuilder instead of walkdir::WalkDir
 use anyhow::Result;
@@ -111,85 +124,25 @@ impl NoindexWalker {
 	}
 }
 
-/// Utility for consistent path handling - always returns relative paths
-pub struct PathUtils;
-
-impl PathUtils {
-	/// Converts an absolute path to a relative path from the current directory
-	/// Returns the relative path as a String, suitable for storage and display
-	pub fn to_relative_string(path: &Path, current_dir: &Path) -> String {
-		path.strip_prefix(current_dir)
-			.unwrap_or(path)
-			.to_string_lossy()
-			.to_string()
-	}
-
-	/// Converts an absolute PathBuf to a relative path string from the current directory
-	pub fn pathbuf_to_relative_string(path: &Path, current_dir: &Path) -> String {
-		Self::to_relative_string(path, current_dir)
-	}
-
-	/// Creates a relative path for display purposes, ensuring it never shows absolute paths
-	pub fn for_display(path: &Path, current_dir: &Path) -> String {
-		let relative = Self::to_relative_string(path, current_dir);
-
-		// If the path starts with '/', it means strip_prefix failed and we got an absolute path
-		// In this case, just show the filename or a sanitized version
-		if relative.starts_with('/') {
-			if let Some(filename) = path.file_name() {
-				filename.to_string_lossy().to_string()
-			} else {
-				"<unknown>".to_string()
-			}
-		} else {
-			relative
-		}
-	}
-}
-
 /// Git utilities for repository management
 pub mod git {
+	use super::GitUtils;
 	use anyhow::Result;
 	use std::path::Path;
-	use std::process::Command;
 
 	/// Check if current directory is a git repository root
 	pub fn is_git_repo_root(path: &Path) -> bool {
-		path.join(".git").exists()
+		GitUtils::is_git_repo_root(path)
 	}
 
 	/// Find git repository root from current path
 	pub fn find_git_root(start_path: &Path) -> Option<std::path::PathBuf> {
-		let mut current = start_path;
-		loop {
-			if is_git_repo_root(current) {
-				return Some(current.to_path_buf());
-			}
-
-			if let Some(parent) = current.parent() {
-				current = parent;
-			} else {
-				break;
-			}
-		}
-		None
+		GitUtils::find_git_root(start_path)
 	}
 
 	/// Get current git commit hash
 	pub fn get_current_commit_hash(repo_path: &Path) -> Result<String> {
-		let output = Command::new("git")
-			.args(["rev-parse", "HEAD"])
-			.current_dir(repo_path)
-			.output()?;
-
-		if !output.status.success() {
-			return Err(anyhow::anyhow!(
-				"Failed to get git commit hash: {}",
-				String::from_utf8_lossy(&output.stderr)
-			));
-		}
-
-		Ok(String::from_utf8(output.stdout)?.trim().to_string())
+		GitUtils::get_current_commit_hash(repo_path)
 	}
 
 	/// Get files changed between two commits (committed changes only, no unstaged)
@@ -197,109 +150,24 @@ pub mod git {
 		repo_path: &Path,
 		since_commit: &str,
 	) -> Result<Vec<String>> {
-		let mut changed_files = std::collections::HashSet::new();
-
-		// Get committed changes since the specified commit
-		let output = Command::new("git")
-			.args(["diff", "--name-only", &format!("{}..HEAD", since_commit)])
-			.current_dir(repo_path)
-			.output()?;
-
-		if output.status.success() {
-			let committed_files = String::from_utf8(output.stdout)?;
-			for file in committed_files.lines() {
-				if !file.trim().is_empty() {
-					changed_files.insert(file.trim().to_string());
-				}
-			}
-		}
-
-		Ok(changed_files.into_iter().collect())
+		GitUtils::get_changed_files_since_commit(repo_path, since_commit)
 	}
 
 	/// Get all working directory changes (staged + unstaged + untracked)
 	/// Note: This is used for non-git optimization scenarios only
 	pub fn get_all_changed_files(repo_path: &Path) -> Result<Vec<String>> {
-		let mut changed_files = std::collections::HashSet::new();
-
-		// Get unstaged changes
-		let output = Command::new("git")
-			.args(["diff", "--name-only"])
-			.current_dir(repo_path)
-			.output()?;
-
-		if output.status.success() {
-			let unstaged_files = String::from_utf8(output.stdout)?;
-			for file in unstaged_files.lines() {
-				if !file.trim().is_empty() {
-					changed_files.insert(file.trim().to_string());
-				}
-			}
-		}
-
-		// Get staged changes
-		let output = Command::new("git")
-			.args(["diff", "--cached", "--name-only"])
-			.current_dir(repo_path)
-			.output()?;
-
-		if output.status.success() {
-			let staged_files = String::from_utf8(output.stdout)?;
-			for file in staged_files.lines() {
-				if !file.trim().is_empty() {
-					changed_files.insert(file.trim().to_string());
-				}
-			}
-		}
-
-		// Get untracked files
-		let output = Command::new("git")
-			.args(["ls-files", "--others", "--exclude-standard"])
-			.current_dir(repo_path)
-			.output()?;
-
-		if output.status.success() {
-			let untracked_files = String::from_utf8(output.stdout)?;
-			for file in untracked_files.lines() {
-				if !file.trim().is_empty() {
-					changed_files.insert(file.trim().to_string());
-				}
-			}
-		}
-
-		Ok(changed_files.into_iter().collect())
+		GitUtils::get_all_changed_files(repo_path)
 	}
 }
 
 /// Get file modification time as seconds since Unix epoch
 pub fn get_file_mtime(file_path: &std::path::Path) -> Result<u64> {
-	let metadata = std::fs::metadata(file_path)?;
-	let mtime = metadata
-		.modified()?
-		.duration_since(std::time::UNIX_EPOCH)?
-		.as_secs();
-	Ok(mtime)
+	FileUtils::get_file_mtime(file_path)
 }
 
 // Detect language based on file extension
 pub fn detect_language(path: &std::path::Path) -> Option<&str> {
-	match path.extension()?.to_str()? {
-		"rs" => Some("rust"),
-		"php" => Some("php"),
-		"py" => Some("python"),
-		"js" => Some("javascript"),
-		"ts" => Some("typescript"),
-		"jsx" | "tsx" => Some("typescript"),
-		"json" => Some("json"),
-		"go" => Some("go"),
-		"cpp" | "cc" | "cxx" | "c++" | "hpp" | "h" => Some("cpp"),
-		"sh" | "bash" => Some("bash"),
-		"rb" => Some("ruby"),
-		"svelte" => Some("svelte"),
-		"css" | "scss" | "sass" => Some("css"),
-		"md" => Some("markdown"),
-		_ => None,
-	}
+	FileUtils::detect_language(path)
 }
 
 /// Function to extract file signatures
@@ -322,7 +190,7 @@ pub fn extract_file_signatures(files: &[PathBuf]) -> Result<Vec<FileSignature>> 
 			// Read file contents
 			if let Ok(contents) = fs::read_to_string(file_path) {
 				// Create a relative path for display using our utility
-				let display_path = PathUtils::for_display(file_path, &current_dir);
+				let display_path = path_utils::PathUtils::for_display(file_path, &current_dir);
 
 				// Parse the file
 				let tree = parser
@@ -1458,7 +1326,7 @@ pub async fn index_files_with_quiet(
 		}
 
 		// Create relative path from the current directory using our utility
-		let file_path = PathUtils::to_relative_string(entry.path(), &current_dir);
+		let file_path = path_utils::PathUtils::to_relative_string(entry.path(), &current_dir);
 
 		// Check if this file would be indexed (for progressive counting)
 		let is_indexable = if let Some(ref changed_files) = git_changed_files {
@@ -1838,7 +1706,7 @@ pub async fn handle_file_change(store: &Store, file_path: &str, config: &Config)
 			if let Ok(contents) = fs::read_to_string(&absolute_path) {
 				// Ensure we use relative path for storage
 				let relative_file_path =
-					PathUtils::to_relative_string(&absolute_path, &current_dir);
+					path_utils::PathUtils::to_relative_string(&absolute_path, &current_dir);
 
 				if language == "markdown" {
 					// Handle markdown files specially
@@ -1904,7 +1772,7 @@ pub async fn handle_file_change(store: &Store, file_path: &str, config: &Config)
 					if is_text_file(&contents) {
 						// Ensure we use relative path for storage
 						let relative_file_path =
-							PathUtils::to_relative_string(&absolute_path, &current_dir);
+							path_utils::PathUtils::to_relative_string(&absolute_path, &current_dir);
 
 						let mut text_blocks_batch = Vec::new();
 						process_text_file(
@@ -2352,7 +2220,7 @@ async fn process_code_blocks_batch(
 	let start_time = std::time::Instant::now();
 	let contents: Vec<String> = blocks.iter().map(|b| b.content.clone()).collect();
 	let embeddings = crate::embedding::generate_embeddings_batch(contents, true, config).await?;
-	store.store_code_blocks(blocks, embeddings).await?;
+	store.store_code_blocks(blocks, &embeddings).await?;
 
 	let duration_ms = start_time.elapsed().as_millis() as u64;
 	log_performance_metrics("code_blocks_batch", duration_ms, blocks.len(), None);
@@ -2368,7 +2236,7 @@ async fn process_text_blocks_batch(
 	let start_time = std::time::Instant::now();
 	let contents: Vec<String> = blocks.iter().map(|b| b.content.clone()).collect();
 	let embeddings = crate::embedding::generate_embeddings_batch(contents, false, config).await?;
-	store.store_text_blocks(blocks, embeddings).await?;
+	store.store_text_blocks(blocks, &embeddings).await?;
 
 	let duration_ms = start_time.elapsed().as_millis() as u64;
 	log_performance_metrics("text_blocks_batch", duration_ms, blocks.len(), None);
@@ -2393,7 +2261,7 @@ async fn process_document_blocks_batch(
 		})
 		.collect();
 	let embeddings = crate::embedding::generate_embeddings_batch(contents, false, config).await?;
-	store.store_document_blocks(blocks, embeddings).await?;
+	store.store_document_blocks(blocks, &embeddings).await?;
 
 	let duration_ms = start_time.elapsed().as_millis() as u64;
 	log_performance_metrics("document_blocks_batch", duration_ms, blocks.len(), None);
@@ -2423,168 +2291,18 @@ fn should_process_batch<T>(batch: &[T], get_content: impl Fn(&T) -> &str, config
 
 // Constants for text chunking - REMOVED: Now using config.index.chunk_size and config.index.chunk_overlap
 
-// Whitelist of file extensions that we allow for text indexing
-const ALLOWED_TEXT_EXTENSIONS: &[&str] = &[
-	"txt",
-	"log",
-	"xml",
-	"html",
-	"htm",
-	"csv",
-	"tsv",
-	"readme",
-	"license",
-	"changelog",
-	"authors",
-	"contributors",
-];
-
 /// Check if a file extension is allowed for text indexing
 fn is_allowed_text_extension(path: &std::path::Path) -> bool {
-	if let Some(extension) = path.extension() {
-		if let Some(ext_str) = extension.to_str() {
-			return ALLOWED_TEXT_EXTENSIONS.contains(&ext_str.to_lowercase().as_str());
-		}
-	}
-
-	// Also check for files without extensions that have common text names
-	if let Some(file_name) = path.file_name() {
-		if let Some(name_str) = file_name.to_str() {
-			let name_lower = name_str.to_lowercase();
-			return matches!(
-				name_lower.as_str(),
-				"readme"
-					| "license" | "changelog"
-					| "authors" | "contributors"
-					| "makefile" | "dockerfile"
-					| "gitignore" | ".gitignore"
-			);
-		}
-	}
-
-	false
+	FileUtils::is_allowed_text_extension(path)
 }
 
 /// Check if a file contains readable text
 fn is_text_file(contents: &str) -> bool {
-	if contents.is_empty() {
-		return false;
-	}
-
-	// Check for NULL bytes - strong indicator of binary
-	if contents.chars().any(|c| c == '\0') {
-		return false;
-	}
-
-	// If no NULL bytes, check printable character ratio (more Unicode friendly)
-	// We use chars().count() for a more accurate count of Unicode characters.
-	let total_chars = contents.chars().count();
-	if total_chars == 0 {
-		// Should be caught by contents.is_empty() but good for safety
-		return false;
-	}
-
-	// Consider characters as "printable-looking" if they are not control characters,
-	// or if they are whitespace (which includes \n, \t, etc.).
-	// char::is_control() identifies control characters.
-	// char::is_whitespace() is Unicode-aware.
-	let printable_looking_chars = contents
-		.chars()
-		.filter(|&c| !c.is_control() || c.is_whitespace())
-		.count();
-
-	let printable_ratio = printable_looking_chars as f64 / total_chars as f64;
-
-	// We can keep the 0.8 threshold, or slightly adjust if needed after testing.
-	// This check is now more lenient towards Unicode text.
-	printable_ratio > 0.8
-}
-
-struct TextChunkWithLines {
-	content: String,
-	start_line: usize, // 0-indexed
-	end_line: usize,   // 0-indexed, inclusive
+	FileUtils::is_text_file(contents)
 }
 
 fn chunk_text(content: &str, chunk_size: usize, overlap: usize) -> Vec<TextChunkWithLines> {
-	let mut chunks = Vec::new();
-	let chars: Vec<char> = content.chars().collect();
-	let content_len = chars.len();
-
-	if content_len == 0 {
-		return chunks;
-	}
-
-	// Pre-calculate line start character offsets (0-indexed)
-	// These are the character indices where each line begins.
-	let mut line_starts: Vec<usize> = vec![0]; // Line 0 starts at character 0
-	for (i, &char_val) in chars.iter().enumerate() {
-		if char_val == '\n' && i + 1 < content_len {
-			// If there's a character after '\n', it starts a new line
-			line_starts.push(i + 1);
-		}
-	}
-
-	let mut current_char_offset = 0;
-	let mut previous_iteration_offset = usize::MAX; // Used to detect stuck loops
-
-	while current_char_offset < content_len {
-		// Safety break for stuck loops
-		if current_char_offset == previous_iteration_offset {
-			// This should not be reached if advancement logic is perfect, but acts as a safeguard.
-			// eprintln!("Warning: chunk_text detected no progress, forcing advance. Offset: {}", current_char_offset);
-			current_char_offset += 1;
-			if current_char_offset >= content_len {
-				break;
-			}
-		}
-		previous_iteration_offset = current_char_offset;
-
-		let end_char_offset = std::cmp::min(current_char_offset + chunk_size, content_len);
-
-		let chunk_str: String = chars[current_char_offset..end_char_offset].iter().collect();
-
-		// Determine start_line for the current chunk (0-indexed)
-		// partition_point returns the index of the first element `el` for which `predicate(el)` is false.
-		// We want the count of lines that start *at or before* current_char_offset.
-		let start_line_idx = line_starts
-			.partition_point(|&line_start_char_idx| line_start_char_idx <= current_char_offset);
-		let start_line = start_line_idx.saturating_sub(1); // Convert count to 0-indexed line number
-
-		// Determine end_line for the current chunk (0-indexed, inclusive)
-		// The character at end_char_offset - 1 is the last char in the chunk.
-		let last_char_in_chunk_offset = if end_char_offset > current_char_offset {
-			// Ensure not an empty chunk
-			end_char_offset - 1
-		} else {
-			current_char_offset
-		};
-
-		let end_line_idx = line_starts.partition_point(|&line_start_char_idx| {
-			line_start_char_idx <= last_char_in_chunk_offset
-		});
-		let end_line = end_line_idx.saturating_sub(1);
-
-		chunks.push(TextChunkWithLines {
-			content: chunk_str,
-			start_line,
-			end_line: std::cmp::max(start_line, end_line), // Ensure end_line >= start_line
-		});
-
-		if end_char_offset >= content_len {
-			break; // Reached the end of content
-		}
-
-		// Advance current_char_offset for the next chunk
-		let mut next_start_offset = end_char_offset.saturating_sub(overlap);
-
-		// Ensure progress: next_start_offset must be greater than current_char_offset if we are not at the end.
-		if next_start_offset <= current_char_offset {
-			next_start_offset = current_char_offset + 1;
-		}
-		current_char_offset = next_start_offset;
-	}
-	chunks
+	TextProcessor::chunk_text(content, chunk_size, overlap)
 }
 
 /// Process an unsupported file as chunked text blocks
