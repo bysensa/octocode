@@ -175,13 +175,17 @@ pub fn signatures_to_markdown(signatures: &[FileSignature]) -> String {
 
 				let lines = signature.signature.lines().collect::<Vec<_>>();
 				if lines.len() > 5 {
-					// Show first 5 lines only to conserve tokens
-					for line in lines.iter().take(5) {
+					// Show first 2 lines and last 2 lines to maintain context
+					for line in lines.iter().take(2) {
 						markdown.push_str(line.as_ref());
 						markdown.push('\n');
 					}
 					// If signature is too long, note how many lines are omitted
-					markdown.push_str(&format!("// ... {} more lines\n", lines.len() - 5));
+					markdown.push_str(&format!("// ... {} more lines\n", lines.len() - 4));
+					for line in lines.iter().skip(lines.len() - 2) {
+						markdown.push_str(line.as_ref());
+						markdown.push('\n');
+					}
 				} else {
 					for line in &lines {
 						markdown.push_str(line.as_ref());
@@ -240,17 +244,31 @@ pub fn render_signatures_text(signatures: &[FileSignature]) -> String {
 					output.push_str(&format!("// {}\n", desc.replace('\n', " ")));
 				}
 
-				// Add signature content with line numbers (truncate to 5 lines like CLI/markdown)
+				// Add signature content with line numbers (smart truncation showing first and last lines)
 				let lines = signature.signature.lines().collect::<Vec<_>>();
 				let content_with_lines = if lines.len() > 5 {
-					let truncated: Vec<String> = lines
+					// Show first 2 lines, then "...", then last 2 lines to maintain context
+					let first_lines: Vec<String> = lines
 						.iter()
-						.take(5)
+						.take(2)
 						.enumerate()
 						.map(|(i, line)| format!("{}: {}", signature.start_line + 1 + i, line))
 						.collect();
-					let mut result = truncated.join("\n");
-					result.push_str(&format!("\n// ... {} more lines", lines.len() - 5));
+
+					let last_lines: Vec<String> = lines
+						.iter()
+						.skip(lines.len() - 2)
+						.enumerate()
+						.map(|(i, line)| {
+							let line_num = signature.start_line + 1 + (lines.len() - 2) + i;
+							format!("{}: {}", line_num, line)
+						})
+						.collect();
+
+					let mut result = first_lines.join("\n");
+					result.push_str(&format!("\n// ... {} more lines", lines.len() - 4));
+					result.push('\n');
+					result.push_str(&last_lines.join("\n"));
 					result
 				} else {
 					lines
@@ -573,16 +591,30 @@ pub fn render_signatures_cli(signatures: &[FileSignature]) {
 				let lines = signature.signature.lines().collect::<Vec<_>>();
 				if lines.len() > 1 {
 					println!("║ ┌────────────────────────────────────");
-					for line in lines.iter().take(5) {
-						println!("║ │ {}", line);
-					}
-					// If signature is too long, truncate it
 					if lines.len() > 5 {
-						println!("║ │ ... ({} more lines)", lines.len() - 5);
+						// Show first 2 lines with line numbers
+						for (i, line) in lines.iter().take(2).enumerate() {
+							let line_num = signature.start_line + 1 + i;
+							println!("║ │ {}: {}", line_num, line);
+						}
+						// Show truncation message
+						println!("║ │ // ... {} more lines", lines.len() - 4);
+						// Show last 2 lines with line numbers
+						for (i, line) in lines.iter().skip(lines.len() - 2).enumerate() {
+							let line_num = signature.start_line + 1 + (lines.len() - 2) + i;
+							println!("║ │ {}: {}", line_num, line);
+						}
+					} else {
+						// Show all lines with line numbers for short signatures
+						for (i, line) in lines.iter().enumerate() {
+							let line_num = signature.start_line + 1 + i;
+							println!("║ │ {}: {}", line_num, line);
+						}
 					}
 					println!("║ └────────────────────────────────────");
 				} else if !lines.is_empty() {
-					println!("║   {}", lines[0]);
+					let line_num = signature.start_line + 1;
+					println!("║   {}: {}", line_num, lines[0]);
 				}
 			}
 		}
