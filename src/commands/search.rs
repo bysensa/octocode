@@ -539,7 +539,8 @@ pub async fn execute(
 				println!("{}", markdown);
 			} else if args.format.is_text() {
 				// Use text formatting function for token efficiency
-				let text_output = indexer::search::format_doc_search_results_as_text(&doc_blocks);
+				let text_output =
+					indexer::search::format_doc_search_results_as_text(&doc_blocks, "partial");
 				println!("{}", text_output);
 			} else {
 				render_document_blocks_with_config(&doc_blocks, config);
@@ -554,7 +555,8 @@ pub async fn execute(
 				println!("{}", markdown);
 			} else if args.format.is_text() {
 				// Use text formatting function for token efficiency
-				let text_output = indexer::search::format_text_search_results_as_text(&text_blocks);
+				let text_output =
+					indexer::search::format_text_search_results_as_text(&text_blocks, "partial");
 				println!("{}", text_output);
 			} else {
 				render_text_blocks_with_config(&text_blocks, config);
