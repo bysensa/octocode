@@ -206,7 +206,7 @@ impl<'a> GraphRagOperations<'a> {
 		let after_count = table.count_rows(None).await?;
 		let deleted_count = before_count.saturating_sub(after_count);
 
-		Ok(deleted_count as usize)
+		Ok(deleted_count)
 	}
 
 	/// Search for graph nodes by vector similarity
