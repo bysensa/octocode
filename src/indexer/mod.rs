@@ -101,14 +101,16 @@ impl NoindexWalker {
 
 	/// Creates a GitignoreBuilder for checking individual files against both .gitignore and .noindex
 	/// ENHANCED: Better error handling and debugging
-	pub fn create_matcher(current_dir: &Path) -> Result<ignore::gitignore::Gitignore> {
+	pub fn create_matcher(current_dir: &Path, quiet: bool) -> Result<ignore::gitignore::Gitignore> {
 		let mut builder = ignore::gitignore::GitignoreBuilder::new(current_dir);
 
 		// Add .gitignore files
 		let gitignore_path = current_dir.join(".gitignore");
 		if gitignore_path.exists() {
 			if let Some(e) = builder.add(&gitignore_path) {
-				eprintln!("Warning: Failed to load .gitignore file: {}", e);
+				if !quiet {
+					eprintln!("Warning: Failed to load .gitignore file: {}", e);
+				}
 			} // Successfully loaded
 		}
 
@@ -116,7 +118,9 @@ impl NoindexWalker {
 		let noindex_path = current_dir.join(".noindex");
 		if noindex_path.exists() {
 			if let Some(e) = builder.add(&noindex_path) {
-				eprintln!("Warning: Failed to load .noindex file for matcher: {}", e);
+				if !quiet {
+					eprintln!("Warning: Failed to load .noindex file for matcher: {}", e);
+				}
 			} // Successfully loaded
 		}
 
@@ -1030,6 +1034,7 @@ fn map_node_kind_to_simple(kind: &str) -> String {
 async fn cleanup_deleted_files_optimized(
 	store: &Store,
 	current_dir: &std::path::Path,
+	quiet: bool,
 ) -> Result<()> {
 	// Get all indexed file paths from the database
 	let indexed_files = store.get_all_indexed_file_paths().await?;
@@ -1040,7 +1045,7 @@ async fn cleanup_deleted_files_optimized(
 	}
 
 	// Create ignore matcher to check against .noindex and .gitignore patterns
-	let ignore_matcher = NoindexWalker::create_matcher(current_dir)?;
+	let ignore_matcher = NoindexWalker::create_matcher(current_dir, quiet)?;
 
 	// Use parallel processing for file existence checks
 	let mut files_to_remove = Vec::new();
@@ -1090,10 +1095,12 @@ async fn cleanup_deleted_files_optimized(
 	if !files_to_remove.is_empty() {
 		for file_to_remove in &files_to_remove {
 			if let Err(e) = store.remove_blocks_by_path(file_to_remove).await {
-				eprintln!(
-					"Warning: Failed to remove blocks for {}: {}",
-					file_to_remove, e
-				);
+				if !quiet {
+					eprintln!(
+						"Warning: Failed to remove blocks for {}: {}",
+						file_to_remove, e
+					);
+				}
 			}
 		}
 		// Final flush
@@ -1194,10 +1201,12 @@ pub async fn index_files_with_quiet(
 								)
 							}
 							Err(e) => {
-								eprintln!(
-									"Warning: Could not get git changes, indexing all files: {}",
-									e
-								);
+								if !quiet {
+									eprintln!(
+										"Warning: Could not get git changes, indexing all files: {}",
+										e
+									);
+								}
 								None
 							}
 						}
@@ -1270,8 +1279,10 @@ pub async fn index_files_with_quiet(
 		log_indexing_progress("cleanup", 0, 0, None, 0);
 
 		// Optimized cleanup: Get indexed files and check them efficiently
-		if let Err(e) = cleanup_deleted_files_optimized(store, &current_dir).await {
-			eprintln!("Warning: Cleanup failed: {}", e);
+		if let Err(e) = cleanup_deleted_files_optimized(store, &current_dir, quiet).await {
+			if !quiet {
+				eprintln!("Warning: Cleanup failed: {}", e);
+			}
 		}
 
 		{
@@ -1652,7 +1663,9 @@ pub async fn index_files_with_quiet(
 	if let Some(git_root) = git_repo_root {
 		if let Ok(current_commit) = git::get_current_commit_hash(git_root) {
 			if let Err(e) = store.store_git_metadata(&current_commit).await {
-				eprintln!("Warning: Could not store git metadata: {}", e);
+				if !quiet {
+					eprintln!("Warning: Could not store git metadata: {}", e);
+				}
 			}
 		}
 	}
@@ -1690,7 +1703,8 @@ pub async fn handle_file_change(store: &Store, file_path: &str, config: &Config)
 		};
 
 		// Create a matcher that respects both .gitignore and .noindex rules
-		if let Ok(matcher) = NoindexWalker::create_matcher(&current_dir) {
+		if let Ok(matcher) = NoindexWalker::create_matcher(&current_dir, true) {
+			// Use quiet=true for watcher
 			// Check if the file should be ignored
 			if matcher
 				.matched(&absolute_path, absolute_path.is_dir())

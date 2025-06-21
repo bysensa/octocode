@@ -95,7 +95,7 @@ impl<'a> GraphRagOperations<'a> {
 
 				// Log progress for large datasets
 				if cfg!(debug_assertions) && all_blocks.len() % 1000 == 0 {
-					println!(
+					tracing::debug!(
 						"Loaded {} code blocks for GraphRAG processing...",
 						all_blocks.len()
 					);
@@ -147,10 +147,7 @@ impl<'a> GraphRagOperations<'a> {
 					.create_vector_index("graph_nodes", "embedding", DistanceType::Cosine)
 					.await
 				{
-					eprintln!(
-						"Warning: Failed to create vector index on graph_nodes: {}",
-						e
-					);
+					tracing::warn!("Failed to create vector index on graph_nodes: {}", e);
 				}
 			}
 		}

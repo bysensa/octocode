@@ -106,7 +106,7 @@ pub struct Store {
 impl Drop for Store {
 	fn drop(&mut self) {
 		if cfg!(debug_assertions) {
-			println!("Store instance dropped, database connection released");
+			tracing::debug!("Store instance dropped, database connection released");
 		}
 	}
 }
@@ -174,13 +174,14 @@ impl Store {
 								};
 
 								if size != &expected_dim {
-									println!("Schema mismatch detected for table '{}': expected dimension {}, found {}. Dropping table for recreation.",
+									tracing::warn!("Schema mismatch detected for table '{}': expected dimension {}, found {}. Dropping table for recreation.",
 										table_name, expected_dim, size);
 									drop(table); // Release table handle before dropping
 									if let Err(e) = db.drop_table(table_name).await {
-										eprintln!(
-											"Warning: Failed to drop table {}: {}",
-											table_name, e
+										tracing::warn!(
+											"Failed to drop table {}: {}",
+											table_name,
+											e
 										);
 									}
 								}
@@ -324,7 +325,7 @@ impl Store {
 					.create_vector_index("code_blocks", "embedding", DistanceType::Cosine)
 					.await
 				{
-					eprintln!("Warning: Failed to create vector index: {}", e);
+					tracing::warn!("Failed to create vector index: {}", e);
 				}
 			}
 		}
@@ -357,7 +358,7 @@ impl Store {
 					.create_vector_index("text_blocks", "embedding", DistanceType::Cosine)
 					.await
 				{
-					eprintln!("Warning: Failed to create vector index: {}", e);
+					tracing::warn!("Failed to create vector index: {}", e);
 				}
 			}
 		}
@@ -390,7 +391,7 @@ impl Store {
 					.create_vector_index("document_blocks", "embedding", DistanceType::Cosine)
 					.await
 				{
-					eprintln!("Warning: Failed to create vector index: {}", e);
+					tracing::warn!("Failed to create vector index: {}", e);
 				}
 			}
 		}

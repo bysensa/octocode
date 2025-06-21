@@ -60,12 +60,15 @@ impl<'a> TableOperations<'a> {
 
 		if table_names.contains(&table_name.to_string()) {
 			if let Err(e) = self.db.drop_table(table_name).await {
-				eprintln!("Warning: Failed to drop {} table: {}", table_name, e);
+				// Log error to structured logging instead of stderr
+				tracing::warn!("Failed to drop {} table: {}", table_name, e);
 			} else {
-				println!("Dropped table: {}", table_name);
+				// Log success to structured logging instead of stdout
+				tracing::debug!("Dropped table: {}", table_name);
 			}
 		} else {
-			println!("Table {} does not exist, skipping.", table_name);
+			// Log info to structured logging instead of stdout
+			tracing::debug!("Table {} does not exist, skipping.", table_name);
 		}
 
 		Ok(())
@@ -87,9 +90,11 @@ impl<'a> TableOperations<'a> {
 		// Drop each table completely (this removes both data and schema)
 		for table_name in table_names {
 			if let Err(e) = self.db.drop_table(&table_name).await {
-				eprintln!("Warning: Failed to drop table {}: {}", table_name, e);
+				// Log error to structured logging instead of stderr
+				tracing::warn!("Failed to drop table {}: {}", table_name, e);
 			} else {
-				println!("Dropped table: {}", table_name);
+				// Log success to structured logging instead of stdout
+				tracing::debug!("Dropped table: {}", table_name);
 			}
 		}
 
@@ -116,7 +121,7 @@ impl<'a> TableOperations<'a> {
 
 			// Log flush activity in debug mode for troubleshooting
 			if cfg!(debug_assertions) {
-				println!("Flushed table '{}' with {} rows", table_name, row_count);
+				tracing::debug!("Flushed table '{}' with {} rows", table_name, row_count);
 			}
 		}
 
