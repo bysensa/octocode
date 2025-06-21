@@ -159,8 +159,8 @@ impl MemoryProvider {
 							"type": "integer",
 							"description": "Maximum number of memories to return",
 							"minimum": 1,
-							"maximum": 50,
-							"default": 10
+							"maximum": 5,
+							"default": 5
 						}
 					},
 					"required": ["query"],
@@ -478,7 +478,7 @@ impl MemoryProvider {
 			.get("limit")
 			.and_then(|v| v.as_u64())
 			.map(|v| v as usize)
-			.unwrap_or(10);
+			.unwrap_or(5);
 
 		let memory_query = MemoryQuery {
 			memory_types,
