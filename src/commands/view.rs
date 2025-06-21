@@ -43,33 +43,46 @@ pub async fn execute(args: &ViewArgs) -> Result<(), anyhow::Error> {
 	let mut matching_files = Vec::new();
 
 	for pattern in &args.files {
-		// Use glob pattern matching
-		let glob_pattern = match globset::Glob::new(pattern) {
-			Ok(g) => g.compile_matcher(),
-			Err(e) => {
-				println!("Invalid glob pattern '{}': {}", pattern, e);
-				continue;
-			}
+		// First, check if this is a direct file path (relative or absolute)
+		let pattern_path = if std::path::Path::new(pattern).is_relative() {
+			current_dir.join(pattern)
+		} else {
+			std::path::PathBuf::from(pattern)
 		};
 
-		// Use NoindexWalker to respect both .gitignore and .noindex files while finding files
-		let walker = indexer::NoindexWalker::create_walker(&current_dir).build();
-
-		for result in walker {
-			let entry = match result {
-				Ok(entry) => entry,
-				Err(_) => continue,
+		if pattern_path.is_file() {
+			// Direct file path - add it directly
+			matching_files.push(pattern_path);
+		} else {
+			// Use glob pattern matching for patterns/wildcards
+			let glob_pattern = match globset::Glob::new(pattern) {
+				Ok(g) => g.compile_matcher(),
+				Err(e) => {
+					println!("Invalid glob pattern '{}': {}", pattern, e);
+					continue;
+				}
 			};
 
-			// Skip directories, only process files
-			if !entry.file_type().is_some_and(|ft| ft.is_file()) {
-				continue;
-			}
+			// Use NoindexWalker to respect both .gitignore and .noindex files while finding files
+			let walker = indexer::NoindexWalker::create_walker(&current_dir).build();
 
-			// See if this file matches our pattern
-			let relative_path = indexer::PathUtils::to_relative_string(entry.path(), &current_dir);
-			if glob_pattern.is_match(&relative_path) {
-				matching_files.push(entry.path().to_path_buf());
+			for result in walker {
+				let entry = match result {
+					Ok(entry) => entry,
+					Err(_) => continue,
+				};
+
+				// Skip directories, only process files
+				if !entry.file_type().is_some_and(|ft| ft.is_file()) {
+					continue;
+				}
+
+				// See if this file matches our pattern
+				let relative_path =
+					indexer::PathUtils::to_relative_string(entry.path(), &current_dir);
+				if glob_pattern.is_match(&relative_path) {
+					matching_files.push(entry.path().to_path_buf());
+				}
 			}
 		}
 	}
