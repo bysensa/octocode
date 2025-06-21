@@ -360,13 +360,8 @@ impl MemoryProvider {
 		let memory = memory_result;
 
 		// Return plain text response for MCP protocol compliance
-		Ok(format!(
-			"✅ Memory stored successfully\n\nMemory ID: {}\nTitle: {}\nType: {}\nCreated: {}",
-			memory.id,
-			memory.title,
-			memory.memory_type,
-			memory.created_at.format("%Y-%m-%d %H:%M:%S UTC")
-		))
+		// Return minimal response for MCP protocol compliance - just success and ID
+		Ok(format!("Memory stored: {}", memory.id))
 	}
 
 	/// Execute the remember tool
