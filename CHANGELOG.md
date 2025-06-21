@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.5.1] - 2025-06-21
+
+### 📋 Release Summary
+
+This release includes several bug fixes that enhance command pattern recognition and improve code efficiency. These updates contribute to a smoother and more reliable user experience.
+
+
+### 🐛 Bug Fixes
+
+- **view**: resolve files with ./ prefix in view command patterns (4ecc5900)
+- **clippy**: reduntant conversion (c53c046b)
+
+### 📊 Commit Summary
+
+**Total commits**: 2
+- 🐛 2 bug fixes
+
 ## [0.5.0] - 2025-06-21
 
 ### 📋 Release Summary
