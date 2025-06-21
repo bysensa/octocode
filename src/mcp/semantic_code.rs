@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 use tracing::debug;
 
 use crate::config::Config;
+use crate::constants::MAX_QUERIES;
 use crate::indexer::search::{
 	search_codebase_with_details_multi_query_text, search_codebase_with_details_text,
 };
@@ -157,9 +158,10 @@ impl SemanticCodeProvider {
 		};
 
 		// Validate queries
-		if queries.len() > 5 {
+		if queries.len() > MAX_QUERIES {
 			return Err(anyhow::anyhow!(
-				"Too many queries: maximum 5 queries allowed, got {}. Use fewer, more specific terms.",
+				"Too many queries: maximum {} queries allowed, got {}. Use fewer, more specific terms.",
+				MAX_QUERIES,
 				queries.len()
 			));
 		}

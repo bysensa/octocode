@@ -21,6 +21,7 @@ use tokio::sync::Mutex;
 use tracing::{debug, warn};
 
 use crate::config::Config;
+use crate::constants::MAX_QUERIES;
 use crate::mcp::logging::log_critical_anyhow_error;
 use crate::mcp::types::McpTool;
 use crate::memory::{MemoryManager, MemoryQuery, MemoryType};
@@ -391,9 +392,10 @@ impl MemoryProvider {
 		};
 
 		// Validate queries
-		if queries.len() > 5 {
+		if queries.len() > MAX_QUERIES {
 			return Err(anyhow::anyhow!(
-				"Too many queries: maximum 5 queries allowed, got {}. Use fewer, more specific terms.",
+				"Too many queries: maximum {} queries allowed, got {}. Use fewer, more specific terms.",
+				MAX_QUERIES,
 				queries.len()
 			));
 		}

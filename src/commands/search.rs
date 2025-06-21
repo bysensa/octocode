@@ -15,6 +15,7 @@
 use clap::Args;
 
 use octocode::config::Config;
+use octocode::constants::MAX_QUERIES;
 use octocode::embedding;
 use octocode::indexer;
 use octocode::reranker::Reranker;
@@ -24,8 +25,6 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use crate::commands::OutputFormat;
-
-const MAX_QUERIES: usize = 3;
 
 fn validate_detail_level(s: &str) -> Result<String, String> {
 	match s {

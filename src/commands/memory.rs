@@ -18,6 +18,7 @@ use serde_json::Value;
 use std::io::{self, Write};
 
 use octocode::config::Config;
+use octocode::constants::MAX_QUERIES;
 use octocode::memory::{MemoryManager, MemoryQuery, MemoryType};
 
 #[derive(Args, Debug)]
@@ -358,9 +359,10 @@ pub async fn execute(config: &Config, args: &MemoryArgs) -> Result<()> {
 				return Ok(());
 			}
 
-			if queries.len() > 5 {
+			if queries.len() > MAX_QUERIES {
 				println!(
-					"❌ Too many queries: maximum 5 queries allowed, got {}.",
+					"❌ Too many queries: maximum {} queries allowed, got {}.",
+					MAX_QUERIES,
 					queries.len()
 				);
 				return Ok(());

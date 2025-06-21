@@ -1082,9 +1082,10 @@ pub async fn search_codebase_with_details_multi_query_text(
 	if queries.is_empty() {
 		return Err(anyhow::anyhow!("At least one query is required"));
 	}
-	if queries.len() > 5 {
+	if queries.len() > crate::constants::MAX_QUERIES {
 		return Err(anyhow::anyhow!(
-			"Maximum 5 queries allowed, got {}. Use fewer, more specific terms.",
+			"Maximum {} queries allowed, got {}. Use fewer, more specific terms.",
+			crate::constants::MAX_QUERIES,
 			queries.len()
 		));
 	}
@@ -1240,9 +1241,10 @@ pub async fn search_codebase_with_details_multi_query(
 	if queries.is_empty() {
 		return Err(anyhow::anyhow!("At least one query is required"));
 	}
-	if queries.len() > 5 {
+	if queries.len() > crate::constants::MAX_QUERIES {
 		return Err(anyhow::anyhow!(
-			"Maximum 5 queries allowed, got {}. Use fewer, more specific terms.",
+			"Maximum {} queries allowed, got {}. Use fewer, more specific terms.",
+			crate::constants::MAX_QUERIES,
 			queries.len()
 		));
 	}
