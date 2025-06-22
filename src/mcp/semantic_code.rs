@@ -98,6 +98,12 @@ impl SemanticCodeProvider {
 						"minimum": 1,
 						"maximum": 20,
 						"default": 3
+					},
+					"threshold": {
+						"type": "number",
+						"description": "Similarity threshold (0.0-1.0). Higher values = more similar results only. Defaults to config.search.similarity_threshold",
+						"minimum": 0.0,
+						"maximum": 1.0
 					}
 				},
 				"required": ["query"],
@@ -230,12 +236,27 @@ impl SemanticCodeProvider {
 			));
 		}
 
+		let threshold = arguments
+			.get("threshold")
+			.and_then(|v| v.as_f64())
+			.map(|v| v as f32)
+			.unwrap_or(self.config.search.similarity_threshold);
+
+		// Validate threshold
+		if !(0.0..=1.0).contains(&threshold) {
+			return Err(anyhow::anyhow!(
+				"Invalid threshold '{}': must be between 0.0 and 1.0",
+				threshold
+			));
+		}
+
 		// Use structured logging instead of console output for MCP protocol compliance
 		debug!(
 			queries = ?queries,
 			mode = %mode,
 			detail_level = %detail_level,
 			max_results = %max_results,
+			threshold = %threshold,
 			working_directory = %self.working_directory.display(),
 			"Executing semantic code search with {} queries",
 			queries.len()
@@ -265,6 +286,7 @@ impl SemanticCodeProvider {
 				mode,
 				detail_level,
 				max_results,
+				threshold,
 				&self.config,
 			)
 			.await
@@ -275,6 +297,7 @@ impl SemanticCodeProvider {
 				mode,
 				detail_level,
 				max_results,
+				threshold,
 				&self.config,
 			)
 			.await

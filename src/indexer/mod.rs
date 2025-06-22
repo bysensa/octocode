@@ -1498,7 +1498,8 @@ pub async fn index_files_with_quiet(
 		} else {
 			// Handle unsupported file types as chunked text
 			// First check if the file extension is in our whitelist
-			if is_allowed_text_extension(entry.path()) {
+			// BUT exclude markdown files since they're already processed as documents
+			if is_allowed_text_extension(entry.path()) && !is_markdown_file(entry.path()) {
 				if let Ok(contents) = fs::read_to_string(entry.path()) {
 					// Only process files that are likely to contain readable text
 					if is_text_file(&contents) {
@@ -2308,6 +2309,17 @@ fn should_process_batch<T>(batch: &[T], get_content: impl Fn(&T) -> &str, config
 /// Check if a file extension is allowed for text indexing
 fn is_allowed_text_extension(path: &std::path::Path) -> bool {
 	FileUtils::is_allowed_text_extension(path)
+}
+
+/// Check if a file is a markdown file
+fn is_markdown_file(path: &std::path::Path) -> bool {
+	if let Some(extension) = path.extension() {
+		if let Some(ext_str) = extension.to_str() {
+			let ext_lower = ext_str.to_lowercase();
+			return ext_lower == "md" || ext_lower == "markdown";
+		}
+	}
+	false
 }
 
 /// Check if a file contains readable text

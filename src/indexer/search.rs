@@ -21,11 +21,11 @@ use std::collections::HashSet;
 
 // Render code blocks in a user-friendly format
 pub fn render_code_blocks(blocks: &[CodeBlock]) {
-	render_code_blocks_with_config(blocks, &Config::default());
+	render_code_blocks_with_config(blocks, &Config::default(), "partial");
 }
 
 // Render code blocks in a user-friendly format with configuration
-pub fn render_code_blocks_with_config(blocks: &[CodeBlock], config: &Config) {
+pub fn render_code_blocks_with_config(blocks: &[CodeBlock], config: &Config, detail_level: &str) {
 	if blocks.is_empty() {
 		println!("No code blocks found for the query.");
 		return;
@@ -67,19 +67,100 @@ pub fn render_code_blocks_with_config(blocks: &[CodeBlock], config: &Config) {
 		println!("║ Content:");
 		println!("║ ┌────────────────────────────────────");
 
-		// Use smart truncation based on configuration
-		let max_chars = config.search.search_block_max_characters;
-		let (content, was_truncated) =
-			crate::indexer::truncate_content_smartly(&block.content, max_chars);
+		// Use detail level for content display (consistent with text/doc CLI format)
+		match detail_level {
+			"signatures" => {
+				// Show smart preview for signatures mode
+				let lines: Vec<&str> = block.content.lines().collect();
+				if !lines.is_empty() {
+					if let Some(first_line) = lines.first() {
+						println!("║ │ {:4} │ {}", block.start_line + 1, first_line.trim());
+					}
+				}
+			}
+			"partial" => {
+				// Show smart truncated content with line numbers (CLI format with │)
+				let lines: Vec<&str> = block.content.lines().collect();
+				if lines.len() <= 10 {
+					// Show all lines if content is short
+					for (i, line) in lines.iter().enumerate() {
+						println!("║ │ {:4} │ {}", block.start_line + i + 1, line);
+					}
+				} else {
+					// Smart truncation: first 4 lines
+					for (i, line) in lines.iter().take(4).enumerate() {
+						println!("║ │ {:4} │ {}", block.start_line + i + 1, line);
+					}
 
-		// Display content with proper indentation
-		for line in content.lines() {
-			println!("║ │ {}", line);
-		}
+					// Show separator with count
+					let omitted_lines = lines.len() - 7; // 4 start + 3 end
+					if omitted_lines > 0 {
+						println!("║ │      │ ... ({} more lines)", omitted_lines);
+					}
 
-		// Add note if content was truncated
-		if was_truncated {
-			println!("║ │ [Content truncated - limit: {} chars]", max_chars);
+					// Last 3 lines
+					let last_3_start = lines.len() - 3;
+					for (i, line) in lines.iter().skip(last_3_start).enumerate() {
+						println!(
+							"║ │ {:4} │ {}",
+							block.start_line + last_3_start + i + 1,
+							line
+						);
+					}
+				}
+			}
+			"full" => {
+				// Show full content with line numbers (fallback to config-based truncation if too large)
+				let max_chars = config.search.search_block_max_characters;
+				if max_chars > 0 && block.content.len() > max_chars {
+					let (content, was_truncated) =
+						crate::indexer::truncate_content_smartly(&block.content, max_chars);
+					// Add line numbers to truncated content with │ format
+					for (i, line) in content.lines().enumerate() {
+						println!("║ │ {:4} │ {}", block.start_line + 1 + i, line);
+					}
+					if was_truncated {
+						println!(
+							"║ │      │ [Content truncated - limit: {} chars]",
+							max_chars
+						);
+					}
+				} else {
+					// Show full content with line numbers using │ format
+					for (i, line) in block.content.lines().enumerate() {
+						println!("║ │ {:4} │ {}", block.start_line + 1 + i, line);
+					}
+				}
+			}
+			_ => {
+				// Default to partial
+				let lines: Vec<&str> = block.content.lines().collect();
+				if lines.len() <= 10 {
+					for (i, line) in lines.iter().enumerate() {
+						println!("║ │ {:4} │ {}", block.start_line + i + 1, line);
+					}
+				} else {
+					// Smart truncation: first 4 lines
+					for (i, line) in lines.iter().take(4).enumerate() {
+						println!("║ │ {:4} │ {}", block.start_line + i + 1, line);
+					}
+
+					let omitted_lines = lines.len() - 7;
+					if omitted_lines > 0 {
+						println!("║ │      │ ... ({} more lines)", omitted_lines);
+					}
+
+					// Last 3 lines
+					let last_3_start = lines.len() - 3;
+					for (i, line) in lines.iter().skip(last_3_start).enumerate() {
+						println!(
+							"║ │ {:4} │ {}",
+							block.start_line + last_3_start + i + 1,
+							line
+						);
+					}
+				}
+			}
 		}
 
 		println!("║ └────────────────────────────────────");
@@ -699,18 +780,24 @@ pub fn format_code_search_results_as_text(blocks: &[CodeBlock], detail_level: &s
 		match detail_level {
 			"signatures" => {
 				// Extract just function/class signatures
-				let preview = get_code_preview(&block.content, &block.language);
+				let preview =
+					get_code_preview_with_lines(&block.content, block.start_line, &block.language);
 				if !preview.is_empty() {
 					if let Some(first_line) = preview.lines().next() {
-						output.push_str(&format!(
-							"{}: {}\n",
-							block.start_line + 1,
-							first_line.trim()
-						));
+						output.push_str(&format!("{}\n", first_line));
 					}
 				}
 			}
-			"partial" | "full" => {
+			"partial" => {
+				// Smart truncated content with line numbers
+				let preview =
+					get_code_preview_with_lines(&block.content, block.start_line, &block.language);
+				output.push_str(&preview);
+				if !preview.ends_with('\n') {
+					output.push('\n');
+				}
+			}
+			"full" => {
 				// Full content with line numbers
 				let content_with_lines = block
 					.content
@@ -756,16 +843,23 @@ pub fn format_text_search_results_as_text(
 		// Add content with line numbers based on detail level
 		match detail_level {
 			"signatures" => {
-				// Show only first line for signatures mode
-				if let Some(first_line) = block.content.lines().next() {
-					output.push_str(&format!(
-						"{}: {}\n",
-						block.start_line + 1,
-						first_line.trim()
-					));
+				// Show smart preview for signatures mode
+				let preview = get_text_preview_with_lines(&block.content, block.start_line);
+				if !preview.is_empty() {
+					if let Some(first_line) = preview.lines().next() {
+						output.push_str(&format!("{}\n", first_line));
+					}
 				}
 			}
-			"partial" | "full" => {
+			"partial" => {
+				// Smart truncated content with line numbers
+				let preview = get_text_preview_with_lines(&block.content, block.start_line);
+				output.push_str(&preview);
+				if !preview.ends_with('\n') {
+					output.push('\n');
+				}
+			}
+			"full" => {
 				// Full content with line numbers
 				let content_with_lines = block
 					.content
@@ -816,16 +910,23 @@ pub fn format_doc_search_results_as_text(
 		// Add content with line numbers based on detail level
 		match detail_level {
 			"signatures" => {
-				// Show only first line for signatures mode
-				if let Some(first_line) = block.content.lines().next() {
-					output.push_str(&format!(
-						"{}: {}\n",
-						block.start_line + 1,
-						first_line.trim()
-					));
+				// Show smart preview for signatures mode
+				let preview = get_doc_preview_with_lines(&block.content, block.start_line);
+				if !preview.is_empty() {
+					if let Some(first_line) = preview.lines().next() {
+						output.push_str(&format!("{}\n", first_line));
+					}
 				}
 			}
-			"partial" | "full" => {
+			"partial" => {
+				// Smart truncated content with line numbers
+				let preview = get_doc_preview_with_lines(&block.content, block.start_line);
+				output.push_str(&preview);
+				if !preview.ends_with('\n') {
+					output.push('\n');
+				}
+			}
+			"full" => {
 				// Full content with line numbers
 				let content_with_lines = block
 					.content
@@ -841,7 +942,6 @@ pub fn format_doc_search_results_as_text(
 			}
 			_ => {}
 		}
-		output.push('\n');
 	}
 
 	output
@@ -970,6 +1070,7 @@ pub async fn search_codebase_with_details_text(
 	mode: &str,
 	detail_level: &str,
 	max_results: usize,
+	similarity_threshold: f32,
 	config: &Config,
 ) -> Result<String> {
 	// Initialize store
@@ -989,7 +1090,7 @@ pub async fn search_codebase_with_details_text(
 				.get_code_blocks_with_config(
 					embeddings,
 					Some(max_results),
-					Some(config.search.similarity_threshold),
+					Some(similarity_threshold),
 				)
 				.await?;
 			Ok(format_code_search_results_as_text(&results, detail_level))
@@ -1002,7 +1103,7 @@ pub async fn search_codebase_with_details_text(
 				.get_text_blocks_with_config(
 					embeddings,
 					Some(max_results),
-					Some(config.search.similarity_threshold),
+					Some(similarity_threshold),
 				)
 				.await?;
 			Ok(format_text_search_results_as_text(&results, detail_level))
@@ -1015,7 +1116,7 @@ pub async fn search_codebase_with_details_text(
 				.get_document_blocks_with_config(
 					embeddings,
 					Some(max_results),
-					Some(config.search.similarity_threshold),
+					Some(similarity_threshold),
 				)
 				.await?;
 			Ok(format_doc_search_results_as_text(&results, detail_level))
@@ -1034,21 +1135,21 @@ pub async fn search_codebase_with_details_text(
 				.get_code_blocks_with_config(
 					code_embeddings,
 					Some(results_per_type),
-					Some(config.search.similarity_threshold),
+					Some(similarity_threshold),
 				)
 				.await?;
 			let text_results = store
 				.get_text_blocks_with_config(
 					text_embeddings.clone(),
 					Some(results_per_type),
-					Some(config.search.similarity_threshold),
+					Some(similarity_threshold),
 				)
 				.await?;
 			let doc_results = store
 				.get_document_blocks_with_config(
 					text_embeddings,
 					Some(results_per_type),
-					Some(config.search.similarity_threshold),
+					Some(similarity_threshold),
 				)
 				.await?;
 
@@ -1073,6 +1174,7 @@ pub async fn search_codebase_with_details_multi_query_text(
 	mode: &str,
 	detail_level: &str,
 	max_results: usize,
+	similarity_threshold: f32,
 	config: &Config,
 ) -> Result<String> {
 	// Initialize store
@@ -1091,7 +1193,7 @@ pub async fn search_codebase_with_details_multi_query_text(
 	}
 
 	// Generate batch embeddings for all queries
-	let embeddings = generate_batch_embeddings_for_queries_mcp(queries, mode, config).await?;
+	let embeddings = generate_batch_embeddings_for_queries(queries, mode, config).await?;
 
 	// Zip queries with embeddings
 	let query_embeddings: Vec<_> = queries
@@ -1101,15 +1203,21 @@ pub async fn search_codebase_with_details_multi_query_text(
 		.collect();
 
 	// Execute parallel searches
-	let search_results =
-		execute_parallel_searches_mcp(&store, query_embeddings, mode, max_results).await?;
+	let search_results = execute_parallel_searches(
+		&store,
+		query_embeddings,
+		mode,
+		max_results,
+		similarity_threshold,
+	)
+	.await?;
 
-	// Convert similarity threshold (use default from config)
-	let distance_threshold = 1.0 - config.search.similarity_threshold;
+	// Convert similarity threshold to distance threshold
+	let distance_threshold = 1.0 - similarity_threshold;
 
 	// Deduplicate and merge with multi-query bonuses
 	let (mut code_blocks, mut doc_blocks, mut text_blocks) =
-		deduplicate_and_merge_results_mcp(search_results, queries, distance_threshold);
+		deduplicate_and_merge_results(search_results, queries, distance_threshold);
 
 	// Apply global result limits
 	code_blocks.truncate(max_results);
@@ -1205,6 +1313,210 @@ fn get_code_preview(content: &str, _language: &str) -> String {
 			// Just add the remaining lines
 			for line in lines.iter().skip(start_idx + preview_start) {
 				result.push(*line);
+			}
+		}
+	}
+
+	result.join("\n")
+}
+
+// Get a clean preview of text content with line numbers and smart truncation
+fn get_text_preview_with_lines(content: &str, start_line: usize) -> String {
+	let lines: Vec<&str> = content.lines().collect();
+
+	// If content is short, just return it all with line numbers
+	if lines.len() <= 10 {
+		return lines
+			.iter()
+			.enumerate()
+			.map(|(i, line)| format!("{}: {}", start_line + 1 + i, line))
+			.collect::<Vec<_>>()
+			.join("\n");
+	}
+
+	// Skip leading empty lines
+	let mut start_idx = 0;
+	for (i, line) in lines.iter().enumerate() {
+		let trimmed = line.trim();
+		if !trimmed.is_empty() {
+			start_idx = i;
+			break;
+		}
+	}
+
+	// Take first 4 lines of actual content
+	let preview_start = 4;
+	let preview_end = 3;
+
+	let mut result = Vec::new();
+
+	// Add first few lines with line numbers
+	for (i, line) in lines.iter().skip(start_idx).take(preview_start).enumerate() {
+		result.push(format!("{}: {}", start_line + 1 + start_idx + i, line));
+	}
+
+	// If there's more content, add separator and last few lines
+	if start_idx + preview_start < lines.len() {
+		let remaining_lines = lines.len() - (start_idx + preview_start);
+		if remaining_lines > preview_end {
+			result.push(format!("... ({} more lines)", remaining_lines));
+
+			// Add last few lines with correct line numbers
+			let end_start_idx = lines.len() - preview_end;
+			for (i, line) in lines.iter().skip(end_start_idx).enumerate() {
+				result.push(format!("{}: {}", start_line + 1 + end_start_idx + i, line));
+			}
+		} else {
+			// Just add the remaining lines with line numbers
+			for (i, line) in lines.iter().skip(start_idx + preview_start).enumerate() {
+				result.push(format!(
+					"{}: {}",
+					start_line + 1 + start_idx + preview_start + i,
+					line
+				));
+			}
+		}
+	}
+
+	result.join("\n")
+}
+
+// Get a clean preview of document content with line numbers and smart truncation
+fn get_doc_preview_with_lines(content: &str, start_line: usize) -> String {
+	let lines: Vec<&str> = content.lines().collect();
+
+	// If content is short, just return it all with line numbers
+	if lines.len() <= 10 {
+		return lines
+			.iter()
+			.enumerate()
+			.map(|(i, line)| format!("{}: {}", start_line + 1 + i, line))
+			.collect::<Vec<_>>()
+			.join("\n");
+	}
+
+	// Skip leading empty lines
+	let mut start_idx = 0;
+	for (i, line) in lines.iter().enumerate() {
+		let trimmed = line.trim();
+		if !trimmed.is_empty() {
+			start_idx = i;
+			break;
+		}
+	}
+
+	// Take first 4 lines of actual content
+	let preview_start = 4;
+	let preview_end = 3;
+
+	let mut result = Vec::new();
+
+	// Add first few lines with line numbers
+	for (i, line) in lines.iter().skip(start_idx).take(preview_start).enumerate() {
+		result.push(format!("{}: {}", start_line + 1 + start_idx + i, line));
+	}
+
+	// If there's more content, add separator and last few lines
+	if start_idx + preview_start < lines.len() {
+		let remaining_lines = lines.len() - (start_idx + preview_start);
+		if remaining_lines > preview_end {
+			result.push(format!("... ({} more lines)", remaining_lines));
+
+			// Add last few lines with correct line numbers
+			let end_start_idx = lines.len() - preview_end;
+			for (i, line) in lines.iter().skip(end_start_idx).enumerate() {
+				result.push(format!("{}: {}", start_line + 1 + end_start_idx + i, line));
+			}
+		} else {
+			// Just add the remaining lines with line numbers
+			for (i, line) in lines.iter().skip(start_idx + preview_start).enumerate() {
+				result.push(format!(
+					"{}: {}",
+					start_line + 1 + start_idx + preview_start + i,
+					line
+				));
+			}
+		}
+	}
+
+	result.join("\n")
+}
+
+// Get a clean preview of code content with line numbers and smart truncation
+fn get_code_preview_with_lines(content: &str, start_line: usize, _language: &str) -> String {
+	let lines: Vec<&str> = content.lines().collect();
+
+	// If content is short, just return it all with line numbers
+	if lines.len() <= 10 {
+		return lines
+			.iter()
+			.enumerate()
+			.map(|(i, line)| format!("{}: {}", start_line + 1 + i, line))
+			.collect::<Vec<_>>()
+			.join("\n");
+	}
+
+	// Skip leading comments and empty lines
+	let mut start_idx = 0;
+	for (i, line) in lines.iter().enumerate() {
+		let trimmed = line.trim();
+
+		// Skip empty lines
+		if trimmed.is_empty() {
+			continue;
+		}
+
+		// Skip common comment patterns across languages
+		if trimmed.starts_with("//") ||     // C-style, Rust, JS, etc.
+		   trimmed.starts_with("#") ||      // Python, Shell, Ruby, etc.
+		   trimmed.starts_with("/*") ||     // C-style block comments
+		   trimmed.starts_with("*") ||      // Continuation of block comments
+		   trimmed.starts_with("<!--") ||   // HTML comments
+		   trimmed.starts_with("--") ||     // SQL, Lua comments
+		   trimmed.starts_with("%") ||      // LaTeX, Erlang comments
+		   trimmed.starts_with(";") ||      // Lisp, assembly comments
+		   trimmed.starts_with("\"\"\"") ||  // Python docstrings
+		   trimmed.starts_with("'''")
+		{
+			// Python docstrings
+			continue;
+		}
+
+		// Found first non-comment line
+		start_idx = i;
+		break;
+	}
+
+	// Take first 4 lines of actual code
+	let preview_start = 4;
+	let preview_end = 3;
+
+	let mut result = Vec::new();
+
+	// Add first few lines with line numbers
+	for (i, line) in lines.iter().skip(start_idx).take(preview_start).enumerate() {
+		result.push(format!("{}: {}", start_line + 1 + start_idx + i, line));
+	}
+
+	// If there's more content, add separator and last few lines
+	if start_idx + preview_start < lines.len() {
+		let remaining_lines = lines.len() - (start_idx + preview_start);
+		if remaining_lines > preview_end {
+			result.push(format!("... ({} more lines)", remaining_lines));
+
+			// Add last few lines with correct line numbers
+			let end_start_idx = lines.len() - preview_end;
+			for (i, line) in lines.iter().skip(end_start_idx).enumerate() {
+				result.push(format!("{}: {}", start_line + 1 + end_start_idx + i, line));
+			}
+		} else {
+			// Just add the remaining lines with line numbers
+			for (i, line) in lines.iter().skip(start_idx + preview_start).enumerate() {
+				result.push(format!(
+					"{}: {}",
+					start_line + 1 + start_idx + preview_start + i,
+					line
+				));
 			}
 		}
 	}
@@ -1657,4 +1969,396 @@ fn apply_multi_query_bonus_text_mcp(
 			block.distance = Some(distance * bonus_factor);
 		}
 	}
+}
+
+// ============================================================================
+// SHARED MULTI-QUERY SEARCH FUNCTIONS (Used by both CLI and MCP)
+// ============================================================================
+
+#[derive(Debug, Clone)]
+pub struct QuerySearchResult {
+	pub query_index: usize,
+	pub code_blocks: Vec<crate::store::CodeBlock>,
+	pub doc_blocks: Vec<crate::store::DocumentBlock>,
+	pub text_blocks: Vec<crate::store::TextBlock>,
+}
+
+pub async fn generate_batch_embeddings_for_queries(
+	queries: &[String],
+	mode: &str,
+	config: &Config,
+) -> Result<Vec<crate::embedding::SearchModeEmbeddings>> {
+	match mode {
+		"code" => {
+			// Batch generate code embeddings for all queries
+			let code_embeddings =
+				crate::embedding::generate_embeddings_batch(queries.to_vec(), true, config).await?;
+			Ok(code_embeddings
+				.into_iter()
+				.map(|emb| crate::embedding::SearchModeEmbeddings {
+					code_embeddings: Some(emb),
+					text_embeddings: None,
+				})
+				.collect())
+		}
+		"docs" | "text" => {
+			// Batch generate text embeddings for all queries
+			let text_embeddings =
+				crate::embedding::generate_embeddings_batch(queries.to_vec(), false, config)
+					.await?;
+			Ok(text_embeddings
+				.into_iter()
+				.map(|emb| crate::embedding::SearchModeEmbeddings {
+					code_embeddings: None,
+					text_embeddings: Some(emb),
+				})
+				.collect())
+		}
+		"all" => {
+			let code_model = &config.embedding.code_model;
+			let text_model = &config.embedding.text_model;
+
+			if code_model == text_model {
+				// Same model - generate once and reuse (efficient!)
+				let embeddings =
+					crate::embedding::generate_embeddings_batch(queries.to_vec(), true, config)
+						.await?;
+				Ok(embeddings
+					.into_iter()
+					.map(|emb| crate::embedding::SearchModeEmbeddings {
+						code_embeddings: Some(emb.clone()),
+						text_embeddings: Some(emb),
+					})
+					.collect())
+			} else {
+				// Different models - generate both types in parallel
+				let (code_embeddings, text_embeddings) = tokio::try_join!(
+					crate::embedding::generate_embeddings_batch(queries.to_vec(), true, config),
+					crate::embedding::generate_embeddings_batch(queries.to_vec(), false, config)
+				)?;
+
+				Ok(code_embeddings
+					.into_iter()
+					.zip(text_embeddings.into_iter())
+					.map(
+						|(code_emb, text_emb)| crate::embedding::SearchModeEmbeddings {
+							code_embeddings: Some(code_emb),
+							text_embeddings: Some(text_emb),
+						},
+					)
+					.collect())
+			}
+		}
+		_ => Err(anyhow::anyhow!("Invalid search mode: {}", mode)),
+	}
+}
+
+pub async fn execute_single_search_with_embeddings(
+	store: &Store,
+	_query: &str,
+	embeddings: crate::embedding::SearchModeEmbeddings,
+	mode: &str,
+	per_query_limit: usize,
+	query_index: usize,
+	similarity_threshold: f32,
+) -> Result<QuerySearchResult> {
+	let mut code_blocks = Vec::new();
+	let mut doc_blocks = Vec::new();
+	let mut text_blocks = Vec::new();
+
+	match mode {
+		"code" => {
+			if let Some(code_emb) = embeddings.code_embeddings {
+				code_blocks = store
+					.get_code_blocks_with_config(
+						code_emb,
+						Some(per_query_limit),
+						Some(similarity_threshold),
+					)
+					.await?;
+			}
+		}
+		"docs" => {
+			if let Some(text_emb) = embeddings.text_embeddings {
+				doc_blocks = store
+					.get_document_blocks_with_config(
+						text_emb,
+						Some(per_query_limit),
+						Some(similarity_threshold),
+					)
+					.await?;
+			}
+		}
+		"text" => {
+			if let Some(text_emb) = embeddings.text_embeddings {
+				text_blocks = store
+					.get_text_blocks_with_config(
+						text_emb,
+						Some(per_query_limit),
+						Some(similarity_threshold),
+					)
+					.await?;
+			}
+		}
+		"all" => {
+			let results_per_type = per_query_limit.div_ceil(3);
+
+			if let Some(code_emb) = embeddings.code_embeddings {
+				code_blocks = store
+					.get_code_blocks_with_config(
+						code_emb,
+						Some(results_per_type),
+						Some(similarity_threshold),
+					)
+					.await?;
+			}
+
+			if let Some(text_emb) = embeddings.text_embeddings {
+				let text_emb_clone = text_emb.clone();
+
+				let (text_result, doc_result) = tokio::try_join!(
+					store.get_text_blocks_with_config(
+						text_emb,
+						Some(results_per_type),
+						Some(similarity_threshold),
+					),
+					store.get_document_blocks_with_config(
+						text_emb_clone,
+						Some(results_per_type),
+						Some(similarity_threshold),
+					)
+				)?;
+
+				text_blocks = text_result;
+				doc_blocks = doc_result;
+			}
+		}
+		_ => return Err(anyhow::anyhow!("Invalid search mode: {}", mode)),
+	}
+
+	Ok(QuerySearchResult {
+		query_index,
+		code_blocks,
+		doc_blocks,
+		text_blocks,
+	})
+}
+
+pub async fn execute_parallel_searches(
+	store: &Store,
+	query_embeddings: Vec<(String, crate::embedding::SearchModeEmbeddings)>,
+	mode: &str,
+	max_results: usize,
+	similarity_threshold: f32,
+) -> Result<Vec<QuerySearchResult>> {
+	let per_query_limit = (max_results * 2) / query_embeddings.len().max(1);
+
+	let search_futures: Vec<_> = query_embeddings
+		.into_iter()
+		.enumerate()
+		.map(|(index, (query, embeddings))| async move {
+			execute_single_search_with_embeddings(
+				store,
+				&query,
+				embeddings,
+				mode,
+				per_query_limit,
+				index,
+				similarity_threshold,
+			)
+			.await
+		})
+		.collect();
+
+	// Execute all searches concurrently
+	futures::future::try_join_all(search_futures).await
+}
+
+pub fn apply_multi_query_bonus_code(
+	block: &mut crate::store::CodeBlock,
+	query_indices: &[usize],
+	total_queries: usize,
+) {
+	if query_indices.len() > 1 && total_queries > 1 {
+		let coverage_ratio = query_indices.len() as f32 / total_queries as f32;
+		let bonus_factor = 1.0 - (coverage_ratio * 0.1).min(0.2); // Up to 20% bonus
+
+		if let Some(distance) = block.distance {
+			block.distance = Some(distance * bonus_factor);
+		}
+	}
+}
+
+pub fn apply_multi_query_bonus_doc(
+	block: &mut crate::store::DocumentBlock,
+	query_indices: &[usize],
+	total_queries: usize,
+) {
+	if query_indices.len() > 1 && total_queries > 1 {
+		let coverage_ratio = query_indices.len() as f32 / total_queries as f32;
+		let bonus_factor = 1.0 - (coverage_ratio * 0.1).min(0.2);
+
+		if let Some(distance) = block.distance {
+			block.distance = Some(distance * bonus_factor);
+		}
+	}
+}
+
+pub fn apply_multi_query_bonus_text(
+	block: &mut crate::store::TextBlock,
+	query_indices: &[usize],
+	total_queries: usize,
+) {
+	if query_indices.len() > 1 && total_queries > 1 {
+		let coverage_ratio = query_indices.len() as f32 / total_queries as f32;
+		let bonus_factor = 1.0 - (coverage_ratio * 0.1).min(0.2);
+
+		if let Some(distance) = block.distance {
+			block.distance = Some(distance * bonus_factor);
+		}
+	}
+}
+
+pub fn deduplicate_and_merge_results(
+	search_results: Vec<QuerySearchResult>,
+	queries: &[String],
+	threshold: f32,
+) -> (
+	Vec<crate::store::CodeBlock>,
+	Vec<crate::store::DocumentBlock>,
+	Vec<crate::store::TextBlock>,
+) {
+	use std::cmp::Ordering;
+	use std::collections::HashMap;
+
+	// Deduplicate code blocks
+	let mut code_map: HashMap<String, (crate::store::CodeBlock, Vec<usize>)> = HashMap::new();
+
+	for result in &search_results {
+		for block in &result.code_blocks {
+			match code_map.entry(block.hash.clone()) {
+				std::collections::hash_map::Entry::Vacant(e) => {
+					e.insert((block.clone(), vec![result.query_index]));
+				}
+				std::collections::hash_map::Entry::Occupied(mut e) => {
+					let (existing_block, query_indices) = e.get_mut();
+					query_indices.push(result.query_index);
+					// Keep block with better score (lower distance)
+					if block.distance < existing_block.distance {
+						*existing_block = block.clone();
+					}
+				}
+			}
+		}
+	}
+
+	// Deduplicate document blocks
+	let mut doc_map: HashMap<String, (crate::store::DocumentBlock, Vec<usize>)> = HashMap::new();
+
+	for result in &search_results {
+		for block in &result.doc_blocks {
+			match doc_map.entry(block.hash.clone()) {
+				std::collections::hash_map::Entry::Vacant(e) => {
+					e.insert((block.clone(), vec![result.query_index]));
+				}
+				std::collections::hash_map::Entry::Occupied(mut e) => {
+					let (existing_block, query_indices) = e.get_mut();
+					query_indices.push(result.query_index);
+					if block.distance < existing_block.distance {
+						*existing_block = block.clone();
+					}
+				}
+			}
+		}
+	}
+
+	// Deduplicate text blocks
+	let mut text_map: HashMap<String, (crate::store::TextBlock, Vec<usize>)> = HashMap::new();
+
+	for result in &search_results {
+		for block in &result.text_blocks {
+			match text_map.entry(block.hash.clone()) {
+				std::collections::hash_map::Entry::Vacant(e) => {
+					e.insert((block.clone(), vec![result.query_index]));
+				}
+				std::collections::hash_map::Entry::Occupied(mut e) => {
+					let (existing_block, query_indices) = e.get_mut();
+					query_indices.push(result.query_index);
+					if block.distance < existing_block.distance {
+						*existing_block = block.clone();
+					}
+				}
+			}
+		}
+	}
+
+	// Apply multi-query bonuses and filter
+	let mut final_code_blocks: Vec<crate::store::CodeBlock> = code_map
+		.into_values()
+		.map(|(mut block, query_indices)| {
+			apply_multi_query_bonus_code(&mut block, &query_indices, queries.len());
+			block
+		})
+		.filter(|block| {
+			if let Some(distance) = block.distance {
+				distance <= threshold
+			} else {
+				true
+			}
+		})
+		.collect();
+
+	let mut final_doc_blocks: Vec<crate::store::DocumentBlock> = doc_map
+		.into_values()
+		.map(|(mut block, query_indices)| {
+			apply_multi_query_bonus_doc(&mut block, &query_indices, queries.len());
+			block
+		})
+		.filter(|block| {
+			if let Some(distance) = block.distance {
+				distance <= threshold
+			} else {
+				true
+			}
+		})
+		.collect();
+
+	let mut final_text_blocks: Vec<crate::store::TextBlock> = text_map
+		.into_values()
+		.map(|(mut block, query_indices)| {
+			apply_multi_query_bonus_text(&mut block, &query_indices, queries.len());
+			block
+		})
+		.filter(|block| {
+			if let Some(distance) = block.distance {
+				distance <= threshold
+			} else {
+				true
+			}
+		})
+		.collect();
+
+	// Sort by relevance
+	final_code_blocks.sort_by(|a, b| match (a.distance, b.distance) {
+		(Some(dist_a), Some(dist_b)) => dist_a.partial_cmp(&dist_b).unwrap_or(Ordering::Equal),
+		(Some(_), None) => Ordering::Less,
+		(None, Some(_)) => Ordering::Greater,
+		(None, None) => Ordering::Equal,
+	});
+
+	final_doc_blocks.sort_by(|a, b| match (a.distance, b.distance) {
+		(Some(dist_a), Some(dist_b)) => dist_a.partial_cmp(&dist_b).unwrap_or(Ordering::Equal),
+		(Some(_), None) => Ordering::Less,
+		(None, Some(_)) => Ordering::Greater,
+		(None, None) => Ordering::Equal,
+	});
+
+	final_text_blocks.sort_by(|a, b| match (a.distance, b.distance) {
+		(Some(dist_a), Some(dist_b)) => dist_a.partial_cmp(&dist_b).unwrap_or(Ordering::Equal),
+		(Some(_), None) => Ordering::Less,
+		(None, Some(_)) => Ordering::Greater,
+		(None, None) => Ordering::Equal,
+	});
+
+	(final_code_blocks, final_doc_blocks, final_text_blocks)
 }
