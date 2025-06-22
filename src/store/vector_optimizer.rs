@@ -175,15 +175,18 @@ impl VectorOptimizer {
 	/// # Returns
 	/// Optimal number of sub-vectors
 	fn find_optimal_sub_vectors(dimension: usize, target: usize) -> u32 {
-		// Find the largest factor of dimension that is <= target and SIMD-friendly
+		// Find the largest factor of dimension that is <= target and gives reasonable sub-vector size
 		let mut best = 1;
 
-		for candidate in 1..=target {
+		// Iterate in reverse order to find the largest valid factor first
+		for candidate in (1..=target).rev() {
 			if dimension % candidate == 0 {
-				// Check if resulting sub-vector size is SIMD-friendly (multiple of 8)
+				// Check if resulting sub-vector size is reasonable for PQ
 				let sub_vector_size = dimension / candidate;
-				if sub_vector_size % 8 == 0 || sub_vector_size <= 8 {
+				// Accept sub-vector sizes that are multiples of 4 or <= 8 for good PQ performance
+				if sub_vector_size % 4 == 0 || sub_vector_size <= 8 {
 					best = candidate;
+					break; // Take the first (largest) valid candidate
 				}
 			}
 		}
@@ -261,9 +264,10 @@ impl VectorOptimizer {
 			1000, 5000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000,
 		];
 
-		// Check if we just crossed a significant growth milestone
+		// Check if we are exactly at or very close to a significant growth milestone
 		for &milestone in &growth_milestones {
-			if current_rows >= milestone && current_rows < milestone + 1000 {
+			// Only optimize within a small window around the milestone (±50 rows)
+			if current_rows >= milestone && current_rows <= milestone + 50 {
 				tracing::info!(
 					"Dataset reached {} rows milestone, considering index optimization",
 					milestone
@@ -272,8 +276,8 @@ impl VectorOptimizer {
 			}
 		}
 
-		// Additional check: if dataset is very large, optimize every 100k rows
-		if current_rows > 1000000 && current_rows % 100000 < 1000 {
+		// Additional check: if dataset is very large, optimize every 100k rows (within small window)
+		if current_rows > 1000000 && current_rows % 100000 <= 50 {
 			return true;
 		}
 
