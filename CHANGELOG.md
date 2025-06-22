@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.5.2] - 2025-06-22
+
+### 📋 Release Summary
+
+This release improves search accuracy with enhanced query validation and adjusts memory limits for better resource management. Performance optimizations streamline data processing, complemented by updated documentation to help users fine-tune vector indexing. Several bug fixes enhance overall system reliability and user experience.
+
+
+### 🐛 Bug Fixes
+
+- **search**: enforce stricter query validation and correct detail levels (9442589a)
+- **memory**: reduce max and default memories returned to 5 (50a84fe7)
+
+### 🔧 Other Changes
+
+- **store**: optimize sub-vector factor selection and milestone checks (98bdfdd1)
+- **store**: add LanceDB vector index tuning and performance guide (b2c2fa8d)
+- **constants**: extract MAX_QUERIES to shared constant (c2722c7c)
+
+### 📊 Commit Summary
+
+**Total commits**: 5
+- 🐛 2 bug fixes
+- 🔧 3 other changes
+
 ## [0.5.1] - 2025-06-21
 
 ### 📋 Release Summary
