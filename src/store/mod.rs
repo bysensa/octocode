@@ -45,7 +45,7 @@ use lancedb::{
 // Import modular components
 use self::{
 	batch_converter::BatchConverter, debug::DebugOperations, graphrag::GraphRagOperations,
-	metadata::MetadataOperations, table_ops::TableOperations,
+	metadata::MetadataOperations, table_ops::TableOperations, vector_optimizer::VectorOptimizer,
 };
 
 pub mod batch_converter;
@@ -53,6 +53,7 @@ pub mod debug;
 pub mod graphrag;
 pub mod metadata;
 pub mod table_ops;
+pub mod vector_optimizer;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CodeBlock {
@@ -311,21 +312,38 @@ impl Store {
 		let table_ops = TableOperations::new(&self.db);
 		table_ops.store_batch("code_blocks", batch).await?;
 
-		// Create vector index if needed
+		// Create or optimize vector index based on dataset growth
 		if let Ok(table) = self.db.open_table("code_blocks").execute().await {
 			let row_count = table.count_rows(None).await?;
-			let has_index = table
-				.list_indices()
-				.await?
-				.iter()
-				.any(|idx| idx.columns == vec!["embedding"]);
+			let indices = table.list_indices().await?;
+			let has_index = indices.iter().any(|idx| idx.columns == vec!["embedding"]);
 
-			if !has_index && row_count > 256 {
+			if !has_index {
+				// Create initial index
 				if let Err(e) = table_ops
-					.create_vector_index("code_blocks", "embedding", DistanceType::Cosine)
+					.create_vector_index_optimized("code_blocks", "embedding", self.code_vector_dim)
 					.await
 				{
-					tracing::warn!("Failed to create vector index: {}", e);
+					tracing::warn!("Failed to create optimized vector index: {}", e);
+				}
+			} else {
+				// Check if we should optimize existing index due to growth
+				if VectorOptimizer::should_optimize_for_growth(
+					row_count,
+					self.code_vector_dim,
+					true,
+				) {
+					tracing::info!("Dataset growth detected, optimizing code_blocks index");
+					if let Err(e) = table_ops
+						.recreate_vector_index_optimized(
+							"code_blocks",
+							"embedding",
+							self.code_vector_dim,
+						)
+						.await
+					{
+						tracing::warn!("Failed to recreate optimized vector index: {}", e);
+					}
 				}
 			}
 		}
@@ -344,21 +362,38 @@ impl Store {
 		let table_ops = TableOperations::new(&self.db);
 		table_ops.store_batch("text_blocks", batch).await?;
 
-		// Create vector index if needed
+		// Create or optimize vector index based on dataset growth
 		if let Ok(table) = self.db.open_table("text_blocks").execute().await {
 			let row_count = table.count_rows(None).await?;
-			let has_index = table
-				.list_indices()
-				.await?
-				.iter()
-				.any(|idx| idx.columns == vec!["embedding"]);
+			let indices = table.list_indices().await?;
+			let has_index = indices.iter().any(|idx| idx.columns == vec!["embedding"]);
 
-			if !has_index && row_count > 256 {
+			if !has_index {
+				// Create initial index
 				if let Err(e) = table_ops
-					.create_vector_index("text_blocks", "embedding", DistanceType::Cosine)
+					.create_vector_index_optimized("text_blocks", "embedding", self.text_vector_dim)
 					.await
 				{
-					tracing::warn!("Failed to create vector index: {}", e);
+					tracing::warn!("Failed to create optimized vector index: {}", e);
+				}
+			} else {
+				// Check if we should optimize existing index due to growth
+				if VectorOptimizer::should_optimize_for_growth(
+					row_count,
+					self.text_vector_dim,
+					true,
+				) {
+					tracing::info!("Dataset growth detected, optimizing text_blocks index");
+					if let Err(e) = table_ops
+						.recreate_vector_index_optimized(
+							"text_blocks",
+							"embedding",
+							self.text_vector_dim,
+						)
+						.await
+					{
+						tracing::warn!("Failed to recreate optimized vector index: {}", e);
+					}
 				}
 			}
 		}
@@ -377,21 +412,42 @@ impl Store {
 		let table_ops = TableOperations::new(&self.db);
 		table_ops.store_batch("document_blocks", batch).await?;
 
-		// Create vector index if needed
+		// Create or optimize vector index based on dataset growth
 		if let Ok(table) = self.db.open_table("document_blocks").execute().await {
 			let row_count = table.count_rows(None).await?;
-			let has_index = table
-				.list_indices()
-				.await?
-				.iter()
-				.any(|idx| idx.columns == vec!["embedding"]);
+			let indices = table.list_indices().await?;
+			let has_index = indices.iter().any(|idx| idx.columns == vec!["embedding"]);
 
-			if !has_index && row_count > 256 {
+			if !has_index {
+				// Create initial index
 				if let Err(e) = table_ops
-					.create_vector_index("document_blocks", "embedding", DistanceType::Cosine)
+					.create_vector_index_optimized(
+						"document_blocks",
+						"embedding",
+						self.text_vector_dim,
+					)
 					.await
 				{
-					tracing::warn!("Failed to create vector index: {}", e);
+					tracing::warn!("Failed to create optimized vector index: {}", e);
+				}
+			} else {
+				// Check if we should optimize existing index due to growth
+				if VectorOptimizer::should_optimize_for_growth(
+					row_count,
+					self.text_vector_dim,
+					true,
+				) {
+					tracing::info!("Dataset growth detected, optimizing document_blocks index");
+					if let Err(e) = table_ops
+						.recreate_vector_index_optimized(
+							"document_blocks",
+							"embedding",
+							self.text_vector_dim,
+						)
+						.await
+					{
+						tracing::warn!("Failed to recreate optimized vector index: {}", e);
+					}
 				}
 			}
 		}
@@ -417,13 +473,47 @@ impl Store {
 		}
 
 		let table = self.db.open_table("code_blocks").execute().await?;
-		let mut results = table
+
+		// Get intelligent search parameters
+		let row_count = table.count_rows(None).await?;
+		let indices = table.list_indices().await?;
+		let has_index = indices.iter().any(|idx| idx.columns == vec!["embedding"]);
+
+		let mut query = table
 			.query()
 			.nearest_to(embedding)?
-			.limit(limit.unwrap_or(10))
-			.execute()
-			.await?;
+			.distance_type(DistanceType::Cosine) // Always use Cosine for consistency
+			.limit(limit.unwrap_or(10));
 
+		// Apply intelligent search optimization if index exists
+		if has_index {
+			// Find the embedding index to get partition count
+			if let Some(_embedding_index) =
+				indices.iter().find(|idx| idx.columns == vec!["embedding"])
+			{
+				// Estimate partition count (we don't have direct access, so estimate from row count)
+				let estimated_partitions = if row_count < 1000 {
+					2
+				} else {
+					(row_count as f64).sqrt() as u32
+				};
+				let search_params =
+					VectorOptimizer::calculate_search_params(estimated_partitions, row_count);
+
+				query = query.nprobes(search_params.nprobes);
+				if let Some(refine_factor) = search_params.refine_factor {
+					query = query.refine_factor(refine_factor);
+				}
+
+				tracing::debug!(
+					"Using optimized search params for code_blocks: nprobes={}, refine_factor={:?}",
+					search_params.nprobes,
+					search_params.refine_factor
+				);
+			}
+		}
+
+		let mut results = query.execute().await?;
 		let mut all_code_blocks = Vec::new();
 		let converter = BatchConverter::new(self.code_vector_dim);
 
@@ -461,13 +551,35 @@ impl Store {
 		}
 
 		let table = self.db.open_table("text_blocks").execute().await?;
-		let mut results = table
+
+		// Get intelligent search parameters
+		let row_count = table.count_rows(None).await?;
+		let indices = table.list_indices().await?;
+		let has_index = indices.iter().any(|idx| idx.columns == vec!["embedding"]);
+
+		let mut query = table
 			.query()
 			.nearest_to(embedding)?
-			.limit(limit.unwrap_or(10))
-			.execute()
-			.await?;
+			.distance_type(DistanceType::Cosine) // Always use Cosine for consistency
+			.limit(limit.unwrap_or(10));
 
+		// Apply intelligent search optimization if index exists
+		if has_index {
+			let estimated_partitions = if row_count < 1000 {
+				2
+			} else {
+				(row_count as f64).sqrt() as u32
+			};
+			let search_params =
+				VectorOptimizer::calculate_search_params(estimated_partitions, row_count);
+
+			query = query.nprobes(search_params.nprobes);
+			if let Some(refine_factor) = search_params.refine_factor {
+				query = query.refine_factor(refine_factor);
+			}
+		}
+
+		let mut results = query.execute().await?;
 		let mut all_text_blocks = Vec::new();
 		let converter = BatchConverter::new(self.text_vector_dim);
 
@@ -504,13 +616,35 @@ impl Store {
 		}
 
 		let table = self.db.open_table("document_blocks").execute().await?;
-		let mut results = table
+
+		// Get intelligent search parameters
+		let row_count = table.count_rows(None).await?;
+		let indices = table.list_indices().await?;
+		let has_index = indices.iter().any(|idx| idx.columns == vec!["embedding"]);
+
+		let mut query = table
 			.query()
 			.nearest_to(embedding)?
-			.limit(limit.unwrap_or(10))
-			.execute()
-			.await?;
+			.distance_type(DistanceType::Cosine) // Always use Cosine for consistency
+			.limit(limit.unwrap_or(10));
 
+		// Apply intelligent search optimization if index exists
+		if has_index {
+			let estimated_partitions = if row_count < 1000 {
+				2
+			} else {
+				(row_count as f64).sqrt() as u32
+			};
+			let search_params =
+				VectorOptimizer::calculate_search_params(estimated_partitions, row_count);
+
+			query = query.nprobes(search_params.nprobes);
+			if let Some(refine_factor) = search_params.refine_factor {
+				query = query.refine_factor(refine_factor);
+			}
+		}
+
+		let mut results = query.execute().await?;
 		let mut all_document_blocks = Vec::new();
 		let converter = BatchConverter::new(self.text_vector_dim);
 

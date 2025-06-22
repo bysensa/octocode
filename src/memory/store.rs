@@ -215,18 +215,79 @@ impl MemoryStore {
 		let batch_reader = arrow::record_batch::RecordBatchIterator::new(batches, schema);
 		table.add(batch_reader).execute().await?;
 
-		// Create index if needed
+		// Create optimized vector index based on dataset size
 		let row_count = table.count_rows(None).await?;
 		let has_index = table
 			.list_indices()
 			.await?
 			.iter()
 			.any(|idx| idx.columns == vec!["embedding"]);
-		if !has_index && row_count > 256 {
-			table
-				.create_index(&["embedding"], Index::Auto)
-				.execute()
-				.await?;
+
+		if !has_index {
+			// Use intelligent optimizer to determine optimal index parameters
+			let index_params =
+				crate::store::vector_optimizer::VectorOptimizer::calculate_index_params(
+					row_count,
+					self.vector_dim,
+				);
+
+			if index_params.should_create_index {
+				tracing::info!(
+					"Creating optimized vector index for memories table: {} rows, {} partitions, {} sub-vectors",
+					row_count, index_params.num_partitions, index_params.num_sub_vectors
+				);
+
+				table
+					.create_index(
+						&["embedding"],
+						Index::IvfPq(
+							lancedb::index::vector::IvfPqIndexBuilder::default()
+								.distance_type(index_params.distance_type)
+								.num_partitions(index_params.num_partitions)
+								.num_sub_vectors(index_params.num_sub_vectors)
+								.num_bits(index_params.num_bits as u32),
+						),
+					)
+					.execute()
+					.await?;
+			} else {
+				tracing::debug!(
+					"Skipping index creation for memories table with {} rows - brute force will be faster",
+					row_count
+				);
+			}
+		} else {
+			// Check if we should optimize existing index due to growth
+			if crate::store::vector_optimizer::VectorOptimizer::should_optimize_for_growth(
+				row_count,
+				self.vector_dim,
+				true,
+			) {
+				tracing::info!("Dataset growth detected, optimizing memories index");
+
+				// Recreate index with optimal parameters
+				let index_params =
+					crate::store::vector_optimizer::VectorOptimizer::calculate_index_params(
+						row_count,
+						self.vector_dim,
+					);
+
+				if index_params.should_create_index {
+					table
+						.create_index(
+							&["embedding"],
+							Index::IvfPq(
+								lancedb::index::vector::IvfPqIndexBuilder::default()
+									.distance_type(index_params.distance_type)
+									.num_partitions(index_params.num_partitions)
+									.num_sub_vectors(index_params.num_sub_vectors)
+									.num_bits(index_params.num_bits as u32),
+							),
+						)
+						.execute()
+						.await?;
+				}
+			}
 		}
 
 		Ok(())
@@ -329,14 +390,43 @@ impl MemoryStore {
 				.generate_embedding(query_text)
 				.await?;
 
-			// Start with vector search
-			let mut db_results = table
+			// Start with optimized vector search
+			let row_count = table.count_rows(None).await?;
+			let indices = table.list_indices().await?;
+			let has_index = indices.iter().any(|idx| idx.columns == vec!["embedding"]);
+
+			let mut db_query = table
 				.query()
 				.nearest_to(query_embedding.as_slice())?
 				.distance_type(DistanceType::Cosine)
-				.limit(limit * 2) // Get more results to filter
-				.execute()
-				.await?;
+				.limit(limit * 2); // Get more results to filter
+
+			// Apply intelligent search optimization if index exists
+			if has_index {
+				let estimated_partitions = if row_count < 1000 {
+					2
+				} else {
+					(row_count as f64).sqrt() as u32
+				};
+				let search_params =
+					crate::store::vector_optimizer::VectorOptimizer::calculate_search_params(
+						estimated_partitions,
+						row_count,
+					);
+
+				db_query = db_query.nprobes(search_params.nprobes);
+				if let Some(refine_factor) = search_params.refine_factor {
+					db_query = db_query.refine_factor(refine_factor);
+				}
+
+				tracing::debug!(
+					"Using optimized search params for memories: nprobes={}, refine_factor={:?}",
+					search_params.nprobes,
+					search_params.refine_factor
+				);
+			}
+
+			let mut db_results = db_query.execute().await?;
 
 			while let Some(batch) = db_results.try_next().await? {
 				if batch.num_rows() == 0 {

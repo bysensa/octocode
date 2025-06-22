@@ -24,7 +24,7 @@ use arrow::record_batch::RecordBatch;
 use futures::TryStreamExt;
 use lancedb::{
 	query::{ExecutableQuery, QueryBase, Select},
-	Connection, DistanceType,
+	Connection,
 };
 
 /// Generic table operations for LanceDB
@@ -323,30 +323,145 @@ impl<'a> TableOperations<'a> {
 		Ok(())
 	}
 
-	/// Create vector index on a table
-	pub async fn create_vector_index(
+	/// Check if index already exists with good parameters and handle dynamic dataset changes
+	pub async fn create_vector_index_optimized(
 		&self,
 		table_name: &str,
 		column_name: &str,
-		distance_type: DistanceType,
+		vector_dimension: usize,
 	) -> Result<()> {
 		if !self.table_exists(table_name).await? {
 			return Err(anyhow::anyhow!("Table {} does not exist", table_name));
 		}
 
 		let table = self.db.open_table(table_name).execute().await?;
+		let row_count = table.count_rows(None).await?;
 
-		// Create vector index
+		// Use intelligent optimizer to determine if we should create an index
+		let index_params = super::vector_optimizer::VectorOptimizer::calculate_index_params(
+			row_count,
+			vector_dimension,
+		);
+
+		if !index_params.should_create_index {
+			tracing::debug!(
+				"Skipping index creation for table '{}' with {} rows - brute force search will be faster",
+				table_name, row_count
+			);
+			return Ok(());
+		}
+
+		// Check if index already exists
+		let existing_indices = table.list_indices().await?;
+		let has_embedding_index = existing_indices
+			.iter()
+			.any(|idx| idx.columns == vec![column_name]);
+
+		if has_embedding_index {
+			// For dynamic datasets, we should periodically check if index parameters are still optimal
+			// This is a simplified check - in production, we could store index metadata to compare
+			tracing::debug!(
+				"Vector index already exists for table '{}' with {} rows. Consider recreating if dataset grew significantly.",
+				table_name, row_count
+			);
+			return Ok(());
+		}
+
+		// Create optimized vector index
+		tracing::info!(
+			"Creating optimized vector index for table '{}': {} rows, {} partitions, {} sub-vectors, {} bits",
+			table_name, row_count, index_params.num_partitions, index_params.num_sub_vectors, index_params.num_bits
+		);
+
+		let start_time = std::time::Instant::now();
+
 		table
 			.create_index(
 				&[column_name],
 				lancedb::index::Index::IvfPq(
 					lancedb::index::vector::IvfPqIndexBuilder::default()
-						.distance_type(distance_type),
+						.distance_type(index_params.distance_type)
+						.num_partitions(index_params.num_partitions)
+						.num_sub_vectors(index_params.num_sub_vectors)
+						.num_bits(index_params.num_bits as u32),
 				),
 			)
 			.execute()
 			.await?;
+
+		let duration = start_time.elapsed();
+		tracing::info!(
+			"Successfully created optimized vector index for table '{}' in {:.2}s",
+			table_name,
+			duration.as_secs_f64()
+		);
+		Ok(())
+	}
+
+	/// Recreate vector index with new optimal parameters
+	pub async fn recreate_vector_index_optimized(
+		&self,
+		table_name: &str,
+		column_name: &str,
+		vector_dimension: usize,
+	) -> Result<()> {
+		if !self.table_exists(table_name).await? {
+			return Err(anyhow::anyhow!("Table {} does not exist", table_name));
+		}
+
+		let table = self.db.open_table(table_name).execute().await?;
+		let row_count = table.count_rows(None).await?;
+
+		tracing::info!(
+			"Recreating vector index for table '{}' with {} rows for better performance",
+			table_name,
+			row_count
+		);
+
+		// Drop existing index first
+		let existing_indices = table.list_indices().await?;
+		for index in existing_indices {
+			if index.columns == vec![column_name] {
+				tracing::debug!("Dropping existing index: {}", index.name);
+				// Note: LanceDB doesn't have a direct drop_index method in current version
+				// The index will be replaced when we create a new one
+				break;
+			}
+		}
+
+		// Calculate new optimal parameters
+		let index_params = super::vector_optimizer::VectorOptimizer::calculate_index_params(
+			row_count,
+			vector_dimension,
+		);
+
+		if !index_params.should_create_index {
+			tracing::warn!("Dataset size no longer warrants an index, skipping recreation");
+			return Ok(());
+		}
+
+		// Create new optimized index
+		let start_time = std::time::Instant::now();
+
+		table
+			.create_index(
+				&[column_name],
+				lancedb::index::Index::IvfPq(
+					lancedb::index::vector::IvfPqIndexBuilder::default()
+						.distance_type(index_params.distance_type)
+						.num_partitions(index_params.num_partitions)
+						.num_sub_vectors(index_params.num_sub_vectors)
+						.num_bits(index_params.num_bits as u32),
+				),
+			)
+			.execute()
+			.await?;
+
+		let duration = start_time.elapsed();
+		tracing::info!(
+			"Successfully recreated optimized vector index for table '{}' in {:.2}s - {} partitions, {} sub-vectors",
+			table_name, duration.as_secs_f64(), index_params.num_partitions, index_params.num_sub_vectors
+		);
 
 		Ok(())
 	}

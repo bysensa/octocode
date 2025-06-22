@@ -53,8 +53,43 @@ Octocode is a powerful code indexer and semantic search engine that builds intel
 - **Local embedding models**: FastEmbed and SentenceTransformer (macOS only)
 - **Cloud embedding providers**: Voyage AI (default), Jina AI, Google
 - **Free tier available**: Voyage AI provides 200M free tokens monthly
+- **Intelligent LanceDB optimization**: Automatic vector index tuning for optimal search performance
+- **Growth-aware indexing**: Automatically optimizes as datasets grow from 1K to 1M+ rows
 - Lance columnar database for fast vector search
 - Incremental indexing and git-aware optimization
+
+## 🔍 **LanceDB Performance Under the Hood**
+
+Octocode includes intelligent **automatic LanceDB optimization** that provides optimal vector search performance without any configuration:
+
+### **Smart Index Management**
+- **Small datasets (< 1K rows)**: Skips indexing entirely - brute force search is faster
+- **Medium datasets (1K-100K rows)**: Creates optimized IVF_PQ indexes with calculated parameters
+- **Large datasets (> 100K rows)**: Uses growth-aware optimization with enhanced recall
+
+### **Automatic Parameter Tuning**
+- **Partitions**: Calculated as `sqrt(rows)` with 4K-8K rows per partition for optimal I/O
+- **Sub-vectors**: Optimized for SIMD efficiency (`dimension/16`, aligned to multiples of 8)
+- **Search parameters**: Intelligent `nprobes` (5-15% of partitions) and `refine_factor` for better accuracy
+- **Distance metric**: Always uses Cosine distance for consistent semantic similarity
+
+### **Growth-Aware Optimization**
+The system automatically detects when datasets cross growth milestones (1K, 5K, 10K, 25K, 50K, 100K, etc.) and recreates indexes with optimal parameters:
+
+```
+Dataset Growth → Index Optimization
+500 rows      → No index (brute force fastest)
+5K rows       → 70 partitions, 48 sub-vectors
+50K rows      → 223 partitions, 48 sub-vectors
+500K rows     → 707 partitions, 48 sub-vectors
+```
+
+### **Zero Configuration Required**
+All optimizations happen automatically during indexing and search operations. The system:
+- ✅ Preserves all existing functionality and APIs
+- ✅ Maintains backward compatibility with existing databases
+- ✅ Provides better performance without any user intervention
+- ✅ Handles both main codebase indexing and memory system optimization
 
 ## 📦 Installation
 

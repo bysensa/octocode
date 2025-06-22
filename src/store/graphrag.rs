@@ -24,7 +24,7 @@ use arrow::record_batch::RecordBatch;
 use futures::TryStreamExt;
 use lancedb::{
 	query::{ExecutableQuery, QueryBase},
-	Connection, DistanceType,
+	Connection,
 };
 
 use crate::store::{table_ops::TableOperations, CodeBlock};
@@ -132,22 +132,46 @@ impl<'a> GraphRagOperations<'a> {
 				.await?;
 		}
 
-		// Create vector index if needed (after storing data)
+		// Create or optimize vector index based on dataset growth
 		if let Ok(table) = self.db.open_table("graph_nodes").execute().await {
 			let row_count = table.count_rows(None).await?;
-			let has_index = table
-				.list_indices()
-				.await?
-				.iter()
-				.any(|idx| idx.columns == vec!["embedding"]);
+			let indices = table.list_indices().await?;
+			let has_index = indices.iter().any(|idx| idx.columns == vec!["embedding"]);
 
-			if !has_index && row_count > 256 {
+			if !has_index {
+				// Create initial index
 				if let Err(e) = self
 					.table_ops
-					.create_vector_index("graph_nodes", "embedding", DistanceType::Cosine)
+					.create_vector_index_optimized("graph_nodes", "embedding", self.code_vector_dim)
 					.await
 				{
-					tracing::warn!("Failed to create vector index on graph_nodes: {}", e);
+					tracing::warn!(
+						"Failed to create optimized vector index on graph_nodes: {}",
+						e
+					);
+				}
+			} else {
+				// Check if we should optimize existing index due to growth
+				if super::vector_optimizer::VectorOptimizer::should_optimize_for_growth(
+					row_count,
+					self.code_vector_dim,
+					true,
+				) {
+					tracing::info!("Dataset growth detected, optimizing graph_nodes index");
+					if let Err(e) = self
+						.table_ops
+						.recreate_vector_index_optimized(
+							"graph_nodes",
+							"embedding",
+							self.code_vector_dim,
+						)
+						.await
+					{
+						tracing::warn!(
+							"Failed to recreate optimized vector index on graph_nodes: {}",
+							e
+						);
+					}
 				}
 			}
 		}

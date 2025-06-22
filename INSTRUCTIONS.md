@@ -33,6 +33,54 @@ if should_process_batch(&blocks_batch, |b| &b.content, config) {
 }
 ```
 
+### LanceDB Performance & Vector Store Guidelines
+
+#### Intelligent Vector Index Optimization
+Octocode uses an intelligent vector index optimizer that automatically tunes LanceDB parameters based on dataset characteristics. **No configuration required** - all optimizations are automatic.
+
+#### Key Performance Features
+- **Smart Index Creation**: Skips indexing for small datasets (< 1K rows) where brute force is faster
+- **Optimal Parameters**: Automatically calculates partitions, sub-vectors, and search parameters
+- **Growth-Aware**: Recreates indexes with better parameters as datasets grow
+- **Consistent Distance**: Always uses Cosine distance for semantic similarity
+
+#### Best Practices for Store Usage
+
+```rust
+// ✅ GOOD: Use the optimized store methods
+store.store_code_blocks(&blocks, &embeddings).await?;
+store.store_text_blocks(&blocks, &embeddings).await?;
+store.store_document_blocks(&blocks, &embeddings).await?;
+
+// ✅ GOOD: Search with optimized parameters (automatic)
+let results = store.get_code_blocks_with_config(embedding, Some(limit), None).await?;
+
+// ❌ AVOID: Manual index creation (optimizer handles this)
+// table.create_index(&["embedding"], Index::Auto) // Don't do this
+
+// ❌ AVOID: Fixed parameters (optimizer calculates optimal values)
+// .num_partitions(256) // Don't hardcode
+```
+
+#### Performance Characteristics
+- **Small datasets (< 1K rows)**: Brute force search (fastest)
+- **Medium datasets (1K-100K rows)**: Optimized IVF_PQ index with intelligent parameters
+- **Large datasets (> 100K rows)**: Growth-aware optimization with enhanced recall
+- **Search queries**: Automatic nprobes (5-15% of partitions) + refine_factor for better accuracy
+
+#### Memory Module Integration
+The memory system (`src/memory/store.rs`) uses the same intelligent optimization:
+```rust
+// Memory searches automatically use optimized parameters
+let results = memory_store.search_memories(&query).await?;
+```
+
+#### Monitoring and Debugging
+- Index creation timing is logged at INFO level
+- Growth optimization triggers are logged with dataset statistics
+- Search parameter optimization is logged at DEBUG level
+- All failures are gracefully handled with WARNING logs
+
 ## Project Structure
 
 ### Core Modules
@@ -114,6 +162,9 @@ if should_process_batch(&blocks_batch, |b| &b.content, config) {
 - Batch operations for inserts/updates
 - Regular flush cycles for persistence
 - Differential processing for file changes
+- **Intelligent vector index optimization** (automatic, no configuration needed)
+- **Growth-aware index recreation** at dataset milestones
+- **Optimized search parameters** (nprobes, refine_factor) calculated per query
 
 ## Watch Mode & File Handling
 
@@ -143,9 +194,33 @@ let walker = NoindexWalker::create_walker(&current_dir).build();
 5. **Git Integration**: Leverage commit-based optimization
 6. **Test Incrementally**: Use watch mode for development iteration
 
-## Development Best Practices
+## Advanced Topics
 
-### Fast Development Workflow
+### LanceDB Performance Troubleshooting
+
+#### Index Creation Issues
+- Check logs for "Creating optimized vector index" messages
+- Verify dataset size is appropriate for indexing (>= 1000 rows)
+- Monitor index creation timing - should complete in seconds for most datasets
+
+#### Search Performance Issues
+- Enable DEBUG logging to see search parameter optimization
+- Check if indexes exist: `list_indices()` should show "embedding" indexes
+- Verify distance_type is consistently Cosine across all operations
+
+#### Growth Optimization Monitoring
+- Look for "Dataset growth detected" log messages at milestones
+- Monitor index recreation timing for large datasets
+- Check that row counts align with expected growth patterns
+
+#### Memory Module Performance
+- Memory system uses same optimization as main store
+- Check memory table row counts and index status
+- Verify embedding dimensions match between memory and main store
+
+### Development Performance Tips
+
+#### Fast Development Workflow
 - **Use `--no-default-features`** for faster cargo builds during development:
   ```bash
   cargo check --no-default-features
@@ -158,25 +233,25 @@ let walker = NoindexWalker::create_walker(&current_dir).build();
   ```
 - **Prefer tokio primitives** over external dependencies when possible (e.g., use tokio for HTTP instead of axum)
 
-### Code Quality Standards
+#### Code Quality Standards
 - **Zero clippy warnings** - All code must pass `cargo clippy` without warnings
 - **Minimal dependencies** - Reuse existing dependencies before adding new ones
 - **Clone trait** - Add `#[derive(Clone)]` to structs that need to be shared across async contexts
 - **Error handling** - Use proper `Result<T>` types and meaningful error messages
 
-### MCP Server Development
+#### MCP Server Development
 - **Stdin mode** (default): Use for standard MCP protocol compliance
 - **HTTP mode** (`--bind=host:port`): Use for web-based integrations
 - **Pure tokio** implementation for HTTP to avoid unnecessary dependencies
 - **CORS headers** included for browser compatibility
 
-### Testing Approach
+#### Testing Approach
 - **Unit tests** for individual components
 - **Integration tests** for full workflows
 - **Manual testing** with real projects during development
 - **HTTP endpoint testing** using curl or similar tools
 
-### Architecture Decisions
+#### Architecture Decisions
 - **Configuration-first** - All features configurable via `config-templates/default.toml`
 - **Modular providers** - Each tool provider (semantic search, GraphRAG, memory, LSP) is independent
 - **Async-first** - Use tokio throughout for non-blocking operations
