@@ -30,7 +30,7 @@ static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(|| {
 	Client::builder()
 		.pool_max_idle_per_host(10)
 		.pool_idle_timeout(Duration::from_secs(30))
-		.timeout(Duration::from_secs(60))
+		.timeout(Duration::from_secs(120)) // Increased from 60s to 120s for embedding APIs
 		.connect_timeout(Duration::from_secs(10))
 		.build()
 		.expect("Failed to create HTTP client")

@@ -127,18 +127,13 @@ impl MemoryStore {
 
 	/// Store a memory
 	pub async fn store_memory(&mut self, memory: &Memory) -> Result<()> {
-		// Generate embedding using the same high-level function as indexer for consistency
-		let embeddings = crate::embedding::generate_embeddings_batch(
-			vec![memory.get_searchable_text()],
+		// Generate embedding using the optimized single embedding function for better performance
+		let embedding = crate::embedding::generate_embeddings(
+			&memory.get_searchable_text(),
 			false,
 			&self.main_config,
 		)
 		.await?;
-
-		let embedding = embeddings
-			.into_iter()
-			.next()
-			.ok_or_else(|| anyhow::anyhow!("No embedding generated"))?;
 
 		self.store_memory_with_embedding(memory, embedding).await
 	}

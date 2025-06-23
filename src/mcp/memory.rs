@@ -15,7 +15,7 @@
 use anyhow::Result;
 use serde_json::{json, Value};
 use std::sync::Arc;
-use std::time::Duration;
+
 use tokio::sync::Mutex;
 
 use tracing::{debug, warn};
@@ -323,20 +323,8 @@ impl MemoryProvider {
 		}
 
 		let memory_result = {
-			// Use try_lock with timeout to prevent deadlocks and handle poisoned mutex
-			let mut manager_guard = match tokio::time::timeout(
-				Duration::from_millis(5000), // 5 second timeout
-				self.memory_manager.lock(),
-			)
-			.await
-			{
-				Ok(guard) => guard,
-				Err(_) => {
-					return Err(anyhow::anyhow!(
-						"Memory manager lock timeout - system may be overloaded"
-					));
-				}
-			};
+			// Lock memory manager for storing - removed timeout to allow embedding generation to complete
+			let mut manager_guard = self.memory_manager.lock().await;
 
 			manager_guard
 				.memorize(
@@ -497,20 +485,8 @@ impl MemoryProvider {
 		);
 
 		let results = {
-			// Use try_lock with timeout to prevent deadlocks and handle poisoned mutex
-			let manager_guard = match tokio::time::timeout(
-				Duration::from_millis(5000), // 5 second timeout
-				self.memory_manager.lock(),
-			)
-			.await
-			{
-				Ok(guard) => guard,
-				Err(_) => {
-					return Err(anyhow::anyhow!(
-						"Memory manager lock timeout - system may be overloaded"
-					));
-				}
-			};
+			// Lock memory manager for searching - removed timeout to allow operations to complete
+			let manager_guard = self.memory_manager.lock().await;
 
 			// Use multi-query method for comprehensive search
 			if queries.len() == 1 {
@@ -559,21 +535,9 @@ impl MemoryProvider {
 				"Forgetting memory by ID"
 			);
 
-			// Execute deletion with timeout protection
+			// Execute deletion - removed timeout to allow operation to complete
 			let res = {
-				let mut manager_guard = match tokio::time::timeout(
-					Duration::from_millis(5000), // 5 second timeout
-					self.memory_manager.lock(),
-				)
-				.await
-				{
-					Ok(guard) => guard,
-					Err(_) => {
-						return Ok(
-							"❌ Memory manager lock timeout - system may be overloaded".to_string()
-						);
-					}
-				};
+				let mut manager_guard = self.memory_manager.lock().await;
 				manager_guard.forget(memory_id).await
 			};
 			match res {
@@ -643,19 +607,7 @@ impl MemoryProvider {
 			);
 
 			let res = {
-				let mut manager_guard = match tokio::time::timeout(
-					Duration::from_millis(5000), // 5 second timeout
-					self.memory_manager.lock(),
-				)
-				.await
-				{
-					Ok(guard) => guard,
-					Err(_) => {
-						return Ok(
-							"❌ Memory manager lock timeout - system may be overloaded".to_string()
-						);
-					}
-				};
+				let mut manager_guard = self.memory_manager.lock().await;
 				manager_guard.forget_matching(memory_query).await
 			};
 			match res {
