@@ -50,6 +50,39 @@ pub fn count_tokens(text: &str) -> usize {
 	bpe.encode_with_special_tokens(text).len()
 }
 
+/// Truncate output if it exceeds token limit
+pub fn truncate_output(output: &str, max_tokens: usize) -> String {
+	if max_tokens == 0 {
+		return output.to_string();
+	}
+
+	let token_count = count_tokens(output);
+
+	if token_count <= max_tokens {
+		return output.to_string();
+	}
+
+	// Simple truncation - cut at character boundary
+	// Estimate roughly where to cut (tokens are ~4 chars average)
+	let estimated_chars = max_tokens * 3; // Conservative estimate
+	let truncated = if output.len() > estimated_chars {
+		&output[..estimated_chars]
+	} else {
+		output
+	};
+
+	// Find last newline to avoid cutting mid-line
+	let last_newline = truncated.rfind('\n').unwrap_or(truncated.len());
+	let final_truncated = &truncated[..last_newline];
+
+	format!(
+		"{}\n\n[Output truncated - {} tokens estimated, max {} allowed. Use more specific queries to reduce output size]",
+		final_truncated,
+		token_count,
+		max_tokens
+	)
+}
+
 /// Split texts into batches respecting both count and token limits
 pub fn split_texts_into_token_limited_batches(
 	texts: Vec<String>,

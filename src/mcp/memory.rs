@@ -22,6 +22,7 @@ use tracing::{debug, warn};
 
 use crate::config::Config;
 use crate::constants::MAX_QUERIES;
+use crate::embedding::truncate_output;
 use crate::mcp::logging::log_critical_anyhow_error;
 use crate::mcp::types::McpTool;
 use crate::memory::{MemoryManager, MemoryQuery, MemoryType};
@@ -155,13 +156,19 @@ impl MemoryProvider {
 								"type": "string"
 							}
 						},
-						"limit": {
-							"type": "integer",
-							"description": "Maximum number of memories to return",
-							"minimum": 1,
-							"maximum": 5,
-							"default": 5
-						}
+				"limit": {
+					"type": "integer",
+					"description": "Maximum number of memories to return",
+					"minimum": 1,
+					"maximum": 5,
+					"default": 5
+				},
+				"max_tokens": {
+					"type": "integer",
+					"description": "Maximum tokens allowed in output before truncation (default: 2000, set to 0 for unlimited)",
+					"minimum": 0,
+					"default": 2000
+				}
 					},
 					"required": ["query"],
 					"additionalProperties": false
@@ -468,6 +475,12 @@ impl MemoryProvider {
 			.map(|v| v as usize)
 			.unwrap_or(5);
 
+		// Parse max_tokens parameter
+		let max_tokens = arguments
+			.get("max_tokens")
+			.and_then(|v| v.as_u64())
+			.unwrap_or(2000) as usize;
+
 		let memory_query = MemoryQuery {
 			memory_types,
 			tags,
@@ -505,7 +518,10 @@ impl MemoryProvider {
 		}
 
 		// Use shared formatting function for token efficiency
-		Ok(crate::memory::format_memories_as_text(&results))
+		let output = crate::memory::format_memories_as_text(&results);
+
+		// Apply token truncation if needed
+		Ok(truncate_output(&output, max_tokens))
 	}
 
 	/// Execute the forget tool

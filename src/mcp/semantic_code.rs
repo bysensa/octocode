@@ -18,6 +18,7 @@ use tracing::debug;
 
 use crate::config::Config;
 use crate::constants::MAX_QUERIES;
+use crate::embedding::truncate_output;
 use crate::indexer::search::{
 	search_codebase_with_details_multi_query_text, search_codebase_with_details_text,
 };
@@ -108,6 +109,12 @@ impl SemanticCodeProvider {
 					"language": {
 						"type": "string",
 						"description": "Filter by programming language (only affects code blocks). Supported languages: rust, javascript, typescript, python, go, cpp, php, bash, ruby, json, svelte, css"
+					},
+					"max_tokens": {
+						"type": "integer",
+						"description": "Maximum tokens allowed in output before truncation (default: 2000, set to 0 for unlimited)",
+						"minimum": 0,
+						"default": 2000
 					}
 				},
 				"required": ["query"],
@@ -274,6 +281,12 @@ impl SemanticCodeProvider {
 			None
 		};
 
+		// Parse max_tokens parameter
+		let max_tokens = arguments
+			.get("max_tokens")
+			.and_then(|v| v.as_u64())
+			.unwrap_or(2000) as usize;
+
 		// Use structured logging instead of console output for MCP protocol compliance
 		debug!(
 			queries = ?queries,
@@ -340,7 +353,11 @@ impl SemanticCodeProvider {
 			);
 		}
 
-		results
+		// Apply token truncation if needed
+		match results {
+			Ok(output) => Ok(truncate_output(&output, max_tokens)),
+			Err(e) => Err(e),
+		}
 	}
 
 	/// Execute the view_signatures tool
