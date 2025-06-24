@@ -90,22 +90,30 @@ impl FileUtils {
 	/// Detect language based on file extension
 	pub fn detect_language(path: &Path) -> Option<&'static str> {
 		match path.extension()?.to_str()? {
+			// Rust
 			"rs" => Some("rust"),
+			// Python
 			"py" => Some("python"),
-			"js" | "mjs" => Some("javascript"),
-			"ts" => Some("typescript"),
+			// JavaScript
+			"js" | "mjs" | "jsx" => Some("javascript"),
+			// TypeScript
+			"ts" | "tsx" => Some("typescript"),
+			// Go
 			"go" => Some("go"),
-			"c" => Some("c"),
-			"cpp" | "cc" | "cxx" => Some("cpp"),
-			"h" | "hpp" => Some("c"),
-			"java" => Some("java"),
-			"kt" => Some("kotlin"),
-			"swift" => Some("swift"),
-			"rb" => Some("ruby"),
+			// C++
+			"cpp" | "cc" | "cxx" | "c" | "h" | "hpp" => Some("cpp"),
+			// PHP
 			"php" => Some("php"),
-			"cs" => Some("c_sharp"),
-			"scala" => Some("scala"),
+			// Bash/Shell
 			"sh" | "bash" => Some("bash"),
+			// Ruby
+			"rb" => Some("ruby"),
+			// JSON
+			"json" => Some("json"),
+			// Svelte
+			"svelte" => Some("svelte"),
+			// CSS
+			"css" | "scss" | "sass" => Some("css"),
 			_ => None,
 		}
 	}
