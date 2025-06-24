@@ -220,13 +220,13 @@ let walker = NoindexWalker::create_walker(&current_dir).build();
 
 ### Development Performance Tips
 
-#### Fast Development Workflow
-- **Use `--no-default-features`** for faster cargo builds during development:
-  ```bash
-  cargo check --no-default-features
-  cargo build --no-default-features
-  cargo test --no-default-features
-  ```
+#### MANDATORY BUILD COMMANDS:
+- ALWAYS use `--no-default-features` for ALL cargo commands during development
+- cargo build --no-default-features
+- cargo check --no-default-features
+- cargo test --no-default-features
+- NEVER use --release unless explicitly requested
+- NEVER use default cargo build - ALWAYS add --no-default-features flag
 - **Always run clippy** before finalizing code to ensure clean, warning-free code:
   ```bash
   cargo clippy --all-features --all-targets -- -D warnings
