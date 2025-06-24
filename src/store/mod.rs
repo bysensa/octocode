@@ -467,6 +467,17 @@ impl Store {
 		limit: Option<usize>,
 		distance_threshold: Option<f32>,
 	) -> Result<Vec<CodeBlock>> {
+		self.get_code_blocks_with_language_filter(embedding, limit, distance_threshold, None)
+			.await
+	}
+
+	pub async fn get_code_blocks_with_language_filter(
+		&self,
+		embedding: Vec<f32>,
+		limit: Option<usize>,
+		distance_threshold: Option<f32>,
+		language_filter: Option<&str>,
+	) -> Result<Vec<CodeBlock>> {
 		let table_ops = TableOperations::new(&self.db);
 		if !table_ops.table_exists("code_blocks").await? {
 			return Ok(Vec::new());
@@ -484,6 +495,10 @@ impl Store {
 			.nearest_to(embedding)?
 			.distance_type(DistanceType::Cosine) // Always use Cosine for consistency
 			.limit(limit.unwrap_or(10));
+		// Apply language filter if specified
+		if let Some(language) = language_filter {
+			query = query.only_if(format!("language = '{}'", language));
+		}
 
 		// Apply intelligent search optimization if index exists
 		if has_index {

@@ -104,6 +104,10 @@ impl SemanticCodeProvider {
 						"description": "Similarity threshold (0.0-1.0). Higher values = more similar results only. Defaults to config.search.similarity_threshold",
 						"minimum": 0.0,
 						"maximum": 1.0
+					},
+					"language": {
+						"type": "string",
+						"description": "Filter by programming language (only affects code blocks). Supported languages: rust, javascript, typescript, python, go, cpp, php, bash, ruby, json, svelte, css"
 					}
 				},
 				"required": ["query"],
@@ -250,6 +254,26 @@ impl SemanticCodeProvider {
 			));
 		}
 
+		// Parse and validate language filter if provided
+		let language_filter = if let Some(language_value) = arguments.get("language") {
+			let language = language_value
+				.as_str()
+				.ok_or_else(|| anyhow::anyhow!("Invalid language parameter: must be a string"))?;
+
+			// Validate language using existing language registry
+			use crate::indexer::languages;
+			if languages::get_language(language).is_none() {
+				return Err(anyhow::anyhow!(
+					"Invalid language '{}': supported languages are rust, javascript, typescript, python, go, cpp, php, bash, ruby, json, svelte, css",
+					language
+				));
+			}
+
+			Some(language.to_string())
+		} else {
+			None
+		};
+
 		// Use structured logging instead of console output for MCP protocol compliance
 		debug!(
 			queries = ?queries,
@@ -257,6 +281,7 @@ impl SemanticCodeProvider {
 			detail_level = %detail_level,
 			max_results = %max_results,
 			threshold = %threshold,
+			language_filter = ?language_filter,
 			working_directory = %self.working_directory.display(),
 			"Executing semantic code search with {} queries",
 			queries.len()
@@ -287,6 +312,7 @@ impl SemanticCodeProvider {
 				detail_level,
 				max_results,
 				threshold,
+				language_filter.as_deref(),
 				&self.config,
 			)
 			.await
@@ -298,6 +324,7 @@ impl SemanticCodeProvider {
 				detail_level,
 				max_results,
 				threshold,
+				language_filter.as_deref(),
 				&self.config,
 			)
 			.await

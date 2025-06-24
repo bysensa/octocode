@@ -90,6 +90,10 @@ pub struct SearchArgs {
 	/// Detail level for output: 'signatures', 'partial', or 'full' (default: partial for cli/text formats)
 	#[arg(short = 'd', long, value_parser = validate_detail_level)]
 	pub detail_level: Option<String>,
+
+	/// Filter by programming language (only affects code blocks)
+	#[arg(short = 'l', long)]
+	pub language: Option<String>,
 }
 
 pub async fn execute(
@@ -131,6 +135,17 @@ pub async fn execute(
 		}
 	};
 
+	// Validate language filter if provided
+	if let Some(ref language) = args.language {
+		use octocode::indexer::languages;
+		if languages::get_language(language).is_none() {
+			return Err(anyhow::anyhow!(
+				"Invalid language '{}'. Supported languages: rust, javascript, typescript, python, go, cpp, php, bash, ruby, json, svelte, css",
+				language
+			));
+		}
+	}
+
 	// Validate detail_level is only used with compatible formats
 	if args.detail_level.is_some() {
 		if args.format.is_json() {
@@ -171,6 +186,7 @@ pub async fn execute(
 		search_mode,
 		config.search.max_results,
 		args.threshold,
+		args.language.as_deref(),
 	)
 	.await?;
 

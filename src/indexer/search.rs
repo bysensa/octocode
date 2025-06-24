@@ -1071,6 +1071,7 @@ pub async fn search_codebase_with_details_text(
 	detail_level: &str,
 	max_results: usize,
 	similarity_threshold: f32,
+	language_filter: Option<&str>,
 	config: &Config,
 ) -> Result<String> {
 	// Initialize store
@@ -1087,10 +1088,11 @@ pub async fn search_codebase_with_details_text(
 				anyhow::anyhow!("No code embeddings generated for code search mode")
 			})?;
 			let results = store
-				.get_code_blocks_with_config(
+				.get_code_blocks_with_language_filter(
 					embeddings,
 					Some(max_results),
 					Some(similarity_threshold),
+					language_filter,
 				)
 				.await?;
 			Ok(format_code_search_results_as_text(&results, detail_level))
@@ -1132,10 +1134,11 @@ pub async fn search_codebase_with_details_text(
 
 			let results_per_type = max_results.div_ceil(3); // Distribute results across types
 			let code_results = store
-				.get_code_blocks_with_config(
+				.get_code_blocks_with_language_filter(
 					code_embeddings,
 					Some(results_per_type),
 					Some(similarity_threshold),
+					language_filter,
 				)
 				.await?;
 			let text_results = store
@@ -1175,6 +1178,7 @@ pub async fn search_codebase_with_details_multi_query_text(
 	detail_level: &str,
 	max_results: usize,
 	similarity_threshold: f32,
+	language_filter: Option<&str>,
 	config: &Config,
 ) -> Result<String> {
 	// Initialize store
@@ -1209,6 +1213,7 @@ pub async fn search_codebase_with_details_multi_query_text(
 		mode,
 		max_results,
 		similarity_threshold,
+		language_filter,
 	)
 	.await?;
 
@@ -2055,12 +2060,12 @@ pub async fn generate_batch_embeddings_for_queries(
 
 pub async fn execute_single_search_with_embeddings(
 	store: &Store,
-	_query: &str,
 	embeddings: crate::embedding::SearchModeEmbeddings,
 	mode: &str,
 	per_query_limit: usize,
 	query_index: usize,
 	similarity_threshold: f32,
+	language_filter: Option<&str>,
 ) -> Result<QuerySearchResult> {
 	let mut code_blocks = Vec::new();
 	let mut doc_blocks = Vec::new();
@@ -2070,10 +2075,11 @@ pub async fn execute_single_search_with_embeddings(
 		"code" => {
 			if let Some(code_emb) = embeddings.code_embeddings {
 				code_blocks = store
-					.get_code_blocks_with_config(
+					.get_code_blocks_with_language_filter(
 						code_emb,
 						Some(per_query_limit),
 						Some(similarity_threshold),
+						language_filter,
 					)
 					.await?;
 			}
@@ -2105,10 +2111,11 @@ pub async fn execute_single_search_with_embeddings(
 
 			if let Some(code_emb) = embeddings.code_embeddings {
 				code_blocks = store
-					.get_code_blocks_with_config(
+					.get_code_blocks_with_language_filter(
 						code_emb,
 						Some(results_per_type),
 						Some(similarity_threshold),
+						language_filter,
 					)
 					.await?;
 			}
@@ -2150,21 +2157,22 @@ pub async fn execute_parallel_searches(
 	mode: &str,
 	max_results: usize,
 	similarity_threshold: f32,
+	language_filter: Option<&str>,
 ) -> Result<Vec<QuerySearchResult>> {
 	let per_query_limit = (max_results * 2) / query_embeddings.len().max(1);
 
 	let search_futures: Vec<_> = query_embeddings
 		.into_iter()
 		.enumerate()
-		.map(|(index, (query, embeddings))| async move {
+		.map(|(index, (_, embeddings))| async move {
 			execute_single_search_with_embeddings(
 				store,
-				&query,
 				embeddings,
 				mode,
 				per_query_limit,
 				index,
 				similarity_threshold,
+				language_filter,
 			)
 			.await
 		})
