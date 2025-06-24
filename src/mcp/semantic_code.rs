@@ -433,22 +433,6 @@ impl SemanticCodeProvider {
 			"Executing view_signatures"
 		);
 
-		// Change to the working directory for processing with enhanced error handling
-		let original_dir = match std::env::current_dir() {
-			Ok(dir) => dir,
-			Err(e) => {
-				return Err(anyhow::anyhow!("Failed to get current directory: {}", e));
-			}
-		};
-
-		if let Err(e) = std::env::set_current_dir(&self.working_directory) {
-			return Err(anyhow::anyhow!(
-				"Failed to change to working directory '{}': {}",
-				self.working_directory.display(),
-				e
-			));
-		}
-
 		// Get files matching patterns
 		let mut matching_files = std::collections::HashSet::new();
 
@@ -458,13 +442,6 @@ impl SemanticCodeProvider {
 			let glob_pattern = match globset::Glob::new(pattern) {
 				Ok(g) => g.compile_matcher(),
 				Err(e) => {
-					// Restore directory before returning error
-					if let Err(restore_err) = std::env::set_current_dir(&original_dir) {
-						debug!(
-							error = %restore_err,
-							"Failed to restore directory after glob error"
-						);
-					}
 					return Err(anyhow::anyhow!("Invalid glob pattern '{}': {}", pattern, e));
 				}
 			};
@@ -502,13 +479,6 @@ impl SemanticCodeProvider {
 		let matching_files: Vec<_> = matching_files.into_iter().collect();
 
 		if matching_files.is_empty() {
-			// Restore directory before returning
-			if let Err(restore_err) = std::env::set_current_dir(&original_dir) {
-				debug!(
-					error = %restore_err,
-					"Failed to restore directory when no files found"
-				);
-			}
 			return Ok("No matching files found for the specified patterns.".to_string());
 		}
 
@@ -516,26 +486,9 @@ impl SemanticCodeProvider {
 		let signatures = match extract_file_signatures(&matching_files) {
 			Ok(sigs) => sigs,
 			Err(e) => {
-				// Restore directory before returning error
-				if let Err(restore_err) = std::env::set_current_dir(&original_dir) {
-					debug!(
-						error = %restore_err,
-						"Failed to restore directory after signature extraction error"
-					);
-				}
 				return Err(anyhow::anyhow!("Failed to extract signatures: {}", e));
 			}
 		};
-
-		// Restore original directory with enhanced error handling
-		if let Err(e) = std::env::set_current_dir(&original_dir) {
-			// Log error but don't fail the operation
-			debug!(
-				error = %e,
-				original_dir = %original_dir.display(),
-				"Failed to restore original directory after signature extraction"
-			);
-		}
 
 		// Return text format for token efficiency
 		let text_output = render_signatures_text(&signatures);

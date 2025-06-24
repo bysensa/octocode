@@ -82,6 +82,15 @@ impl McpServer {
 		no_git: bool,
 		lsp_command: Option<String>,
 	) -> Result<Self> {
+		// Change to the working directory at server startup
+		std::env::set_current_dir(&working_directory).map_err(|e| {
+			anyhow::anyhow!(
+				"Failed to change to working directory '{}': {}",
+				working_directory.display(),
+				e
+			)
+		})?;
+
 		// Initialize the store for the MCP server
 		let store = Store::new().await?;
 		store.initialize_collections().await?;
