@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 use tracing::debug;
 
 use crate::config::Config;
+use crate::embedding::truncate_output;
 use crate::indexer::graphrag::GraphRAG;
 use crate::mcp::types::McpTool;
 
@@ -52,6 +53,12 @@ impl GraphRagProvider {
 						"description": "Complex architectural query about code relationships, dependencies, or system interactions. GOOD examples: 'How does user authentication flow through the system?', 'What components depend on the database layer?', 'Show me the data flow for order processing', 'Find all error handling patterns across modules', 'How are configuration settings propagated through the application?'. BAD examples: 'find login function', 'get user class', 'show database code' (use semantic_search for these)",
 						"minLength": 10,
 						"maxLength": 1000
+					},
+					"max_tokens": {
+						"type": "integer",
+						"description": "Maximum tokens allowed in output before truncation (default: 2000, set to 0 for unlimited)",
+						"minimum": 0,
+						"default": 2000
 					}
 				},
 				"required": ["query"],
@@ -77,6 +84,12 @@ impl GraphRagProvider {
 			));
 		}
 
+		// Parse max_tokens parameter
+		let max_tokens = arguments
+			.get("max_tokens")
+			.and_then(|v| v.as_u64())
+			.unwrap_or(2000) as usize;
+
 		// Use structured logging instead of console output for MCP protocol compliance
 		debug!(
 			query = %query,
@@ -94,6 +107,8 @@ impl GraphRagProvider {
 		std::env::set_current_dir(&original_dir)?;
 
 		let results = results?;
-		Ok(results) // GraphRAG results are already formatted as text
+
+		// Apply token truncation if needed
+		Ok(truncate_output(&results, max_tokens))
 	}
 }

@@ -25,6 +25,7 @@ use tracing::{debug, error, info, warn};
 
 use super::client::LspClient;
 use super::protocol::{file_path_to_uri, LspNotification, LspRequest};
+use crate::embedding::truncate_output;
 use crate::mcp::types::McpTool;
 
 /// LSP provider that manages external LSP server and exposes capabilities via MCP tools
@@ -428,6 +429,12 @@ impl LspProvider {
                             "type": "boolean",
                             "default": true,
                             "description": "Include the symbol declaration in results"
+                        },
+                        "max_tokens": {
+                            "type": "integer",
+                            "description": "Maximum tokens allowed in output before truncation (default: 2000, set to 0 for unlimited)",
+                            "minimum": 0,
+                            "default": 2000
                         }
                     },
                     "required": ["file_path", "line", "symbol"],
@@ -443,6 +450,12 @@ impl LspProvider {
                         "file_path": {
                             "type": "string",
                             "description": "Relative path to the file from working directory"
+                        },
+                        "max_tokens": {
+                            "type": "integer",
+                            "description": "Maximum tokens allowed in output before truncation (default: 2000, set to 0 for unlimited)",
+                            "minimum": 0,
+                            "default": 2000
                         }
                     },
                     "required": ["file_path"],
@@ -459,6 +472,12 @@ impl LspProvider {
                             "type": "string",
                             "description": "Symbol search query",
                             "minLength": 1
+                        },
+                        "max_tokens": {
+                            "type": "integer",
+                            "description": "Maximum tokens allowed in output before truncation (default: 2000, set to 0 for unlimited)",
+                            "minimum": 0,
+                            "default": 2000
                         }
                     },
                     "required": ["query"],
@@ -483,6 +502,12 @@ impl LspProvider {
                         "symbol": {
                             "type": "string",
                             "description": "Partial symbol or prefix to complete (e.g., 'std::vec', 'my_func')"
+                        },
+                        "max_tokens": {
+                            "type": "integer",
+                            "description": "Maximum tokens allowed in output before truncation (default: 2000, set to 0 for unlimited)",
+                            "minimum": 0,
+                            "default": 2000
                         }
                     },
                     "required": ["file_path", "line", "symbol"],
@@ -741,6 +766,12 @@ impl LspProvider {
 			.and_then(|v| v.as_bool())
 			.unwrap_or(true);
 
+		// Parse max_tokens parameter
+		let max_tokens = arguments
+			.get("max_tokens")
+			.and_then(|v| v.as_u64())
+			.unwrap_or(2000) as usize;
+
 		// Clean the file path to handle formatted paths like "[Rust file: main.rs]"
 		let clean_file_path = Self::clean_file_path(file_path);
 
@@ -755,7 +786,9 @@ impl LspProvider {
 		let result = self
 			.find_references(&clean_file_path, line, character, include_declaration)
 			.await?;
-		Ok(result)
+
+		// Apply token truncation if needed
+		Ok(truncate_output(&result, max_tokens))
 	}
 
 	/// Execute LSP document symbols tool
@@ -773,6 +806,12 @@ impl LspProvider {
 			.and_then(|v| v.as_str())
 			.ok_or_else(|| anyhow::anyhow!("Missing required parameter: file_path"))?;
 
+		// Parse max_tokens parameter
+		let max_tokens = arguments
+			.get("max_tokens")
+			.and_then(|v| v.as_u64())
+			.unwrap_or(2000) as usize;
+
 		// Clean the file path to handle formatted paths like "[Rust file: main.rs]"
 		let clean_file_path = Self::clean_file_path(file_path);
 		debug!(
@@ -784,7 +823,9 @@ impl LspProvider {
 		self.ensure_file_opened(&clean_file_path).await?;
 
 		let result = self.document_symbols(&clean_file_path).await?;
-		Ok(result)
+
+		// Apply token truncation if needed
+		Ok(truncate_output(&result, max_tokens))
 	}
 
 	/// Execute LSP workspace symbols tool
@@ -802,8 +843,16 @@ impl LspProvider {
 			.and_then(|v| v.as_str())
 			.ok_or_else(|| anyhow::anyhow!("Missing required parameter: query"))?;
 
+		// Parse max_tokens parameter
+		let max_tokens = arguments
+			.get("max_tokens")
+			.and_then(|v| v.as_u64())
+			.unwrap_or(2000) as usize;
+
 		let result = self.workspace_symbols(query).await?;
-		Ok(result)
+
+		// Apply token truncation if needed
+		Ok(truncate_output(&result, max_tokens))
 	}
 
 	/// Execute LSP completion tool
@@ -826,6 +875,12 @@ impl LspProvider {
 			.and_then(|v| v.as_str())
 			.ok_or_else(|| anyhow::anyhow!("Missing required parameter: symbol"))?;
 
+		// Parse max_tokens parameter
+		let max_tokens = arguments
+			.get("max_tokens")
+			.and_then(|v| v.as_u64())
+			.unwrap_or(2000) as usize;
+
 		// Clean the file path to handle formatted paths like "[Rust file: main.rs]"
 		let clean_file_path = Self::clean_file_path(file_path);
 
@@ -838,7 +893,9 @@ impl LspProvider {
 			.await?;
 
 		let result = self.completion(&clean_file_path, line, character).await?;
-		Ok(result)
+
+		// Apply token truncation if needed
+		Ok(truncate_output(&result, max_tokens))
 	}
 
 	/// Start LSP server process and perform initialization handshake

@@ -140,6 +140,12 @@ impl SemanticCodeProvider {
 						},
 						"minItems": 1,
 						"maxItems": 100
+					},
+					"max_tokens": {
+						"type": "integer",
+						"description": "Maximum tokens allowed in output before truncation (default: 2000, set to 0 for unlimited)",
+						"minimum": 0,
+						"default": 2000
 					}
 				},
 				"required": ["files"],
@@ -414,6 +420,12 @@ impl SemanticCodeProvider {
 			file_patterns.push(pattern.to_string());
 		}
 
+		// Parse max_tokens parameter
+		let max_tokens = arguments
+			.get("max_tokens")
+			.and_then(|v| v.as_u64())
+			.unwrap_or(2000) as usize;
+
 		// Use structured logging instead of console output for MCP protocol compliance
 		debug!(
 			file_patterns = ?file_patterns,
@@ -527,6 +539,8 @@ impl SemanticCodeProvider {
 
 		// Return text format for token efficiency
 		let text_output = render_signatures_text(&signatures);
-		Ok(text_output)
+
+		// Apply token truncation if needed
+		Ok(truncate_output(&text_output, max_tokens))
 	}
 }
