@@ -44,7 +44,7 @@ impl GraphRAG {
 	}
 
 	pub async fn search(&self, query: &str) -> Result<String> {
-		let builder = GraphBuilder::new(self.config.clone()).await?;
+		let builder = GraphBuilder::new_with_quiet(self.config.clone(), true).await?;
 		let nodes = builder.search_nodes(query).await?;
 		Ok(graphrag_nodes_to_text(&nodes))
 	}
