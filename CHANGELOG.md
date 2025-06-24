@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.6.0] - 2025-06-24
+
+### 📋 Release Summary
+
+This release introduces new filtering options for code searches and limits output size to improve usability. Documentation has been updated for clearer build instructions, and indexing processes have been enhanced for better performance. Several bug fixes address search stability, language detection, and memory management.
+
+
+### ✨ Features
+
+- **mcp**: add max_tokens parameter to limit tool output size (ba81bd24)
+- **mcp**: add max_tokens limit to truncate large outputs in memory a... (0bce4ada)
+- **search**: add --language filter for code block searches (daeeb62a)
+
+### 🐛 Bug Fixes
+
+- **graphrag**: use quiet mode in GraphBuilder during search (44d4fd74)
+- **mcp**: remove redundant cwd changes and fix startup directory (5cb62cc5)
+- **indexer**: correct language detection for file extensions (bd6f0aeb)
+- **memory**: remove lock timeouts to prevent premature failures (d27a0987)
+
+### 🔧 Other Changes
+
+- **instructions**: clarify mandatory cargo build flags and usage (a14befc6)
+- **readme**: streamline and condense README key features section (bbe70ef2)
+- **indexer**: add batch processing and code region extraction mo... (43f50282)
+- **indexer**: extract markdown processing into dedicated module (17cc2ab5)
+- **indexer**: move signature extraction to dedicated module (a29fb64b)
+
+### 📊 Commit Summary
+
+**Total commits**: 12
+- ✨ 3 new features
+- 🐛 4 bug fixes
+- 🔧 5 other changes
+
 ## [0.5.2] - 2025-06-22
 
 ### 📋 Release Summary
