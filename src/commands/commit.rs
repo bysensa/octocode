@@ -18,6 +18,7 @@ use std::io::{self, Write};
 use std::process::Command;
 
 use octocode::config::Config;
+use octocode::indexer::git_utils::GitUtils;
 
 #[derive(Args, Debug)]
 pub struct CommitArgs {
@@ -54,10 +55,12 @@ pub struct CommitArgs {
 pub async fn execute(config: &Config, args: &CommitArgs) -> Result<()> {
 	let current_dir = std::env::current_dir()?;
 
-	// Check if we're in a git repository
-	if !current_dir.join(".git").exists() {
-		return Err(anyhow::anyhow!("❌ Not in a git repository!"));
-	}
+	// Find git repository root
+	let git_root = GitUtils::find_git_root(&current_dir)
+		.ok_or_else(|| anyhow::anyhow!("❌ Not in a git repository!"))?;
+
+	// Use git root as working directory for all operations
+	let current_dir = git_root;
 
 	// Add all files if requested
 	if args.all {

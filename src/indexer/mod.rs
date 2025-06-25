@@ -49,14 +49,14 @@ pub use render_utils::*;
 
 // Import the new modular utilities
 mod file_utils;
-mod git_utils;
+pub mod git_utils;
 mod path_utils;
 mod text_processing;
 
 use self::file_utils::FileUtils;
-use self::git_utils::GitUtils;
 
 // Re-export for external use
+pub use self::git_utils::GitUtils;
 pub use self::path_utils::PathUtils;
 use std::fs;
 // We're using ignore::WalkBuilder instead of walkdir::WalkDir
