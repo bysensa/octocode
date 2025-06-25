@@ -218,6 +218,22 @@ async fn generate_commit_message(
 		return Err(anyhow::anyhow!("No staged changes found"));
 	}
 
+	// Get list of staged files to analyze extensions
+	let staged_files = GitUtils::get_staged_files(repo_path)?;
+	let changed_files = staged_files.join("\n");
+
+	// Analyze file extensions
+	let has_markdown_files = changed_files
+		.lines()
+		.any(|file| file.ends_with(".md") || file.ends_with(".markdown") || file.ends_with(".rst"));
+
+	let has_non_markdown_files = changed_files.lines().any(|file| {
+		!file.ends_with(".md")
+			&& !file.ends_with(".markdown")
+			&& !file.ends_with(".rst")
+			&& !file.trim().is_empty()
+	});
+
 	// Count files and changes
 	let file_count = diff.matches("diff --git").count();
 	let additions = diff
@@ -235,38 +251,60 @@ async fn generate_commit_message(
 		guidance_section = format!("\n\nUser guidance for commit intent:\n{}", context);
 	}
 
+	// Build docs type restriction based on file analysis
+	let docs_restriction = if has_non_markdown_files && !has_markdown_files {
+		// Only non-markdown files changed - explicitly forbid docs
+		"\n\nCRITICAL - DOCS TYPE RESTRICTION:\n\
+		- NEVER use 'docs(...)' when only non-markdown files are changed\n\
+		- Current changes include ONLY non-markdown files (.rs, .js, .py, .toml, etc.)\n\
+		- Use 'fix', 'feat', 'refactor', 'chore', etc. instead of 'docs'\n\
+		- 'docs' is ONLY for .md, .markdown, .rst files or documentation-only changes"
+	} else if has_non_markdown_files && has_markdown_files {
+		// Mixed files - provide guidance
+		"\n\nDOCS TYPE GUIDANCE:\n\
+		- Use 'docs(...)' ONLY if the primary change is documentation\n\
+		- If code changes are the main focus, use appropriate code type (fix, feat, refactor)\n\
+		- Mixed changes: prioritize the most significant change type"
+	} else {
+		// Only markdown files or no files detected - allow docs
+		""
+	};
+
 	// Prepare the enhanced prompt for the LLM
 	let prompt = format!(
 		"Analyze this Git diff and create an appropriate commit message. Be specific and concise.\n\n\
-		STRICT RULES:\n\
+		STRICT FORMATTING RULES:\n\
 		- Format: type(scope): description (under 50 chars)\n\
 		- Types: feat, fix, docs, style, refactor, test, chore, perf, ci, build\n\
 		- Add '!' after type for breaking changes: feat!: or fix!:\n\
 		- Be specific, avoid generic words like \"update\", \"change\", \"modify\", \"various\", \"several\"\n\
-		- Use imperative mood: \"add\" not \"added\"\n\
+		- Use imperative mood: \"add\" not \"added\", \"fix\" not \"fixed\"\n\
 		- Focus on WHAT functionality changed, not implementation details\n\
 		- If user guidance provided, use it to understand the INTENT but create your own message{}\n\n\
-		COMMIT TYPE SELECTION (CRITICAL - READ CAREFULLY):\\n\
-		- feat: NEW functionality being added (new features, new capabilities, new commands)\\n\
-		- fix: CORRECTING bugs, errors, or broken functionality (including fixes to existing features)\\n\
-		- refactor: IMPROVING existing code without changing functionality (code restructuring)\\n\
-		- perf: OPTIMIZING performance without adding features\\n\
-		- docs: DOCUMENTATION changes only\\n\
-		- test: ADDING or fixing tests\\n\
-		- chore: MAINTENANCE tasks (dependencies, build, tooling)\\n\\n\
-		FEATURE vs FIX DISTINCTION (VERY IMPORTANT):\\n\
-		- If code was working but had bugs/errors → use 'fix' (even for features)\\n\
-		- If adding completely new functionality that didn't exist → use 'feat'\\n\
-		- If improving existing working code structure → use 'refactor' or 'perf'\\n\
-		- Examples: 'fix(auth): resolve token validation error', 'feat(auth): add OAuth2 support'\\n\
-		- When fixing issues in recently added features → use 'fix(scope): correct feature-name issue'\\n\
-		- When in doubt between feat/fix: choose 'fix' if addressing problems, 'feat' if adding completely new\\n\\n\
-		BREAKING CHANGE DETECTION:\\n\
-		- Look for function signature changes, API modifications, removed public methods\\n\
-		- Check for interface/trait changes, configuration schema changes\\n\
-		- Identify database migrations, dependency version bumps\\n\
-		- If breaking changes detected, use type! format and add BREAKING CHANGE footer\\n\\n\
-		BODY RULES (add body with bullet points if ANY of these apply):\\n\
+		COMMIT TYPE SELECTION (READ CAREFULLY):\n\
+		- feat: NEW functionality being added (new features, capabilities, commands)\n\
+		- fix: CORRECTING bugs, errors, or broken functionality (including fixes to existing features)\n\
+		- refactor: IMPROVING existing code without changing functionality (code restructuring)\n\
+		- perf: OPTIMIZING performance without adding features\n\
+		- docs: DOCUMENTATION changes ONLY (.md, .markdown, .rst files)\n\
+		- test: ADDING or fixing tests\n\
+		- style: CODE formatting, whitespace, missing semicolons (no logic changes)\n\
+		- chore: MAINTENANCE tasks (dependencies, build, tooling, config)\n\
+		- ci: CONTINUOUS integration changes (workflows, pipelines)\n\
+		- build: BUILD system changes (Cargo.toml, package.json, Makefile){}\n\n\
+		FEATURE vs FIX DECISION GUIDE:\n\
+		- If code was working but had bugs/errors → use 'fix' (even for new features with bugs)\n\
+		- If adding completely new functionality that didn't exist → use 'feat'\n\
+		- If improving existing working code structure → use 'refactor' or 'perf'\n\
+		- Examples: 'fix(auth): resolve token validation error', 'feat(auth): add OAuth2 support'\n\
+		- When fixing issues in recently added features → use 'fix(scope): correct feature-name issue'\n\
+		- When in doubt between feat/fix: choose 'fix' if addressing problems, 'feat' if adding completely new\n\n\
+		BREAKING CHANGE DETECTION:\n\
+		- Look for function signature changes, API modifications, removed public methods\n\
+		- Check for interface/trait changes, configuration schema changes\n\
+		- Identify database migrations, dependency version bumps with breaking changes\n\
+		- If breaking changes detected, use type! format and add BREAKING CHANGE footer\n\n\
+		BODY RULES (add body with bullet points if ANY of these apply):\n\
 		- 4+ files changed OR 25+ lines changed\n\
 		- Multiple different types of changes (feat+fix, refactor+feat, etc.)\n\
 		- Complex refactoring or architectural changes\n\
@@ -284,6 +322,7 @@ async fn generate_commit_message(
 		```\n{}\n```\n\n\
 		Generate commit message:",
 		guidance_section,
+		docs_restriction,
 		file_count,
 		additions,
 		deletions,

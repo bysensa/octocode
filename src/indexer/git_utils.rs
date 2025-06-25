@@ -80,6 +80,28 @@ impl GitUtils {
 		Ok(changed_files.into_iter().collect())
 	}
 
+	/// Get only staged files (files in git index)
+	pub fn get_staged_files(repo_path: &Path) -> Result<Vec<String>> {
+		let mut staged_files = Vec::new();
+
+		// Get staged files
+		let output = Command::new("git")
+			.args(["diff", "--cached", "--name-only"])
+			.current_dir(repo_path)
+			.output()?;
+
+		if output.status.success() {
+			let stdout = String::from_utf8(output.stdout)?;
+			for line in stdout.lines() {
+				if !line.trim().is_empty() {
+					staged_files.push(line.trim().to_string());
+				}
+			}
+		}
+
+		Ok(staged_files)
+	}
+
 	/// Note: This is used for non-git optimization scenarios only
 	pub fn get_all_changed_files(repo_path: &Path) -> Result<Vec<String>> {
 		let mut changed_files = std::collections::HashSet::new();
