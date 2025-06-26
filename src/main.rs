@@ -91,6 +91,7 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
+	dotenvy::dotenv().ok();
 	let args = OctocodeArgs::parse();
 
 	// Load configuration - ensure .octocode directory exists
