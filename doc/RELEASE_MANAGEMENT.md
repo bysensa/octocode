@@ -373,7 +373,7 @@ jobs:
           fetch-depth: 0  # Need full history for release analysis
 
       - name: Install Octocode
-        run: curl -fsSL https://raw.githubusercontent.com/muvon/octocode/main/install.sh | sh
+        run: curl -fsSL https://raw.githubusercontent.com/muvon/octocode/master/install.sh | sh
 
       - name: Create Release
         env:
@@ -389,7 +389,7 @@ jobs:
 release:
   stage: release
   script:
-    - curl -fsSL https://raw.githubusercontent.com/muvon/octocode/main/install.sh | sh
+    - curl -fsSL https://raw.githubusercontent.com/muvon/octocode/master/install.sh | sh
     - octocode release --yes
     - git push origin main --tags
   only:

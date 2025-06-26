@@ -4,7 +4,7 @@
 
 ### Universal Script (Unix/Linux/macOS/Windows)
 ```bash
-curl -fsSL https://raw.githubusercontent.com/muvon/octocode/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/muvon/octocode/master/install.sh | sh
 ```
 
 **Works on:**
@@ -16,17 +16,17 @@ curl -fsSL https://raw.githubusercontent.com/muvon/octocode/main/install.sh | sh
 ### Installation Options
 ```bash
 # Install specific version
-curl -fsSL https://raw.githubusercontent.com/muvon/octocode/main/install.sh | sh -s -- --version 0.1.0
+curl -fsSL https://raw.githubusercontent.com/muvon/octocode/master/install.sh | sh -s -- --version 0.1.0
 
 # Install to custom directory
-curl -fsSL https://raw.githubusercontent.com/muvon/octocode/main/install.sh | sh -s -- --install-dir /usr/local/bin
+curl -fsSL https://raw.githubusercontent.com/muvon/octocode/master/install.sh | sh -s -- --install-dir /usr/local/bin
 
 # Install for specific target
-curl -fsSL https://raw.githubusercontent.com/muvon/octocode/main/install.sh | sh -s -- --target x86_64-unknown-linux-musl
+curl -fsSL https://raw.githubusercontent.com/muvon/octocode/master/install.sh | sh -s -- --target x86_64-unknown-linux-musl
 
 # Environment variables
 export OCTOCODE_INSTALL_DIR=/opt/bin
-curl -fsSL https://raw.githubusercontent.com/muvon/octocode/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/muvon/octocode/master/install.sh | sh
 ```
 
 ## Manual Installation
@@ -147,16 +147,16 @@ The installation script supports several options and works on all platforms:
 
 ```bash
 # Install specific version
-curl -fsSL https://raw.githubusercontent.com/muvon/octocode/main/install.sh | sh -s -- --version 0.1.0
+curl -fsSL https://raw.githubusercontent.com/muvon/octocode/master/install.sh | sh -s -- --version 0.1.0
 
 # Install to custom directory
-curl -fsSL https://raw.githubusercontent.com/muvon/octocode/main/install.sh | sh -s -- --install-dir /usr/local/bin
+curl -fsSL https://raw.githubusercontent.com/muvon/octocode/master/install.sh | sh -s -- --install-dir /usr/local/bin
 
 # Install for specific target
-curl -fsSL https://raw.githubusercontent.com/muvon/octocode/main/install.sh | sh -s -- --target x86_64-unknown-linux-musl
+curl -fsSL https://raw.githubusercontent.com/muvon/octocode/master/install.sh | sh -s -- --target x86_64-unknown-linux-musl
 
 # Show help
-curl -fsSL https://raw.githubusercontent.com/muvon/octocode/main/install.sh | sh -s -- --help
+curl -fsSL https://raw.githubusercontent.com/muvon/octocode/master/install.sh | sh -s -- --help
 ```
 
 ### Environment Variables
@@ -167,7 +167,7 @@ curl -fsSL https://raw.githubusercontent.com/muvon/octocode/main/install.sh | sh
 Example:
 ```bash
 export OCTOCODE_INSTALL_DIR=/opt/octocode/bin
-curl -fsSL https://raw.githubusercontent.com/muvon/octocode/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/muvon/octocode/master/install.sh | sh
 ```
 
 ## Troubleshooting
@@ -176,7 +176,7 @@ curl -fsSL https://raw.githubusercontent.com/muvon/octocode/main/install.sh | sh
 If you get permission denied errors, make sure the installation directory is writable or use `sudo`:
 
 ```bash
-sudo curl -fsSL https://raw.githubusercontent.com/muvon/octocode/main/install.sh | sh -s -- --install-dir /usr/local/bin
+sudo curl -fsSL https://raw.githubusercontent.com/muvon/octocode/master/install.sh | sh -s -- --install-dir /usr/local/bin
 ```
 
 ### Binary Not in PATH
