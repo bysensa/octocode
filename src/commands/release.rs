@@ -148,8 +148,14 @@ pub async fn execute(config: &Config, args: &ReleaseArgs) -> Result<()> {
 	println!("   Reason:  {}", version_calculation.reasoning);
 
 	// Generate changelog content with AI enhancement
-	let changelog_content =
-		generate_enhanced_changelog_with_ai(config, &version_calculation, &commit_analysis).await?;
+	let changelog_content = generate_enhanced_changelog_with_ai(
+		config,
+		&version_calculation,
+		&commit_analysis,
+		&project_type,
+		&commit_range,
+	)
+	.await?;
 
 	println!("\n📝 Generated changelog entry:");
 	println!("═══════════════════════════════════");
@@ -600,10 +606,12 @@ async fn generate_changelog_content(
 
 	content.push_str(&format!("## [{}] - {}\n\n", version.new_version, date));
 
-	// Group commits by type for better organization
+	// Enhanced categorization - group commits by impact and area
 	let mut breaking_commits = Vec::new();
 	let mut feature_commits = Vec::new();
+	let mut improvement_commits = Vec::new();
 	let mut fix_commits = Vec::new();
+	let mut docs_commits = Vec::new();
 	let mut other_commits = Vec::new();
 
 	for commit in &analysis.commits {
@@ -613,80 +621,136 @@ async fn generate_changelog_content(
 			match commit.commit_type.as_str() {
 				"feat" => feature_commits.push(commit),
 				"fix" => fix_commits.push(commit),
+				"perf" | "refactor" | "style" => improvement_commits.push(commit),
+				"docs" => docs_commits.push(commit),
 				_ => other_commits.push(commit),
 			}
 		}
 	}
 
-	// Calculate counts before using vectors in loops
+	// Calculate counts
 	let total_commits = analysis.commits.len();
 	let breaking_count = breaking_commits.len();
 	let feature_count = feature_commits.len();
+	let improvement_count = improvement_commits.len();
 	let fix_count = fix_commits.len();
+	let docs_count = docs_commits.len();
 	let other_count = other_commits.len();
 
+	// Breaking Changes - Highest Priority
 	if !breaking_commits.is_empty() {
-		content.push_str("### ⚠️ BREAKING CHANGES\n\n");
+		content.push_str("### 🚨 Breaking Changes\n\n");
+		content.push_str("⚠️ **Important**: This release contains breaking changes that may require code updates.\n\n");
 		for commit in &breaking_commits {
-			content.push_str(&format_commit_entry(commit));
+			content.push_str(&format_enhanced_commit_entry(commit));
 		}
 		content.push('\n');
 	}
 
+	// New Features & Enhancements
 	if !feature_commits.is_empty() {
-		content.push_str("### ✨ Features\n\n");
+		content.push_str("### ✨ New Features & Enhancements\n\n");
 		for commit in &feature_commits {
-			content.push_str(&format_commit_entry(commit));
+			content.push_str(&format_enhanced_commit_entry(commit));
 		}
 		content.push('\n');
 	}
 
+	// Improvements & Optimizations
+	if !improvement_commits.is_empty() {
+		content.push_str("### 🔧 Improvements & Optimizations\n\n");
+		for commit in &improvement_commits {
+			content.push_str(&format_enhanced_commit_entry(commit));
+		}
+		content.push('\n');
+	}
+
+	// Bug Fixes & Stability
 	if !fix_commits.is_empty() {
-		content.push_str("### 🐛 Bug Fixes\n\n");
+		content.push_str("### 🐛 Bug Fixes & Stability\n\n");
 		for commit in &fix_commits {
-			content.push_str(&format_commit_entry(commit));
+			content.push_str(&format_enhanced_commit_entry(commit));
 		}
 		content.push('\n');
 	}
 
+	// Documentation & Examples
+	if !docs_commits.is_empty() {
+		content.push_str("### 📚 Documentation & Examples\n\n");
+		for commit in &docs_commits {
+			content.push_str(&format_enhanced_commit_entry(commit));
+		}
+		content.push('\n');
+	}
+
+	// Other Changes
 	if !other_commits.is_empty() {
-		content.push_str("### 🔧 Other Changes\n\n");
+		content.push_str("### 🔄 Other Changes\n\n");
 		for commit in &other_commits {
-			content.push_str(&format_commit_entry(commit));
+			content.push_str(&format_enhanced_commit_entry(commit));
 		}
 		content.push('\n');
 	}
 
-	// Add commit summary with counts instead of listing all commits
+	// Enhanced commit summary with better organization
 	if !analysis.commits.is_empty() {
-		content.push_str("### 📊 Commit Summary\n\n");
+		content.push_str("### 📊 Release Summary\n\n");
 
-		content.push_str(&format!("**Total commits**: {}\n", total_commits));
+		content.push_str(&format!(
+			"**Total commits**: {} across {} categories\n\n",
+			total_commits,
+			[
+				breaking_count > 0,
+				feature_count > 0,
+				improvement_count > 0,
+				fix_count > 0,
+				docs_count > 0,
+				other_count > 0
+			]
+			.iter()
+			.filter(|&&x| x)
+			.count()
+		));
 
+		// Priority-based summary
 		if breaking_count > 0 {
 			content.push_str(&format!(
-				"- ⚠️  {} breaking change{}\n",
+				"🚨 **{}** breaking change{} - *Review migration guide above*\n",
 				breaking_count,
 				if breaking_count == 1 { "" } else { "s" }
 			));
 		}
 		if feature_count > 0 {
 			content.push_str(&format!(
-				"- ✨ {} new feature{}\n",
+				"✨ **{}** new feature{} - *Enhanced functionality*\n",
 				feature_count,
 				if feature_count == 1 { "" } else { "s" }
 			));
 		}
+		if improvement_count > 0 {
+			content.push_str(&format!(
+				"🔧 **{}** improvement{} - *Better performance & code quality*\n",
+				improvement_count,
+				if improvement_count == 1 { "" } else { "s" }
+			));
+		}
 		if fix_count > 0 {
 			content.push_str(&format!(
-				"- 🐛 {} bug fix{}\n",
+				"🐛 **{}** bug fix{} - *Improved stability*\n",
 				fix_count,
 				if fix_count == 1 { "" } else { "es" }
 			));
 		}
+		if docs_count > 0 {
+			content.push_str(&format!(
+				"📚 **{}** documentation update{} - *Better developer experience*\n",
+				docs_count,
+				if docs_count == 1 { "" } else { "s" }
+			));
+		}
 		if other_count > 0 {
 			content.push_str(&format!(
-				"- 🔧 {} other change{}\n",
+				"🔄 **{}** other change{} - *Maintenance & tooling*\n",
 				other_count,
 				if other_count == 1 { "" } else { "s" }
 			));
@@ -698,7 +762,7 @@ async fn generate_changelog_content(
 	Ok(content)
 }
 
-fn format_commit_entry(commit: &CommitInfo) -> String {
+fn format_enhanced_commit_entry(commit: &CommitInfo) -> String {
 	let short_hash = &commit.hash[..8];
 	let mut entry = String::new();
 
@@ -709,17 +773,15 @@ fn format_commit_entry(commit: &CommitInfo) -> String {
 		&commit.message
 	};
 
-	// Add scope if available
-	let scope_text = if let Some(ref scope) = commit.scope {
-		format!("**{}**: ", scope)
+	// Enhanced formatting with scope and better presentation
+	if let Some(ref scope) = commit.scope {
+		entry.push_str(&format!(
+			"- **{}**: {} `{}`\n",
+			scope, display_text, short_hash
+		));
 	} else {
-		String::new()
-	};
-
-	entry.push_str(&format!(
-		"- {}{} ({})\n",
-		scope_text, display_text, short_hash
-	));
+		entry.push_str(&format!("- {} `{}`\n", display_text, short_hash));
+	}
 
 	entry
 }
@@ -728,13 +790,15 @@ async fn generate_enhanced_changelog_with_ai(
 	config: &Config,
 	version: &VersionCalculation,
 	analysis: &CommitAnalysis,
+	project_type: &ProjectType,
+	commit_range: &str,
 ) -> Result<String> {
 	// First generate the standard changelog
 	let standard_changelog = generate_changelog_content(version, analysis).await?;
 
 	// Try to enhance with AI summary if API key is available
 	if config.openrouter.api_key.is_some() || std::env::var("OPENROUTER_API_KEY").is_ok() {
-		match generate_ai_changelog_summary(config, analysis).await {
+		match generate_ai_changelog_summary(config, analysis, project_type, commit_range).await {
 			Ok(ai_summary) => {
 				let mut enhanced = String::new();
 				let date = chrono::Utc::now().format("%Y-%m-%d").to_string();
@@ -775,10 +839,172 @@ async fn generate_enhanced_changelog_with_ai(
 	}
 }
 
+async fn gather_project_context(project_type: &ProjectType) -> Result<(String, String)> {
+	let (name, description) = match project_type {
+		ProjectType::Rust(cargo_path) => {
+			let content = fs::read_to_string(cargo_path).unwrap_or_default();
+			let name =
+				extract_field_from_toml(&content, "name").unwrap_or("Unknown Project".to_string());
+			let description = extract_field_from_toml(&content, "description")
+				.unwrap_or("Rust project".to_string());
+			(name, description)
+		}
+		ProjectType::Node(package_path) => {
+			let content = fs::read_to_string(package_path).unwrap_or_default();
+			if let Ok(package) = serde_json::from_str::<serde_json::Value>(&content) {
+				let name = package
+					.get("name")
+					.and_then(|v| v.as_str())
+					.unwrap_or("Unknown Project")
+					.to_string();
+				let description = package
+					.get("description")
+					.and_then(|v| v.as_str())
+					.unwrap_or("Node.js project")
+					.to_string();
+				(name, description)
+			} else {
+				("Unknown Project".to_string(), "Node.js project".to_string())
+			}
+		}
+		ProjectType::Php(composer_path) => {
+			let content = fs::read_to_string(composer_path).unwrap_or_default();
+			if let Ok(composer) = serde_json::from_str::<serde_json::Value>(&content) {
+				let name = composer
+					.get("name")
+					.and_then(|v| v.as_str())
+					.unwrap_or("Unknown Project")
+					.to_string();
+				let description = composer
+					.get("description")
+					.and_then(|v| v.as_str())
+					.unwrap_or("PHP project")
+					.to_string();
+				(name, description)
+			} else {
+				("Unknown Project".to_string(), "PHP project".to_string())
+			}
+		}
+		ProjectType::Go(_) => {
+			// Try to get module name from go.mod
+			let current_dir = std::env::current_dir().unwrap_or_default();
+			let go_mod_path = current_dir.join("go.mod");
+			if let Ok(content) = fs::read_to_string(&go_mod_path) {
+				let name = content
+					.lines()
+					.find(|line| line.starts_with("module "))
+					.and_then(|line| line.split_whitespace().nth(1))
+					.unwrap_or("Unknown Project")
+					.to_string();
+				(name, "Go project".to_string())
+			} else {
+				("Unknown Project".to_string(), "Go project".to_string())
+			}
+		}
+		ProjectType::Unknown => (
+			"Unknown Project".to_string(),
+			"Software project".to_string(),
+		),
+	};
+	Ok((name, description))
+}
+
+fn extract_field_from_toml(content: &str, field: &str) -> Option<String> {
+	for line in content.lines() {
+		let trimmed = line.trim();
+		if trimmed.starts_with(&format!("{} =", field)) {
+			if let Some(start) = line.find('"') {
+				if let Some(end) = line[start + 1..].find('"') {
+					return Some(line[start + 1..start + 1 + end].to_string());
+				}
+			}
+		}
+	}
+	None
+}
+
+async fn analyze_file_changes(commit_range: &str) -> Result<String> {
+	let output = Command::new("git")
+		.args(["diff", "--name-only", commit_range])
+		.output()?;
+
+	if !output.status.success() {
+		return Ok("Unable to analyze file changes".to_string());
+	}
+
+	let files = String::from_utf8(output.stdout).unwrap_or_default();
+	let file_list: Vec<&str> = files.lines().collect();
+
+	if file_list.is_empty() {
+		return Ok("No files changed".to_string());
+	}
+
+	// Categorize files by type/area
+	let mut areas = Vec::new();
+	let mut has_src = false;
+	let mut has_docs = false;
+	let mut has_config = false;
+	let mut has_tests = false;
+
+	for file in &file_list {
+		if file.starts_with("src/")
+			|| file.ends_with(".rs")
+			|| file.ends_with(".js")
+			|| file.ends_with(".ts")
+			|| file.ends_with(".go")
+			|| file.ends_with(".php")
+		{
+			has_src = true;
+		} else if file.ends_with(".md") || file.starts_with("doc") {
+			has_docs = true;
+		} else if file.ends_with(".toml")
+			|| file.ends_with(".json")
+			|| file.ends_with(".yaml")
+			|| file.ends_with(".yml")
+		{
+			has_config = true;
+		} else if file.contains("test") || file.ends_with("_test.rs") || file.ends_with(".test.js")
+		{
+			has_tests = true;
+		}
+	}
+
+	if has_src {
+		areas.push("core functionality");
+	}
+	if has_docs {
+		areas.push("documentation");
+	}
+	if has_config {
+		areas.push("configuration");
+	}
+	if has_tests {
+		areas.push("tests");
+	}
+
+	let area_summary = if areas.is_empty() {
+		"miscellaneous files".to_string()
+	} else {
+		areas.join(", ")
+	};
+
+	Ok(format!(
+		"{} files changed affecting: {}",
+		file_list.len(),
+		area_summary
+	))
+}
+
 async fn generate_ai_changelog_summary(
 	config: &Config,
 	analysis: &CommitAnalysis,
+	project_type: &ProjectType,
+	commit_range: &str,
 ) -> Result<String> {
+	// Gather enhanced context
+	let (project_name, project_description) = gather_project_context(project_type).await?;
+	let file_changes = analyze_file_changes(commit_range).await?;
+
 	// Group commits by type for better summary context
 	let mut breaking_msgs = Vec::new();
 	let mut feature_msgs = Vec::new();
@@ -787,13 +1013,16 @@ async fn generate_ai_changelog_summary(
 
 	for commit in &analysis.commits {
 		let msg = &commit.message;
+		let short_hash = &commit.hash[..8];
+		let msg_with_hash = format!("{} ({})", msg, short_hash);
+
 		if commit.breaking {
-			breaking_msgs.push(msg);
+			breaking_msgs.push(msg_with_hash);
 		} else {
 			match commit.commit_type.as_str() {
-				"feat" => feature_msgs.push(msg),
-				"fix" => fix_msgs.push(msg),
-				_ => other_msgs.push(msg),
+				"feat" => feature_msgs.push(msg_with_hash),
+				"fix" => fix_msgs.push(msg_with_hash),
+				_ => other_msgs.push(msg_with_hash),
 			}
 		}
 	}
@@ -833,20 +1062,41 @@ async fn generate_ai_changelog_summary(
 	}
 
 	let prompt = format!(
-		"Generate a concise, professional release summary based on these grouped commits:\\n\\n{}\\n\\
+		"Generate a concise, professional release summary for {project_name}.\\n\\n\\
+        PROJECT: {project_name} - {project_description}\\n\\
+        SCOPE: {file_changes}\\n\\n\\
+        COMMITS:\\n{commits_context}\\n\\
         REQUIREMENTS:\\n\\
         - Write 2-3 sentences maximum\\n\\
         - Focus on user-facing changes and improvements (not implementation details)\\n\\
         - Use professional, clear language suitable for end users\\n\\
-        - Don't repeat commit hashes, technical jargon, or internal references\\n\\
+
+        DEDUPLICATION & GROUPING RULES:\\n\\
+        - NEVER repeat similar commits - group them together instead\\n\\
+        - When multiple commits do similar things, combine them into ONE statement\\n\\
+        - Reference multiple commits like: 'Enhanced search functionality (abc123f, def456g, hij789k)'\\n\\
+        - Group by impact/feature, not by individual commit\\n\\
+        - If commits are nearly identical, mention the improvement once with all commit references\\n\\
+
+        MESSAGE REFINEMENT:\\n\\
+        - You may IMPROVE and REFINE commit messages for clarity\\n\\
+        - Don't preserve exact wording - make it user-friendly\\n\\
+        - Focus on the RESULT/BENEFIT, not the technical implementation\\n\\
+        - Combine multiple small changes into broader improvements\\n\\
+
+        FORMATTING:\\n\\
         - Group similar changes together (e.g., 'Several bug fixes improve...')\\n\\
-        - Prioritize in order: breaking changes → new features → improvements → bug fixes\\n\\
-        - Avoid redundancy - merge similar commits into broader statements\\n\\
+        - Prioritize: breaking changes → new features → improvements → bug fixes\\n\\
         - End with a period\\n\\
         - Create only a high-level summary for users, not developers\\n\\n\\
-        Example: \\\"This release introduces multi-query search capabilities and enhanced memory management features. Performance improvements include optimized indexing with better batch processing and reduced memory usage. Several bug fixes improve search relevance, error handling, and system stability.\\\"\\n\\n\\
+
+        Example: \\\"This release introduces multi-query search capabilities and enhanced memory management features (a1b2c3d, e4f5g6h). Performance improvements include optimized indexing with better batch processing and reduced memory usage (i7j8k9l, m0n1o2p). Several bug fixes improve search relevance, error handling, and system stability (q3r4s5t, u6v7w8x, y9z0a1b).\\\"\\n\\n\\
+
         Generate summary:",
-		commits_context
+		project_name = project_name,
+		project_description = project_description,
+		file_changes = file_changes,
+		commits_context = commits_context
 	);
 
 	call_llm_for_version_calculation(&prompt, config).await
