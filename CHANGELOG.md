@@ -1,5 +1,54 @@
 # Changelog
 
+## [0.7.0] - 2025-06-27
+
+### 📋 Release Summary
+
+This release introduces enhanced search capabilities with distance-based result sorting and improved input handling, alongside streamlined environment configuration and automated changelog generation (97af3e9c, ea78232f, f3c50bbc, 9fab3f2c). Several bug fixes improve search accuracy, error handling, and repository detection (fa171584, 057c7832, e950d9c4). Additional updates include dependency upgrades, codebase optimizations, documentation fixes, and new website deployment.
+
+
+### ✨ New Features & Enhancements
+
+- **store**: include and sort search results by distance score `97af3e9c`
+- **embedding**: add input_type support with manual prefix injection `ea78232f`
+- **config**: load environment variables from .env file on startup `f3c50bbc`
+- **release**: enhance changelog generation and categorization `9fab3f2c`
+
+### 🔧 Improvements & Optimizations
+
+- **store**: unify vector search optimization with VectorOptimizer `3d9d4281`
+- **store**: replace deprecated nearest_to with vector_search API `867a65a9`
+- **commit**: add file-type checks to enforce docs type rules `ee523291`
+
+### 🐛 Bug Fixes & Stability
+
+- **mcp**: unify error handling in GraphRAG search execution `fa171584`
+- **search**: correct threshold conversion from similarity to distance `057c7832`
+- **cli**: use git root for repository detection in commands `e950d9c4`
+
+### 📚 Documentation & Examples
+
+- fix install script URLs to use master branch `8c304970`
+
+### 🔄 Other Changes
+
+- **deps**: upgrade notify, notify-debouncer-mini, dirs, and tree-si... `1d71d547`
+- **deps**: upgrade arrow crates to 55.2.0 for dependency updates `1ad07e85`
+- **ci**: update Rust version to 1.82 in Cargo.toml and clean workfl... `4bcc8d53`
+- **deps**: update Cargo `08a6c6cb`
+- Add website `7ace9672`
+- **release**: add GitHub Action job to publish crate to crates.io `84af3b80`
+
+### 📊 Release Summary
+
+**Total commits**: 17 across 5 categories
+
+✨ **4** new features - *Enhanced functionality*
+🔧 **3** improvements - *Better performance & code quality*
+🐛 **3** bug fixes - *Improved stability*
+📚 **1** documentation update - *Better developer experience*
+🔄 **6** other changes - *Maintenance & tooling*
+
 ## [0.6.0] - 2025-06-24
 
 ### 📋 Release Summary
