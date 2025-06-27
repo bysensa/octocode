@@ -496,8 +496,12 @@ impl BatchConverter {
 			.as_any()
 			.downcast_ref::<StringArray>()
 			.ok_or_else(|| anyhow::anyhow!("hash column is not a StringArray"))?;
-
-		// Process each row
+		// Extract distance column from LanceDB search results
+		let distance_array = batch
+			.column_by_name("_distance")
+			.and_then(|col| col.as_any().downcast_ref::<Float32Array>())
+			.map(|arr| (0..arr.len()).map(|i| arr.value(i)).collect::<Vec<f32>>())
+			.unwrap_or_default();
 		for i in 0..batch.num_rows() {
 			// Parse symbols JSON
 			let symbols_json = symbols_array.value(i);
@@ -515,7 +519,7 @@ impl BatchConverter {
 				start_line: start_line_array.value(i) as usize,
 				end_line: end_line_array.value(i) as usize,
 				hash: hash_array.value(i).to_string(),
-				distance: None,
+				distance: distance_array.get(i).copied(),
 			};
 
 			code_blocks.push(code_block);
@@ -575,6 +579,13 @@ impl BatchConverter {
 			.downcast_ref::<StringArray>()
 			.ok_or_else(|| anyhow::anyhow!("hash column is not a StringArray"))?;
 
+		// Extract distance column from LanceDB search results
+		let distance_array = batch
+			.column_by_name("_distance")
+			.and_then(|col| col.as_any().downcast_ref::<Float32Array>())
+			.map(|arr| (0..arr.len()).map(|i| arr.value(i)).collect::<Vec<f32>>())
+			.unwrap_or_default();
+
 		// Process each row
 		for i in 0..batch.num_rows() {
 			let text_block = TextBlock {
@@ -584,7 +595,7 @@ impl BatchConverter {
 				start_line: start_line_array.value(i) as usize,
 				end_line: end_line_array.value(i) as usize,
 				hash: hash_array.value(i).to_string(),
-				distance: None,
+				distance: distance_array.get(i).copied(),
 			};
 
 			text_blocks.push(text_block);
@@ -650,8 +661,12 @@ impl BatchConverter {
 			.as_any()
 			.downcast_ref::<StringArray>()
 			.ok_or_else(|| anyhow::anyhow!("hash column is not a StringArray"))?;
-
-		// Process each row
+		// Extract distance column from LanceDB search results
+		let distance_array = batch
+			.column_by_name("_distance")
+			.and_then(|col| col.as_any().downcast_ref::<Float32Array>())
+			.map(|arr| (0..arr.len()).map(|i| arr.value(i)).collect::<Vec<f32>>())
+			.unwrap_or_default();
 		for i in 0..batch.num_rows() {
 			let context = if context_array.is_null(i) {
 				Vec::new()
@@ -692,7 +707,7 @@ impl BatchConverter {
 				start_line: start_line_array.value(i) as usize,
 				end_line: end_line_array.value(i) as usize,
 				hash: hash_array.value(i).to_string(),
-				distance: None, // Set by search functions when needed
+				distance: distance_array.get(i).copied(),
 			};
 
 			document_blocks.push(document_block);

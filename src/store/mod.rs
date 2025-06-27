@@ -518,6 +518,18 @@ impl Store {
 			}
 		}
 
+		// Sort results by distance (ascending - lower distance = higher similarity)
+		all_code_blocks.sort_by(|a, b| {
+			match (a.distance, b.distance) {
+				(Some(dist_a), Some(dist_b)) => dist_a
+					.partial_cmp(&dist_b)
+					.unwrap_or(std::cmp::Ordering::Equal),
+				(Some(_), None) => std::cmp::Ordering::Less, // Results with distance come first
+				(None, Some(_)) => std::cmp::Ordering::Greater,
+				(None, None) => std::cmp::Ordering::Equal,
+			}
+		});
+
 		Ok(all_code_blocks)
 	}
 
@@ -569,6 +581,18 @@ impl Store {
 			}
 		}
 
+		// Sort results by distance (ascending - lower distance = higher similarity)
+		all_text_blocks.sort_by(|a, b| {
+			match (a.distance, b.distance) {
+				(Some(dist_a), Some(dist_b)) => dist_a
+					.partial_cmp(&dist_b)
+					.unwrap_or(std::cmp::Ordering::Equal),
+				(Some(_), None) => std::cmp::Ordering::Less, // Results with distance come first
+				(None, Some(_)) => std::cmp::Ordering::Greater,
+				(None, None) => std::cmp::Ordering::Equal,
+			}
+		});
+
 		Ok(all_text_blocks)
 	}
 
@@ -618,6 +642,18 @@ impl Store {
 				all_document_blocks.append(&mut document_blocks);
 			}
 		}
+
+		// Sort results by distance (ascending - lower distance = higher similarity)
+		all_document_blocks.sort_by(|a, b| {
+			match (a.distance, b.distance) {
+				(Some(dist_a), Some(dist_b)) => dist_a
+					.partial_cmp(&dist_b)
+					.unwrap_or(std::cmp::Ordering::Equal),
+				(Some(_), None) => std::cmp::Ordering::Less, // Results with distance come first
+				(None, Some(_)) => std::cmp::Ordering::Greater,
+				(None, None) => std::cmp::Ordering::Equal,
+			}
+		});
 
 		Ok(all_document_blocks)
 	}
