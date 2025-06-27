@@ -1097,7 +1097,7 @@ async fn run_watcher(
 	working_dir: std::path::PathBuf,
 	debug: bool,
 ) -> Result<()> {
-	use notify::RecursiveMode;
+	use notify_debouncer_mini::notify::RecursiveMode;
 	use notify_debouncer_mini::{new_debouncer, DebouncedEvent};
 
 	let (debouncer_tx, mut debouncer_rx) = mpsc::channel(MCP_MAX_PENDING_EVENTS);
@@ -1108,7 +1108,7 @@ async fn run_watcher(
 	// Use minimal debounce for the file watcher itself - we handle the real debouncing in the event handler
 	let mut debouncer = new_debouncer(
 		Duration::from_millis(MIN_DEBOUNCE_MS),
-		move |res: Result<Vec<DebouncedEvent>, notify::Error>| match res {
+		move |res: Result<Vec<DebouncedEvent>, notify_debouncer_mini::notify::Error>| match res {
 			Ok(events) => {
 				// Filter out events from irrelevant paths using ignore patterns
 				let relevant_events: Vec<_> = events

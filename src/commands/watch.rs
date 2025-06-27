@@ -108,6 +108,7 @@ pub async fn execute(
 	}
 
 	// Setup the file watcher with debouncer
+	use notify_debouncer_mini::notify::RecursiveMode;
 	use notify_debouncer_mini::{new_debouncer, DebouncedEvent};
 	use std::sync::mpsc::channel;
 	use std::time::Duration;
@@ -123,7 +124,7 @@ pub async fn execute(
 	// Create a debounced watcher to call our tx sender when files change
 	let mut debouncer = new_debouncer(
 		Duration::from_secs(debounce_secs),
-		move |res: Result<Vec<DebouncedEvent>, notify::Error>| {
+		move |res: Result<Vec<DebouncedEvent>, notify_debouncer_mini::notify::Error>| {
 			match res {
 				Ok(events) => {
 					// Filter out events from irrelevant paths using ignore patterns
@@ -148,7 +149,7 @@ pub async fn execute(
 	// Add the current directory to the watcher
 	debouncer
 		.watcher()
-		.watch(&current_dir, notify::RecursiveMode::Recursive)?;
+		.watch(&current_dir, RecursiveMode::Recursive)?;
 
 	// Create shared state for reindexing
 	let state = state::create_shared_state();
