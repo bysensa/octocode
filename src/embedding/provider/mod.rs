@@ -23,7 +23,7 @@ use serde_json::{json, Value};
 use std::sync::LazyLock;
 use std::time::Duration;
 
-use super::types::EmbeddingProviderType;
+use super::types::{EmbeddingProviderType, InputType};
 
 // Shared HTTP client with connection pooling for optimal performance
 static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(|| {
@@ -48,7 +48,11 @@ pub use sentence_transformer::SentenceTransformerProvider;
 #[async_trait::async_trait]
 pub trait EmbeddingProvider: Send + Sync {
 	async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>>;
-	async fn generate_embeddings_batch(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>>;
+	async fn generate_embeddings_batch(
+		&self,
+		texts: Vec<String>,
+		input_type: InputType,
+	) -> Result<Vec<Vec<f32>>>;
 }
 
 /// Create an embedding provider from provider type and model
@@ -102,8 +106,18 @@ impl EmbeddingProvider for SentenceTransformerProviderImpl {
 		SentenceTransformerProvider::generate_embeddings(text, &self.model_name).await
 	}
 
-	async fn generate_embeddings_batch(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>> {
-		SentenceTransformerProvider::generate_embeddings_batch(texts, &self.model_name).await
+	async fn generate_embeddings_batch(
+		&self,
+		texts: Vec<String>,
+		input_type: InputType,
+	) -> Result<Vec<Vec<f32>>> {
+		// Apply prefix manually for SentenceTransformer (doesn't support input_type API)
+		let processed_texts: Vec<String> = texts
+			.into_iter()
+			.map(|text| input_type.apply_prefix(&text))
+			.collect();
+		SentenceTransformerProvider::generate_embeddings_batch(processed_texts, &self.model_name)
+			.await
 	}
 }
 
@@ -126,8 +140,17 @@ impl EmbeddingProvider for JinaProviderImpl {
 		JinaProvider::generate_embeddings(text, &self.model_name).await
 	}
 
-	async fn generate_embeddings_batch(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>> {
-		JinaProvider::generate_embeddings_batch(texts, &self.model_name).await
+	async fn generate_embeddings_batch(
+		&self,
+		texts: Vec<String>,
+		input_type: InputType,
+	) -> Result<Vec<Vec<f32>>> {
+		// Apply prefix manually for Jina (doesn't support input_type API)
+		let processed_texts: Vec<String> = texts
+			.into_iter()
+			.map(|text| input_type.apply_prefix(&text))
+			.collect();
+		JinaProvider::generate_embeddings_batch(processed_texts, &self.model_name).await
 	}
 }
 
@@ -150,8 +173,12 @@ impl EmbeddingProvider for VoyageProviderImpl {
 		VoyageProvider::generate_embeddings(text, &self.model_name).await
 	}
 
-	async fn generate_embeddings_batch(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>> {
-		VoyageProvider::generate_embeddings_batch(texts, &self.model_name).await
+	async fn generate_embeddings_batch(
+		&self,
+		texts: Vec<String>,
+		input_type: InputType,
+	) -> Result<Vec<Vec<f32>>> {
+		VoyageProvider::generate_embeddings_batch(texts, &self.model_name, input_type).await
 	}
 }
 
@@ -174,8 +201,17 @@ impl EmbeddingProvider for GoogleProviderImpl {
 		GoogleProvider::generate_embeddings(text, &self.model_name).await
 	}
 
-	async fn generate_embeddings_batch(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>> {
-		GoogleProvider::generate_embeddings_batch(texts, &self.model_name).await
+	async fn generate_embeddings_batch(
+		&self,
+		texts: Vec<String>,
+		input_type: InputType,
+	) -> Result<Vec<Vec<f32>>> {
+		// Apply prefix manually for Google (doesn't support input_type API)
+		let processed_texts: Vec<String> = texts
+			.into_iter()
+			.map(|text| input_type.apply_prefix(&text))
+			.collect();
+		GoogleProvider::generate_embeddings_batch(processed_texts, &self.model_name).await
 	}
 }
 
@@ -233,7 +269,9 @@ pub struct VoyageProvider;
 
 impl VoyageProvider {
 	pub async fn generate_embeddings(contents: &str, model: &str) -> Result<Vec<f32>> {
-		let result = Self::generate_embeddings_batch(vec![contents.to_string()], model).await?;
+		let result =
+			Self::generate_embeddings_batch(vec![contents.to_string()], model, InputType::None)
+				.await?;
 		result
 			.first()
 			.cloned()
@@ -243,18 +281,27 @@ impl VoyageProvider {
 	pub async fn generate_embeddings_batch(
 		texts: Vec<String>,
 		model: &str,
+		input_type: InputType,
 	) -> Result<Vec<Vec<f32>>> {
 		let voyage_api_key = std::env::var("VOYAGE_API_KEY")
 			.context("VOYAGE_API_KEY environment variable not set")?;
+
+		// Build request body with optional input_type
+		let mut request_body = json!({
+			"input": texts,
+			"model": model,
+		});
+
+		// Add input_type if specified (Voyage API native support)
+		if let Some(input_type_str) = input_type.as_api_str() {
+			request_body["input_type"] = json!(input_type_str);
+		}
 
 		let response = HTTP_CLIENT
 			.post("https://api.voyageai.com/v1/embeddings")
 			.header("Authorization", format!("Bearer {}", voyage_api_key))
 			.header("Content-Type", "application/json")
-			.json(&json!({
-				"input": texts,
-				"model": model,
-			}))
+			.json(&request_body)
 			.send()
 			.await?;
 

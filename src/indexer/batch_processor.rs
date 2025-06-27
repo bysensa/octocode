@@ -31,7 +31,13 @@ pub async fn process_code_blocks_batch(
 ) -> Result<()> {
 	let start_time = std::time::Instant::now();
 	let contents: Vec<String> = blocks.iter().map(|b| b.content.clone()).collect();
-	let embeddings = crate::embedding::generate_embeddings_batch(contents, true, config).await?;
+	let embeddings = crate::embedding::generate_embeddings_batch(
+		contents,
+		true,
+		config,
+		crate::embedding::types::InputType::Document,
+	)
+	.await?;
 	store.store_code_blocks(blocks, &embeddings).await?;
 
 	let duration_ms = start_time.elapsed().as_millis() as u64;
@@ -48,7 +54,13 @@ pub async fn process_text_blocks_batch(
 ) -> Result<()> {
 	let start_time = std::time::Instant::now();
 	let contents: Vec<String> = blocks.iter().map(|b| b.content.clone()).collect();
-	let embeddings = crate::embedding::generate_embeddings_batch(contents, false, config).await?;
+	let embeddings = crate::embedding::generate_embeddings_batch(
+		contents,
+		false,
+		config,
+		crate::embedding::types::InputType::Document,
+	)
+	.await?;
 	store.store_text_blocks(blocks, &embeddings).await?;
 
 	let duration_ms = start_time.elapsed().as_millis() as u64;
@@ -74,7 +86,13 @@ pub async fn process_document_blocks_batch(
 			}
 		})
 		.collect();
-	let embeddings = crate::embedding::generate_embeddings_batch(contents, false, config).await?;
+	let embeddings = crate::embedding::generate_embeddings_batch(
+		contents,
+		false,
+		config,
+		crate::embedding::types::InputType::Document,
+	)
+	.await?;
 	store.store_document_blocks(blocks, &embeddings).await?;
 
 	let duration_ms = start_time.elapsed().as_millis() as u64;

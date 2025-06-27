@@ -14,6 +14,51 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Input type for embedding generation
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InputType {
+	/// Default - no input_type (existing behavior)
+	None,
+	/// For search operations
+	Query,
+	/// For indexing operations
+	Document,
+}
+
+impl Default for InputType {
+	fn default() -> Self {
+		Self::None
+	}
+}
+
+impl InputType {
+	/// Convert to API string for providers that support it (like Voyage)
+	pub fn as_api_str(&self) -> Option<&'static str> {
+		match self {
+			InputType::None => None,
+			InputType::Query => Some("query"),
+			InputType::Document => Some("document"),
+		}
+	}
+
+	/// Get prefix for manual injection (for providers that don't support input_type API)
+	pub fn get_prefix(&self) -> Option<&'static str> {
+		match self {
+			InputType::None => None,
+			InputType::Query => Some(crate::constants::QUERY_PREFIX),
+			InputType::Document => Some(crate::constants::DOCUMENT_PREFIX),
+		}
+	}
+
+	/// Apply prefix to text for manual injection
+	pub fn apply_prefix(&self, text: &str) -> String {
+		match self.get_prefix() {
+			Some(prefix) => format!("{}{}", prefix, text),
+			None => text.to_string(),
+		}
+	}
+}
+
 /// Supported embedding providers
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]

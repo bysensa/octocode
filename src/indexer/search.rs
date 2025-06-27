@@ -1624,8 +1624,13 @@ async fn generate_batch_embeddings_for_queries_mcp(
 ) -> Result<Vec<crate::embedding::SearchModeEmbeddings>> {
 	match mode {
 		"code" => {
-			let code_embeddings =
-				crate::embedding::generate_embeddings_batch(queries.to_vec(), true, config).await?;
+			let code_embeddings = crate::embedding::generate_embeddings_batch(
+				queries.to_vec(),
+				true,
+				config,
+				crate::embedding::types::InputType::Query,
+			)
+			.await?;
 			Ok(code_embeddings
 				.into_iter()
 				.map(|emb| crate::embedding::SearchModeEmbeddings {
@@ -1635,9 +1640,13 @@ async fn generate_batch_embeddings_for_queries_mcp(
 				.collect())
 		}
 		"docs" | "text" => {
-			let text_embeddings =
-				crate::embedding::generate_embeddings_batch(queries.to_vec(), false, config)
-					.await?;
+			let text_embeddings = crate::embedding::generate_embeddings_batch(
+				queries.to_vec(),
+				false,
+				config,
+				crate::embedding::types::InputType::Query,
+			)
+			.await?;
 			Ok(text_embeddings
 				.into_iter()
 				.map(|emb| crate::embedding::SearchModeEmbeddings {
@@ -1651,9 +1660,13 @@ async fn generate_batch_embeddings_for_queries_mcp(
 			let text_model = &config.embedding.text_model;
 
 			if code_model == text_model {
-				let embeddings =
-					crate::embedding::generate_embeddings_batch(queries.to_vec(), true, config)
-						.await?;
+				let embeddings = crate::embedding::generate_embeddings_batch(
+					queries.to_vec(),
+					true,
+					config,
+					crate::embedding::types::InputType::Query,
+				)
+				.await?;
 				Ok(embeddings
 					.into_iter()
 					.map(|emb| crate::embedding::SearchModeEmbeddings {
@@ -1663,8 +1676,18 @@ async fn generate_batch_embeddings_for_queries_mcp(
 					.collect())
 			} else {
 				let (code_embeddings, text_embeddings) = tokio::try_join!(
-					crate::embedding::generate_embeddings_batch(queries.to_vec(), true, config),
-					crate::embedding::generate_embeddings_batch(queries.to_vec(), false, config)
+					crate::embedding::generate_embeddings_batch(
+						queries.to_vec(),
+						true,
+						config,
+						crate::embedding::types::InputType::Query
+					),
+					crate::embedding::generate_embeddings_batch(
+						queries.to_vec(),
+						false,
+						config,
+						crate::embedding::types::InputType::Query
+					)
 				)?;
 
 				Ok(code_embeddings
@@ -1999,8 +2022,13 @@ pub async fn generate_batch_embeddings_for_queries(
 	match mode {
 		"code" => {
 			// Batch generate code embeddings for all queries
-			let code_embeddings =
-				crate::embedding::generate_embeddings_batch(queries.to_vec(), true, config).await?;
+			let code_embeddings = crate::embedding::generate_embeddings_batch(
+				queries.to_vec(),
+				true,
+				config,
+				crate::embedding::types::InputType::Query,
+			)
+			.await?;
 			Ok(code_embeddings
 				.into_iter()
 				.map(|emb| crate::embedding::SearchModeEmbeddings {
@@ -2011,9 +2039,13 @@ pub async fn generate_batch_embeddings_for_queries(
 		}
 		"docs" | "text" => {
 			// Batch generate text embeddings for all queries
-			let text_embeddings =
-				crate::embedding::generate_embeddings_batch(queries.to_vec(), false, config)
-					.await?;
+			let text_embeddings = crate::embedding::generate_embeddings_batch(
+				queries.to_vec(),
+				false,
+				config,
+				crate::embedding::types::InputType::Query,
+			)
+			.await?;
 			Ok(text_embeddings
 				.into_iter()
 				.map(|emb| crate::embedding::SearchModeEmbeddings {
@@ -2028,9 +2060,13 @@ pub async fn generate_batch_embeddings_for_queries(
 
 			if code_model == text_model {
 				// Same model - generate once and reuse (efficient!)
-				let embeddings =
-					crate::embedding::generate_embeddings_batch(queries.to_vec(), true, config)
-						.await?;
+				let embeddings = crate::embedding::generate_embeddings_batch(
+					queries.to_vec(),
+					true,
+					config,
+					crate::embedding::types::InputType::Query,
+				)
+				.await?;
 				Ok(embeddings
 					.into_iter()
 					.map(|emb| crate::embedding::SearchModeEmbeddings {
@@ -2041,8 +2077,18 @@ pub async fn generate_batch_embeddings_for_queries(
 			} else {
 				// Different models - generate both types in parallel
 				let (code_embeddings, text_embeddings) = tokio::try_join!(
-					crate::embedding::generate_embeddings_batch(queries.to_vec(), true, config),
-					crate::embedding::generate_embeddings_batch(queries.to_vec(), false, config)
+					crate::embedding::generate_embeddings_batch(
+						queries.to_vec(),
+						true,
+						config,
+						crate::embedding::types::InputType::Query
+					),
+					crate::embedding::generate_embeddings_batch(
+						queries.to_vec(),
+						false,
+						config,
+						crate::embedding::types::InputType::Query
+					)
 				)?;
 
 				Ok(code_embeddings

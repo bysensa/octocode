@@ -41,7 +41,7 @@ use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use std::sync::Arc;
 
 #[cfg(feature = "fastembed")]
-use super::super::EmbeddingProvider;
+use super::super::{types::InputType, EmbeddingProvider};
 
 #[cfg(feature = "fastembed")]
 /// FastEmbed provider implementation for trait
@@ -92,11 +92,21 @@ impl EmbeddingProvider for FastEmbedProviderImpl {
 		Ok(embedding)
 	}
 
-	async fn generate_embeddings_batch(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>> {
+	async fn generate_embeddings_batch(
+		&self,
+		texts: Vec<String>,
+		input_type: InputType,
+	) -> Result<Vec<Vec<f32>>> {
 		let model = self.model.clone();
 
+		// Apply prefix manually for FastEmbed (doesn't support input_type API)
+		let processed_texts: Vec<String> = texts
+			.into_iter()
+			.map(|text| input_type.apply_prefix(&text))
+			.collect();
+
 		let embeddings = tokio::task::spawn_blocking(move || -> Result<Vec<Vec<f32>>> {
-			let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+			let text_refs: Vec<&str> = processed_texts.iter().map(|s| s.as_str()).collect();
 			let embeddings = model.embed(text_refs, None)?;
 
 			Ok(embeddings)
@@ -190,7 +200,11 @@ impl super::super::EmbeddingProvider for FastEmbedProviderImpl {
 		))
 	}
 
-	async fn generate_embeddings_batch(&self, _texts: Vec<String>) -> Result<Vec<Vec<f32>>> {
+	async fn generate_embeddings_batch(
+		&self,
+		_texts: Vec<String>,
+		_input_type: crate::embedding::types::InputType,
+	) -> Result<Vec<Vec<f32>>> {
 		Err(anyhow::anyhow!(
 			"FastEmbed support is not compiled in. Please rebuild with --features fastembed"
 		))

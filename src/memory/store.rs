@@ -302,8 +302,13 @@ impl MemoryStore {
 
 		// Generate ALL embeddings in ONE API request using the same high-level function as indexer
 		// This includes token-aware batching and respects config limits
-		let embeddings =
-			crate::embedding::generate_embeddings_batch(texts, false, &self.main_config).await?;
+		let embeddings = crate::embedding::generate_embeddings_batch(
+			texts,
+			false,
+			&self.main_config,
+			crate::embedding::types::InputType::Query,
+		)
+		.await?;
 
 		if embeddings.len() != memories.len() {
 			return Err(anyhow::anyhow!(

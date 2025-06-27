@@ -654,6 +654,7 @@ impl GraphBuilder {
 			pending_embeddings.clone(),
 			false, // Use text embeddings for GraphRAG descriptions
 			&self.config,
+			crate::embedding::types::InputType::Document,
 		)
 		.await?;
 

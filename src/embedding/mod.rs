@@ -119,11 +119,12 @@ pub fn split_texts_into_token_limited_batches(
 }
 
 /// Generate batch embeddings based on configured provider (supports provider:model format)
-/// Now includes token-aware batching
+/// Now includes token-aware batching and input_type support
 pub async fn generate_embeddings_batch(
 	texts: Vec<String>,
 	is_code: bool,
 	config: &Config,
+	input_type: types::InputType,
 ) -> Result<Vec<Vec<f32>>> {
 	// Get the model string from config
 	let model_string = if is_code {
@@ -146,9 +147,11 @@ pub async fn generate_embeddings_batch(
 
 	let mut all_embeddings = Vec::new();
 
-	// Process each batch
+	// Process each batch with input_type
 	for batch in batches {
-		let batch_embeddings = provider_impl.generate_embeddings_batch(batch).await?;
+		let batch_embeddings = provider_impl
+			.generate_embeddings_batch(batch, input_type.clone())
+			.await?;
 		all_embeddings.extend(batch_embeddings);
 	}
 
