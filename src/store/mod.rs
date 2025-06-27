@@ -537,8 +537,10 @@ impl Store {
 				let mut code_blocks = converter.batch_to_code_blocks(&batch, None)?;
 
 				// Apply distance threshold if specified
-				if let Some(threshold) = distance_threshold {
-					code_blocks.retain(|block| block.distance.is_none_or(|d| d >= threshold));
+				if let Some(distance_threshold_value) = distance_threshold {
+					code_blocks.retain(|block| {
+						block.distance.is_none_or(|d| d <= distance_threshold_value)
+					});
 				}
 
 				all_code_blocks.append(&mut code_blocks);
@@ -603,8 +605,10 @@ impl Store {
 				let mut text_blocks = converter.batch_to_text_blocks(&batch, None)?;
 
 				// Apply distance threshold if specified
-				if let Some(threshold) = distance_threshold {
-					text_blocks.retain(|block| block.distance.is_none_or(|d| d >= threshold));
+				if let Some(distance_threshold_value) = distance_threshold {
+					text_blocks.retain(|block| {
+						block.distance.is_none_or(|d| d <= distance_threshold_value)
+					});
 				}
 
 				all_text_blocks.append(&mut text_blocks);
@@ -668,8 +672,10 @@ impl Store {
 				let mut document_blocks = converter.batch_to_document_blocks(&batch, None)?;
 
 				// Apply distance threshold if specified
-				if let Some(threshold) = distance_threshold {
-					document_blocks.retain(|block| block.distance.is_none_or(|d| d >= threshold));
+				if let Some(distance_threshold_value) = distance_threshold {
+					document_blocks.retain(|block| {
+						block.distance.is_none_or(|d| d <= distance_threshold_value)
+					});
 				}
 
 				all_document_blocks.append(&mut document_blocks);

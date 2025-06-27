@@ -1081,6 +1081,9 @@ pub async fn search_codebase_with_details_text(
 	let search_embeddings =
 		crate::embedding::generate_search_embeddings(query, mode, config).await?;
 
+	// Convert similarity threshold to distance threshold for store operations
+	let distance_threshold = 1.0 - similarity_threshold;
+
 	// Perform the search based on mode
 	match mode {
 		"code" => {
@@ -1091,7 +1094,7 @@ pub async fn search_codebase_with_details_text(
 				.get_code_blocks_with_language_filter(
 					embeddings,
 					Some(max_results),
-					Some(similarity_threshold),
+					Some(distance_threshold),
 					language_filter,
 				)
 				.await?;
@@ -1105,7 +1108,7 @@ pub async fn search_codebase_with_details_text(
 				.get_text_blocks_with_config(
 					embeddings,
 					Some(max_results),
-					Some(similarity_threshold),
+					Some(distance_threshold),
 				)
 				.await?;
 			Ok(format_text_search_results_as_text(&results, detail_level))
@@ -1118,7 +1121,7 @@ pub async fn search_codebase_with_details_text(
 				.get_document_blocks_with_config(
 					embeddings,
 					Some(max_results),
-					Some(similarity_threshold),
+					Some(distance_threshold),
 				)
 				.await?;
 			Ok(format_doc_search_results_as_text(&results, detail_level))
@@ -1137,7 +1140,7 @@ pub async fn search_codebase_with_details_text(
 				.get_code_blocks_with_language_filter(
 					code_embeddings,
 					Some(results_per_type),
-					Some(similarity_threshold),
+					Some(distance_threshold),
 					language_filter,
 				)
 				.await?;
@@ -1145,14 +1148,14 @@ pub async fn search_codebase_with_details_text(
 				.get_text_blocks_with_config(
 					text_embeddings.clone(),
 					Some(results_per_type),
-					Some(similarity_threshold),
+					Some(distance_threshold),
 				)
 				.await?;
 			let doc_results = store
 				.get_document_blocks_with_config(
 					text_embeddings,
 					Some(results_per_type),
-					Some(similarity_threshold),
+					Some(distance_threshold),
 				)
 				.await?;
 
@@ -1206,19 +1209,19 @@ pub async fn search_codebase_with_details_multi_query_text(
 		.zip(embeddings.into_iter())
 		.collect();
 
-	// Execute parallel searches
+	// Convert similarity threshold to distance threshold for store operations
+	let distance_threshold = 1.0 - similarity_threshold;
+
+	// Execute parallel searches - Pass original similarity_threshold, conversion happens inside
 	let search_results = execute_parallel_searches(
 		&store,
 		query_embeddings,
 		mode,
 		max_results,
-		similarity_threshold,
+		similarity_threshold, // Pass original similarity_threshold
 		language_filter,
 	)
 	.await?;
-
-	// Convert similarity threshold to distance threshold
-	let distance_threshold = 1.0 - similarity_threshold;
 
 	// Deduplicate and merge with multi-query bonuses
 	let (mut code_blocks, mut doc_blocks, mut text_blocks) =
@@ -1795,7 +1798,7 @@ async fn execute_single_search_with_embeddings_mcp(
 fn deduplicate_and_merge_results_mcp(
 	search_results: Vec<QuerySearchResultMcp>,
 	queries: &[String],
-	threshold: f32,
+	distance_threshold: f32,
 ) -> (
 	Vec<CodeBlock>,
 	Vec<crate::store::DocumentBlock>,
@@ -1869,7 +1872,7 @@ fn deduplicate_and_merge_results_mcp(
 		})
 		.filter(|block| {
 			if let Some(distance) = block.distance {
-				distance <= threshold
+				distance <= distance_threshold
 			} else {
 				true
 			}
@@ -1884,7 +1887,7 @@ fn deduplicate_and_merge_results_mcp(
 		})
 		.filter(|block| {
 			if let Some(distance) = block.distance {
-				distance <= threshold
+				distance <= distance_threshold
 			} else {
 				true
 			}
@@ -1899,7 +1902,7 @@ fn deduplicate_and_merge_results_mcp(
 		})
 		.filter(|block| {
 			if let Some(distance) = block.distance {
-				distance <= threshold
+				distance <= distance_threshold
 			} else {
 				true
 			}
@@ -2067,6 +2070,9 @@ pub async fn execute_single_search_with_embeddings(
 	similarity_threshold: f32,
 	language_filter: Option<&str>,
 ) -> Result<QuerySearchResult> {
+	// Convert similarity threshold to distance threshold for store operations
+	let distance_threshold = 1.0 - similarity_threshold;
+
 	let mut code_blocks = Vec::new();
 	let mut doc_blocks = Vec::new();
 	let mut text_blocks = Vec::new();
@@ -2078,7 +2084,7 @@ pub async fn execute_single_search_with_embeddings(
 					.get_code_blocks_with_language_filter(
 						code_emb,
 						Some(per_query_limit),
-						Some(similarity_threshold),
+						Some(distance_threshold),
 						language_filter,
 					)
 					.await?;
@@ -2090,7 +2096,7 @@ pub async fn execute_single_search_with_embeddings(
 					.get_document_blocks_with_config(
 						text_emb,
 						Some(per_query_limit),
-						Some(similarity_threshold),
+						Some(distance_threshold),
 					)
 					.await?;
 			}
@@ -2101,7 +2107,7 @@ pub async fn execute_single_search_with_embeddings(
 					.get_text_blocks_with_config(
 						text_emb,
 						Some(per_query_limit),
-						Some(similarity_threshold),
+						Some(distance_threshold),
 					)
 					.await?;
 			}
@@ -2114,7 +2120,7 @@ pub async fn execute_single_search_with_embeddings(
 					.get_code_blocks_with_language_filter(
 						code_emb,
 						Some(results_per_type),
-						Some(similarity_threshold),
+						Some(distance_threshold),
 						language_filter,
 					)
 					.await?;
@@ -2230,7 +2236,7 @@ pub fn apply_multi_query_bonus_text(
 pub fn deduplicate_and_merge_results(
 	search_results: Vec<QuerySearchResult>,
 	queries: &[String],
-	threshold: f32,
+	distance_threshold: f32,
 ) -> (
 	Vec<crate::store::CodeBlock>,
 	Vec<crate::store::DocumentBlock>,
@@ -2309,7 +2315,7 @@ pub fn deduplicate_and_merge_results(
 		})
 		.filter(|block| {
 			if let Some(distance) = block.distance {
-				distance <= threshold
+				distance <= distance_threshold
 			} else {
 				true
 			}
@@ -2324,7 +2330,7 @@ pub fn deduplicate_and_merge_results(
 		})
 		.filter(|block| {
 			if let Some(distance) = block.distance {
-				distance <= threshold
+				distance <= distance_threshold
 			} else {
 				true
 			}
@@ -2339,7 +2345,7 @@ pub fn deduplicate_and_merge_results(
 		})
 		.filter(|block| {
 			if let Some(distance) = block.distance {
-				distance <= threshold
+				distance <= distance_threshold
 			} else {
 				true
 			}

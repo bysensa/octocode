@@ -253,17 +253,17 @@ impl SemanticCodeProvider {
 			));
 		}
 
-		let threshold = arguments
+		let similarity_threshold = arguments
 			.get("threshold")
 			.and_then(|v| v.as_f64())
 			.map(|v| v as f32)
 			.unwrap_or(self.config.search.similarity_threshold);
 
-		// Validate threshold
-		if !(0.0..=1.0).contains(&threshold) {
+		// Validate similarity threshold
+		if !(0.0..=1.0).contains(&similarity_threshold) {
 			return Err(anyhow::anyhow!(
-				"Invalid threshold '{}': must be between 0.0 and 1.0",
-				threshold
+				"Invalid similarity threshold '{}': must be between 0.0 and 1.0",
+				similarity_threshold
 			));
 		}
 
@@ -299,7 +299,7 @@ impl SemanticCodeProvider {
 			mode = %mode,
 			detail_level = %detail_level,
 			max_results = %max_results,
-			threshold = %threshold,
+			similarity_threshold = %similarity_threshold,
 			language_filter = ?language_filter,
 			working_directory = %self.working_directory.display(),
 			"Executing semantic code search with {} queries",
@@ -330,7 +330,7 @@ impl SemanticCodeProvider {
 				mode,
 				detail_level,
 				max_results,
-				threshold,
+				similarity_threshold,
 				language_filter.as_deref(),
 				&self.config,
 			)
@@ -342,7 +342,7 @@ impl SemanticCodeProvider {
 				mode,
 				detail_level,
 				max_results,
-				threshold,
+				similarity_threshold,
 				language_filter.as_deref(),
 				&self.config,
 			)

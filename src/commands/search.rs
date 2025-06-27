@@ -179,13 +179,13 @@ pub async fn execute(
 		.zip(embeddings.into_iter())
 		.collect();
 
-	// Execute parallel searches
+	// Execute parallel searches - FIXED: Use distance_threshold instead of args.threshold
 	let search_results = indexer::search::execute_parallel_searches(
 		store,
 		query_embeddings,
 		search_mode,
 		config.search.max_results,
-		args.threshold,
+		distance_threshold, // FIXED: Was args.threshold, now distance_threshold
 		args.language.as_deref(),
 	)
 	.await?;
