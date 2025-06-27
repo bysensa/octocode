@@ -33,7 +33,7 @@ use crate::mcp::logging::{
 };
 use crate::mcp::memory::MemoryProvider;
 use crate::mcp::semantic_code::SemanticCodeProvider;
-use crate::mcp::types::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
+use crate::mcp::types::{parse_mcp_error, JsonRpcError, JsonRpcRequest, JsonRpcResponse, McpError};
 use crate::state;
 use crate::store::Store;
 use crate::watcher_config::{
@@ -616,65 +616,34 @@ impl McpServer {
 
 		let start_time = std::time::Instant::now();
 		let request_id = request.id.clone();
+		let request_id_for_error = request_id.clone(); // Clone for error handling
 		let request_method = request.method.clone(); // Clone for error handling
-		let request_id_for_error = request.id.clone(); // Clone for error response
 
-		// Execute request with comprehensive panic recovery and timeout protection
+		// Execute request with comprehensive panic recovery (timeout control left to external MCP client)
 		let response = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-			// Clone the method for error handling since request will be moved
-			let method_for_timeout = request.method.clone();
 			// Create a new async runtime for the panic-safe execution
 			// Note: This is a workaround since we can't easily catch panics in async code
 			tokio::task::block_in_place(|| {
 				tokio::runtime::Handle::current().block_on(async {
-					// Add timeout protection for tool execution to prevent hanging
-					let execution_result = tokio::time::timeout(
-						Duration::from_millis(MCP_IO_TIMEOUT_MS * 2), // 60s for tool execution
-						async {
-							match request.method.as_str() {
-								"initialize" => self.handle_initialize(&request).await,
-								"tools/list" => self.handle_tools_list(&request).await,
-								"tools/call" => self.handle_tools_call(&request).await,
-								"ping" => self.handle_ping(&request).await,
-								_ => JsonRpcResponse {
-									jsonrpc: "2.0".to_string(),
-									id: request.id,
-									result: None,
-									error: Some(JsonRpcError {
-										code: -32601,
-										message: "Method not found".to_string(),
-										data: None,
-									}),
-								},
-							}
+					// Execute request without internal timeout - let external MCP client control timeouts
+					match request.method.as_str() {
+						"initialize" => self.handle_initialize(&request).await,
+						"tools/list" => self.handle_tools_list(&request).await,
+						"tools/call" => self.handle_tools_call(&request).await,
+						"ping" => self.handle_ping(&request).await,
+						_ => JsonRpcResponse {
+							jsonrpc: "2.0".to_string(),
+							id: request.id,
+							result: None,
+							error: Some(JsonRpcError {
+								code: -32601,
+								message: "Method not found".to_string(),
+								data: Some(json!({
+									"method": request.method,
+									"available_methods": ["initialize", "tools/list", "tools/call", "ping"]
+								})),
+							}),
 						},
-					)
-					.await;
-
-					match execution_result {
-						Ok(response) => response,
-						Err(_) => {
-							log_critical_anyhow_error(
-								"Tool execution timeout",
-								&anyhow::anyhow!(
-									"Method '{}' timed out after {}ms",
-									method_for_timeout,
-									MCP_IO_TIMEOUT_MS * 2
-								),
-							);
-							JsonRpcResponse {
-								jsonrpc: "2.0".to_string(),
-								id: request_id_for_error.clone(),
-								result: None,
-								error: Some(JsonRpcError {
-									code: -32603,
-									message: "Tool execution timeout".to_string(),
-									data: Some(
-										json!({"method": method_for_timeout, "timeout_ms": MCP_IO_TIMEOUT_MS * 2}),
-									),
-								}),
-							}
-						}
 					}
 				})
 			})
@@ -913,19 +882,19 @@ impl McpServer {
 			"view_signatures" => self.semantic_code.execute_view_signatures(arguments).await,
 			"graphrag_search" => match &self.graphrag {
 				Some(provider) => provider.execute_search(arguments).await,
-				None => Err(anyhow::anyhow!("GraphRAG is not enabled in the current configuration. Please enable GraphRAG in octocode.toml to use relationship-aware search.")),
+				None => Err(McpError::method_not_found("GraphRAG is not enabled in the current configuration. Please enable GraphRAG in octocode.toml to use relationship-aware search.", "graphrag_search")),
 			},
 			"memorize" => match &self.memory {
 				Some(provider) => provider.execute_memorize(arguments).await,
-				None => Err(anyhow::anyhow!("Memory system is not available")),
+				None => Err(McpError::method_not_found("Memory system is not available", "memorize")),
 			},
 			"remember" => match &self.memory {
 				Some(provider) => provider.execute_remember(arguments).await,
-				None => Err(anyhow::anyhow!("Memory system is not available")),
+				None => Err(McpError::method_not_found("Memory system is not available", "remember")),
 			},
 			"forget" => match &self.memory {
 				Some(provider) => provider.execute_forget(arguments).await,
-				None => Err(anyhow::anyhow!("Memory system is not available")),
+				None => Err(McpError::method_not_found("Memory system is not available", "forget")),
 			},
 			// LSP tools
 			"lsp_goto_definition" => match &self.lsp {
@@ -933,42 +902,42 @@ impl McpServer {
 					let mut lsp_guard = provider.lock().await;
 					lsp_guard.execute_goto_definition(arguments).await
 				},
-				None => Err(anyhow::anyhow!("LSP server is not available. Start MCP server with --with-lsp=\"<command>\" to enable LSP features.")),
+				None => Err(McpError::method_not_found("LSP server is not available. Start MCP server with --with-lsp=\"<command>\" to enable LSP features.", "lsp_goto_definition")),
 			},
 			"lsp_hover" => match &self.lsp {
 				Some(provider) => {
 					let mut lsp_guard = provider.lock().await;
 					lsp_guard.execute_hover(arguments).await
 				},
-				None => Err(anyhow::anyhow!("LSP server is not available. Start MCP server with --with-lsp=\"<command>\" to enable LSP features.")),
+				None => Err(McpError::method_not_found("LSP server is not available. Start MCP server with --with-lsp=\"<command>\" to enable LSP features.", "lsp_hover")),
 			},
 			"lsp_find_references" => match &self.lsp {
 				Some(provider) => {
 					let mut lsp_guard = provider.lock().await;
 					lsp_guard.execute_find_references(arguments).await
 				},
-				None => Err(anyhow::anyhow!("LSP server is not available. Start MCP server with --with-lsp=\"<command>\" to enable LSP features.")),
+				None => Err(McpError::method_not_found("LSP server is not available. Start MCP server with --with-lsp=\"<command>\" to enable LSP features.", "lsp_find_references")),
 			},
 			"lsp_document_symbols" => match &self.lsp {
 				Some(provider) => {
 					let mut lsp_guard = provider.lock().await;
 					lsp_guard.execute_document_symbols(arguments).await
 				},
-				None => Err(anyhow::anyhow!("LSP server is not available. Start MCP server with --with-lsp=\"<command>\" to enable LSP features.")),
+				None => Err(McpError::method_not_found("LSP server is not available. Start MCP server with --with-lsp=\"<command>\" to enable LSP features.", "lsp_document_symbols")),
 			},
 			"lsp_workspace_symbols" => match &self.lsp {
 				Some(provider) => {
 					let mut lsp_guard = provider.lock().await;
 					lsp_guard.execute_workspace_symbols(arguments).await
 				},
-				None => Err(anyhow::anyhow!("LSP server is not available. Start MCP server with --with-lsp=\"<command>\" to enable LSP features.")),
+				None => Err(McpError::method_not_found("LSP server is not available. Start MCP server with --with-lsp=\"<command>\" to enable LSP features.", "lsp_workspace_symbols")),
 			},
 			"lsp_completion" => match &self.lsp {
 				Some(provider) => {
 					let mut lsp_guard = provider.lock().await;
 					lsp_guard.execute_completion(arguments).await
 				},
-				None => Err(anyhow::anyhow!("LSP server is not available. Start MCP server with --with-lsp=\"<command>\" to enable LSP features.")),
+				None => Err(McpError::method_not_found("LSP server is not available. Start MCP server with --with-lsp=\"<command>\" to enable LSP features.", "lsp_completion")),
 			},
 			_ => {
 				let available_tools = format!("semantic_search, view_signatures{}{}{}",
@@ -976,7 +945,7 @@ impl McpServer {
 					if self.memory.is_some() { ", memorize, remember, forget" } else { "" },
 					if self.lsp.is_some() { ", lsp_goto_definition, lsp_hover, lsp_find_references, lsp_document_symbols, lsp_workspace_symbols, lsp_completion" } else { "" }
 				);
-				Err(anyhow::anyhow!("Unknown tool '{}'. Available tools: {}", tool_name, available_tools))
+				Err(McpError::method_not_found(format!("Unknown tool '{}'. Available tools: {}", tool_name, available_tools), tool_name))
 			}
 		};
 
@@ -993,34 +962,23 @@ impl McpServer {
 				error: None,
 			},
 			Err(e) => {
+				// Try to parse MCP-compliant error first
 				let error_message = e.to_string();
-				let error_code =
-					if error_message.contains("Missing") || error_message.contains("Invalid") {
-						-32602 // Invalid params
-					} else if error_message.contains("not enabled")
-						|| error_message.contains("not available")
-					{
-						-32601 // Method not found (feature not available)
-					} else {
-						-32603 // Internal error
-					};
-
-				JsonRpcResponse {
-					jsonrpc: "2.0".to_string(),
-					id: request.id.clone(),
-					result: None,
-					error: Some(JsonRpcError {
-						code: error_code,
-						message: format!("Tool execution failed: {}", error_message),
-						data: Some(json!({
-							"tool": tool_name,
-							"error_type": match error_code {
-							-32602 => "invalid_params",
-							-32601 => "feature_unavailable",
-							_ => "execution_error"
-						}
-						})),
-					}),
+				if let Some(mcp_error) = parse_mcp_error(&error_message) {
+					JsonRpcResponse {
+						jsonrpc: "2.0".to_string(),
+						id: request.id.clone(),
+						result: None,
+						error: Some(mcp_error),
+					}
+				} else {
+					// Handle McpError directly
+					JsonRpcResponse {
+						jsonrpc: "2.0".to_string(),
+						id: request.id.clone(),
+						result: None,
+						error: Some(e.into_jsonrpc()),
+					}
 				}
 			}
 		}
@@ -1520,19 +1478,19 @@ async fn handle_tools_call_http(
 		"view_signatures" => state.semantic_code.execute_view_signatures(arguments).await,
 		"graphrag_search" => match &state.graphrag {
 			Some(provider) => provider.execute_search(arguments).await,
-			None => Err(anyhow::anyhow!("GraphRAG is not enabled in the current configuration. Please enable GraphRAG in octocode.toml to use relationship-aware search.")),
+			None => Err(McpError::method_not_found("GraphRAG is not enabled in the current configuration. Please enable GraphRAG in octocode.toml to use relationship-aware search.", "graphrag_search")),
 		},
 		"memorize" => match &state.memory {
 			Some(provider) => provider.execute_memorize(arguments).await,
-			None => Err(anyhow::anyhow!("Memory system is not available")),
+			None => Err(McpError::method_not_found("Memory system is not available", "memorize")),
 		},
 		"remember" => match &state.memory {
 			Some(provider) => provider.execute_remember(arguments).await,
-			None => Err(anyhow::anyhow!("Memory system is not available")),
+			None => Err(McpError::method_not_found("Memory system is not available", "remember")),
 		},
 		"forget" => match &state.memory {
 			Some(provider) => provider.execute_forget(arguments).await,
-			None => Err(anyhow::anyhow!("Memory system is not available")),
+			None => Err(McpError::method_not_found("Memory system is not available", "forget")),
 		},
 		// LSP tools
 		"lsp_goto_definition" => match &state.lsp {
@@ -1540,42 +1498,42 @@ async fn handle_tools_call_http(
 				let mut lsp_guard = provider.lock().await;
 				lsp_guard.execute_goto_definition(arguments).await
 			},
-			None => Err(anyhow::anyhow!("LSP server is not available. Start MCP server with --with-lsp=\"<command>\" to enable LSP features.")),
+			None => Err(McpError::method_not_found("LSP server is not available. Start MCP server with --with-lsp=\"<command>\" to enable LSP features.", "lsp_goto_definition")),
 		},
 		"lsp_hover" => match &state.lsp {
 			Some(provider) => {
 				let mut lsp_guard = provider.lock().await;
 				lsp_guard.execute_hover(arguments).await
 			},
-			None => Err(anyhow::anyhow!("LSP server is not available. Start MCP server with --with-lsp=\"<command>\" to enable LSP features.")),
+			None => Err(McpError::method_not_found("LSP server is not available. Start MCP server with --with-lsp=\"<command>\" to enable LSP features.", "lsp_hover")),
 		},
 		"lsp_find_references" => match &state.lsp {
 			Some(provider) => {
 				let mut lsp_guard = provider.lock().await;
 				lsp_guard.execute_find_references(arguments).await
 			},
-			None => Err(anyhow::anyhow!("LSP server is not available. Start MCP server with --with-lsp=\"<command>\" to enable LSP features.")),
+			None => Err(McpError::method_not_found("LSP server is not available. Start MCP server with --with-lsp=\"<command>\" to enable LSP features.", "lsp_find_references")),
 		},
 		"lsp_document_symbols" => match &state.lsp {
 			Some(provider) => {
 				let mut lsp_guard = provider.lock().await;
 				lsp_guard.execute_document_symbols(arguments).await
 			},
-			None => Err(anyhow::anyhow!("LSP server is not available. Start MCP server with --with-lsp=\"<command>\" to enable LSP features.")),
+			None => Err(McpError::method_not_found("LSP server is not available. Start MCP server with --with-lsp=\"<command>\" to enable LSP features.", "lsp_document_symbols")),
 		},
 		"lsp_workspace_symbols" => match &state.lsp {
 			Some(provider) => {
 				let mut lsp_guard = provider.lock().await;
 				lsp_guard.execute_workspace_symbols(arguments).await
 			},
-			None => Err(anyhow::anyhow!("LSP server is not available. Start MCP server with --with-lsp=\"<command>\" to enable LSP features.")),
+			None => Err(McpError::method_not_found("LSP server is not available. Start MCP server with --with-lsp=\"<command>\" to enable LSP features.", "lsp_workspace_symbols")),
 		},
 		"lsp_completion" => match &state.lsp {
 			Some(provider) => {
 				let mut lsp_guard = provider.lock().await;
 				lsp_guard.execute_completion(arguments).await
 			},
-			None => Err(anyhow::anyhow!("LSP server is not available. Start MCP server with --with-lsp=\"<command>\" to enable LSP features.")),
+			None => Err(McpError::method_not_found("LSP server is not available. Start MCP server with --with-lsp=\"<command>\" to enable LSP features.", "lsp_completion")),
 		},
 		_ => {
 			let available_tools = format!("semantic_search, view_signatures{}{}{}",
@@ -1583,7 +1541,7 @@ async fn handle_tools_call_http(
 				if state.memory.is_some() { ", memorize, remember, forget" } else { "" },
 				if state.lsp.is_some() { ", lsp_goto_definition, lsp_hover, lsp_find_references, lsp_document_symbols, lsp_workspace_symbols, lsp_completion" } else { "" }
 			);
-			Err(anyhow::anyhow!("Unknown tool '{}'. Available tools: {}", tool_name, available_tools))
+			Err(McpError::method_not_found(format!("Unknown tool '{}'. Available tools: {}", tool_name, available_tools), tool_name))
 		}
 	};
 
@@ -1601,33 +1559,23 @@ async fn handle_tools_call_http(
 		},
 		Err(e) => {
 			let error_message = e.to_string();
-			let error_code =
-				if error_message.contains("Missing") || error_message.contains("Invalid") {
-					-32602 // Invalid params
-				} else if error_message.contains("not enabled")
-					|| error_message.contains("not available")
-				{
-					-32601 // Method not found (feature not available)
-				} else {
-					-32603 // Internal error
-				};
 
-			JsonRpcResponse {
-				jsonrpc: "2.0".to_string(),
-				id: request.id.clone(),
-				result: None,
-				error: Some(JsonRpcError {
-					code: error_code,
-					message: format!("Tool execution failed: {}", error_message),
-					data: Some(json!({
-						"tool": tool_name,
-						"error_type": match error_code {
-							-32602 => "invalid_params",
-							-32601 => "feature_unavailable",
-							_ => "execution_error"
-						}
-					})),
-				}),
+			// Try to parse MCP-compliant error first
+			if let Some(mcp_error) = parse_mcp_error(&error_message) {
+				JsonRpcResponse {
+					jsonrpc: "2.0".to_string(),
+					id: request.id.clone(),
+					result: None,
+					error: Some(mcp_error),
+				}
+			} else {
+				// Handle McpError directly
+				JsonRpcResponse {
+					jsonrpc: "2.0".to_string(),
+					id: request.id.clone(),
+					result: None,
+					error: Some(e.into_jsonrpc()),
+				}
 			}
 		}
 	}

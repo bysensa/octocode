@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 /// MCP Protocol types
 #[derive(Debug, Serialize, Deserialize)]
@@ -40,6 +40,120 @@ pub struct JsonRpcError {
 	pub message: String,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub data: Option<Value>,
+}
+
+/// MCP-compliant error builder for consistent error handling
+#[derive(Debug, Clone)]
+pub struct McpError {
+	pub code: i32,
+	pub message: String,
+	pub operation: String,
+	pub details: Option<String>,
+}
+
+impl McpError {
+	/// Create a new MCP error
+	pub fn new(code: i32, message: impl Into<String>, operation: impl Into<String>) -> Self {
+		Self {
+			code,
+			message: message.into(),
+			operation: operation.into(),
+			details: None,
+		}
+	}
+
+	/// Add details to the error
+	pub fn with_details(mut self, details: impl Into<String>) -> Self {
+		self.details = Some(details.into());
+		self
+	}
+
+	/// Convert to anyhow::Error for Result<T> compatibility
+	pub fn into_anyhow(self) -> anyhow::Error {
+		anyhow::anyhow!(
+			"MCP_ERROR:{}:{}:{}:{}",
+			self.code,
+			self.message,
+			self.operation,
+			self.details.unwrap_or_default()
+		)
+	}
+
+	/// Convert to JsonRpcError for direct response
+	pub fn into_jsonrpc(self) -> JsonRpcError {
+		JsonRpcError {
+			code: self.code,
+			message: self.message.clone(),
+			data: Some(json!({
+				"operation": self.operation,
+				"details": self.details.unwrap_or_default(),
+				"error_type": match self.code {
+					-32602 => "invalid_params",
+					-32601 => "method_not_found",
+					-32603 => "internal_error",
+					-32600 => "invalid_request",
+					_ => "application_error"
+				}
+			})),
+		}
+	}
+
+	/// Common error types for convenience
+	pub fn invalid_params(message: impl Into<String>, operation: impl Into<String>) -> Self {
+		Self::new(-32602, message, operation)
+	}
+
+	pub fn internal_error(message: impl Into<String>, operation: impl Into<String>) -> Self {
+		Self::new(-32603, message, operation)
+	}
+
+	pub fn method_not_found(message: impl Into<String>, operation: impl Into<String>) -> Self {
+		Self::new(-32601, message, operation)
+	}
+}
+
+impl From<anyhow::Error> for McpError {
+	fn from(error: anyhow::Error) -> Self {
+		McpError::internal_error(error.to_string(), "unknown_operation")
+	}
+}
+
+impl std::fmt::Display for McpError {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{} ({})", self.message, self.operation)
+	}
+}
+
+impl std::error::Error for McpError {}
+
+/// Parse MCP error from anyhow error string
+pub fn parse_mcp_error(error_str: &str) -> Option<JsonRpcError> {
+	if let Some(mcp_part) = error_str.strip_prefix("MCP_ERROR:") {
+		let parts: Vec<&str> = mcp_part.splitn(4, ':').collect();
+		if parts.len() >= 3 {
+			if let Ok(code) = parts[0].parse::<i32>() {
+				let operation = parts[2];
+				let details = parts.get(3).unwrap_or(&"");
+
+				return Some(JsonRpcError {
+					code,
+					message: parts[1].to_string(),
+					data: Some(json!({
+						"operation": operation,
+						"details": details,
+						"error_type": match code {
+							-32602 => "invalid_params",
+							-32601 => "method_not_found",
+							-32603 => "internal_error",
+							-32600 => "invalid_request",
+							_ => "application_error"
+						}
+					})),
+				});
+			}
+		}
+	}
+	None
 }
 
 /// MCP Tool definitions

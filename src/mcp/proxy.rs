@@ -31,7 +31,7 @@ use crate::mcp::logging::{
 };
 use crate::mcp::memory::MemoryProvider;
 use crate::mcp::semantic_code::SemanticCodeProvider;
-use crate::mcp::types::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
+use crate::mcp::types::{JsonRpcError, JsonRpcRequest, JsonRpcResponse, McpError};
 
 // Reuse constants from server.rs for consistency
 const MCP_MAX_REQUEST_SIZE: usize = 10_485_760; // 10MB maximum request size
@@ -204,26 +204,26 @@ impl ProxyMcpInstance {
 			"view_signatures" => self.semantic_code.execute_view_signatures(arguments).await,
 			"graphrag_search" => match &self.graphrag {
 				Some(provider) => provider.execute_search(arguments).await,
-				None => Err(anyhow::anyhow!("GraphRAG is not enabled in the current configuration. Please enable GraphRAG in octocode.toml to use relationship-aware search.")),
+				None => Err(McpError::method_not_found("GraphRAG is not enabled in the current configuration. Please enable GraphRAG in octocode.toml to use relationship-aware search.", "graphrag_search")),
 			},
 			"memorize" => match &self.memory {
 				Some(provider) => provider.execute_memorize(arguments).await,
-				None => Err(anyhow::anyhow!("Memory system is not available")),
+				None => Err(McpError::method_not_found("Memory system is not available", "memorize")),
 			},
 			"remember" => match &self.memory {
 				Some(provider) => provider.execute_remember(arguments).await,
-				None => Err(anyhow::anyhow!("Memory system is not available")),
+				None => Err(McpError::method_not_found("Memory system is not available", "remember")),
 			},
 			"forget" => match &self.memory {
 				Some(provider) => provider.execute_forget(arguments).await,
-				None => Err(anyhow::anyhow!("Memory system is not available")),
+				None => Err(McpError::method_not_found("Memory system is not available", "forget")),
 			},
 			_ => {
 				let available_tools = format!("semantic_search, view_signatures{}{}",
 					if self.graphrag.is_some() { ", graphrag_search" } else { "" },
 					if self.memory.is_some() { ", memorize, remember, forget" } else { "" }
 				);
-				Err(anyhow::anyhow!("Unknown tool '{}'. Available tools: {}", tool_name, available_tools))
+				Err(McpError::method_not_found(format!("Unknown tool '{}'. Available tools: {}", tool_name, available_tools), "proxy_call"))
 			}
 		};
 

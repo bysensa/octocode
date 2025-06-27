@@ -19,7 +19,7 @@ use tracing::debug;
 use crate::config::Config;
 use crate::embedding::truncate_output;
 use crate::indexer::graphrag::GraphRAG;
-use crate::mcp::types::McpTool;
+use crate::mcp::types::{McpError, McpTool};
 
 /// GraphRAG tool provider
 #[derive(Clone)]
@@ -68,19 +68,20 @@ impl GraphRagProvider {
 	}
 
 	/// Execute the graphrag_search tool
-	pub async fn execute_search(&self, arguments: &Value) -> Result<String> {
+	pub async fn execute_search(&self, arguments: &Value) -> Result<String, McpError> {
 		let query = arguments
 			.get("query")
 			.and_then(|v| v.as_str())
-			.ok_or_else(|| anyhow::anyhow!("Missing required parameter 'query': must be a detailed question about code relationships or architecture"))?;
+			.ok_or_else(|| McpError::invalid_params("Missing required parameter 'query': must be a detailed question about code relationships or architecture", "graphrag_search"))?;
 
 		// Validate query length for GraphRAG (should be more detailed)
 		if query.len() < 10 {
-			return Err(anyhow::anyhow!("Invalid GraphRAG query: must be at least 10 characters long and describe relationships or architecture"));
+			return Err(McpError::invalid_params("Invalid GraphRAG query: must be at least 10 characters long and describe relationships or architecture", "graphrag_search"));
 		}
 		if query.len() > 1000 {
-			return Err(anyhow::anyhow!(
-				"Invalid GraphRAG query: must be no more than 1000 characters long"
+			return Err(McpError::invalid_params(
+				"Invalid GraphRAG query: must be no more than 1000 characters long",
+				"graphrag_search",
 			));
 		}
 
@@ -98,15 +99,30 @@ impl GraphRagProvider {
 		);
 
 		// Change to the working directory for the search
-		let original_dir = std::env::current_dir()?;
-		std::env::set_current_dir(&self.working_directory)?;
+		let original_dir = std::env::current_dir().map_err(|e| {
+			McpError::internal_error(
+				format!("Failed to get current directory: {}", e),
+				"graphrag_search",
+			)
+		})?;
+		std::env::set_current_dir(&self.working_directory).map_err(|e| {
+			McpError::internal_error(
+				format!("Failed to change directory: {}", e),
+				"graphrag_search",
+			)
+		})?;
 
-		let results = self.graphrag.search(query).await;
+		let results = self.graphrag.search(query).await.map_err(|e| {
+			McpError::internal_error(format!("GraphRAG search failed: {}", e), "graphrag_search")
+		})?;
 
 		// Restore original directory
-		std::env::set_current_dir(&original_dir)?;
-
-		let results = results?;
+		std::env::set_current_dir(&original_dir).map_err(|e| {
+			McpError::internal_error(
+				format!("Failed to restore directory: {}", e),
+				"graphrag_search",
+			)
+		})?;
 
 		// Apply token truncation if needed
 		Ok(truncate_output(&results, max_tokens))

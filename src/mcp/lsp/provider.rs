@@ -14,6 +14,7 @@
 
 //! LSP provider for MCP server integration
 
+use crate::mcp::types::McpError;
 use anyhow::Result;
 use lsp_types::*;
 use serde_json::json;
@@ -653,24 +654,36 @@ impl LspProvider {
 	pub async fn execute_goto_definition(
 		&mut self,
 		arguments: &serde_json::Value,
-	) -> Result<String> {
+	) -> Result<String, McpError> {
 		// Check if LSP is ready (non-blocking)
 		if !self.is_ready() {
-			return Err(Self::lsp_not_ready_error());
+			return Err(Self::lsp_not_ready_mcp_error("lsp_operation"));
 		}
 
 		let file_path = arguments
 			.get("file_path")
 			.and_then(|v| v.as_str())
-			.ok_or_else(|| anyhow::anyhow!("Missing required parameter: file_path"))?;
+			.ok_or_else(|| {
+				McpError::invalid_params(
+					"Missing required parameter: file_path",
+					"lsp_goto_definition",
+				)
+			})?;
 		let line = arguments
 			.get("line")
 			.and_then(|v| v.as_u64())
-			.ok_or_else(|| anyhow::anyhow!("Missing required parameter: line"))? as u32;
+			.ok_or_else(|| {
+				McpError::invalid_params("Missing required parameter: line", "lsp_goto_definition")
+			})? as u32;
 		let symbol = arguments
 			.get("symbol")
 			.and_then(|v| v.as_str())
-			.ok_or_else(|| anyhow::anyhow!("Missing required parameter: symbol"))?;
+			.ok_or_else(|| {
+				McpError::invalid_params(
+					"Missing required parameter: symbol",
+					"lsp_goto_definition",
+				)
+			})?;
 
 		// Clean the file path to handle formatted paths like "[Rust file: main.rs]"
 		let clean_file_path = Self::clean_file_path(file_path);
@@ -705,24 +718,33 @@ impl LspProvider {
 	}
 
 	/// Execute LSP hover tool
-	pub async fn execute_hover(&mut self, arguments: &serde_json::Value) -> Result<String> {
+	pub async fn execute_hover(
+		&mut self,
+		arguments: &serde_json::Value,
+	) -> Result<String, McpError> {
 		// Check if LSP is ready (non-blocking)
 		if !self.is_ready() {
-			return Err(Self::lsp_not_ready_error());
+			return Err(Self::lsp_not_ready_mcp_error("lsp_hover"));
 		}
 
 		let file_path = arguments
 			.get("file_path")
 			.and_then(|v| v.as_str())
-			.ok_or_else(|| anyhow::anyhow!("Missing required parameter: file_path"))?;
+			.ok_or_else(|| {
+				McpError::invalid_params("Missing required parameter: file_path", "lsp_hover")
+			})?;
 		let line = arguments
 			.get("line")
 			.and_then(|v| v.as_u64())
-			.ok_or_else(|| anyhow::anyhow!("Missing required parameter: line"))? as u32;
+			.ok_or_else(|| {
+				McpError::invalid_params("Missing required parameter: line", "lsp_hover")
+			})? as u32;
 		let symbol = arguments
 			.get("symbol")
 			.and_then(|v| v.as_str())
-			.ok_or_else(|| anyhow::anyhow!("Missing required parameter: symbol"))?;
+			.ok_or_else(|| {
+				McpError::invalid_params("Missing required parameter: symbol", "lsp_hover")
+			})?;
 
 		// Clean the file path to handle formatted paths like "[Rust file: main.rs]"
 		let clean_file_path = Self::clean_file_path(file_path);
@@ -743,10 +765,10 @@ impl LspProvider {
 	pub async fn execute_find_references(
 		&mut self,
 		arguments: &serde_json::Value,
-	) -> Result<String> {
+	) -> Result<String, McpError> {
 		// Check if LSP is ready (non-blocking)
 		if !self.is_ready() {
-			return Err(Self::lsp_not_ready_error());
+			return Err(Self::lsp_not_ready_mcp_error("lsp_operation"));
 		}
 
 		let file_path = arguments
@@ -795,10 +817,10 @@ impl LspProvider {
 	pub async fn execute_document_symbols(
 		&mut self,
 		arguments: &serde_json::Value,
-	) -> Result<String> {
+	) -> Result<String, McpError> {
 		// Check if LSP is ready (non-blocking)
 		if !self.is_ready() {
-			return Err(Self::lsp_not_ready_error());
+			return Err(Self::lsp_not_ready_mcp_error("lsp_operation"));
 		}
 
 		let file_path = arguments
@@ -832,10 +854,10 @@ impl LspProvider {
 	pub async fn execute_workspace_symbols(
 		&mut self,
 		arguments: &serde_json::Value,
-	) -> Result<String> {
+	) -> Result<String, McpError> {
 		// Check if LSP is ready (non-blocking)
 		if !self.is_ready() {
-			return Err(Self::lsp_not_ready_error());
+			return Err(Self::lsp_not_ready_mcp_error("lsp_operation"));
 		}
 
 		let query = arguments
@@ -856,10 +878,13 @@ impl LspProvider {
 	}
 
 	/// Execute LSP completion tool
-	pub async fn execute_completion(&mut self, arguments: &serde_json::Value) -> Result<String> {
+	pub async fn execute_completion(
+		&mut self,
+		arguments: &serde_json::Value,
+	) -> Result<String, McpError> {
 		// Check if LSP is ready (non-blocking)
 		if !self.is_ready() {
-			return Err(Self::lsp_not_ready_error());
+			return Err(Self::lsp_not_ready_mcp_error("lsp_operation"));
 		}
 
 		let file_path = arguments
@@ -911,8 +936,13 @@ impl LspProvider {
 		info!("LSP server process started, sending initialize request...");
 
 		// Convert working directory to a directory URI (with trailing slash)
-		let workspace_uri = url::Url::from_directory_path(&self.working_directory)
-			.map_err(|_| anyhow::anyhow!("Failed to convert workspace path to URI"))?;
+		let workspace_uri =
+			url::Url::from_directory_path(&self.working_directory).map_err(|_| {
+				McpError::internal_error(
+					"Failed to convert workspace path to URI",
+					"lsp_workspace_symbols",
+				)
+			})?;
 
 		// Send initialize request with work done progress support
 		let client_capabilities = ClientCapabilities {
@@ -1067,6 +1097,11 @@ impl LspProvider {
 	/// Get standardized LSP not ready error message
 	pub fn lsp_not_ready_error() -> anyhow::Error {
 		anyhow::anyhow!("LSP server is not initialized. The LSP server is starting in the background. Please wait a moment and try again.")
+	}
+
+	/// Get standardized LSP not ready MCP error
+	pub fn lsp_not_ready_mcp_error(operation: &str) -> McpError {
+		McpError::method_not_found("LSP server is not initialized. The LSP server is starting in the background. Please wait a moment and try again.", operation)
 	}
 
 	/// Ensure file is opened in LSP server before making requests

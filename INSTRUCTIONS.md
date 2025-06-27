@@ -223,7 +223,7 @@ let walker = NoindexWalker::create_walker(&current_dir).build();
 #### MANDATORY BUILD COMMANDS:
 - ALWAYS use `--no-default-features` for ALL cargo commands during development
 - cargo build --no-default-features
-- cargo check --no-default-features
+- cargo check --no-default-features --message-format=short
 - cargo test --no-default-features
 - NEVER use --release unless explicitly requested
 - NEVER use default cargo build - ALWAYS add --no-default-features flag

@@ -24,7 +24,7 @@ use crate::config::Config;
 use crate::constants::MAX_QUERIES;
 use crate::embedding::truncate_output;
 use crate::mcp::logging::log_critical_anyhow_error;
-use crate::mcp::types::McpTool;
+use crate::mcp::types::{McpError, McpTool};
 use crate::memory::{MemoryManager, MemoryQuery, MemoryType};
 
 /// Memory tools provider
@@ -217,17 +217,21 @@ impl MemoryProvider {
 	}
 
 	/// Execute the memorize tool with enhanced error handling
-	pub async fn execute_memorize(&self, arguments: &Value) -> Result<String> {
+	pub async fn execute_memorize(&self, arguments: &Value) -> Result<String, McpError> {
 		// Validate input parameters exist before processing
 		let title = arguments
 			.get("title")
 			.and_then(|v| v.as_str())
-			.ok_or_else(|| anyhow::anyhow!("Missing required parameter 'title'"))?;
+			.ok_or_else(|| {
+				McpError::invalid_params("Missing required parameter 'title'", "memorize")
+			})?;
 
 		let content = arguments
 			.get("content")
 			.and_then(|v| v.as_str())
-			.ok_or_else(|| anyhow::anyhow!("Missing required parameter 'content'"))?;
+			.ok_or_else(|| {
+				McpError::invalid_params("Missing required parameter 'content'", "memorize")
+			})?;
 
 		// Ensure clean UTF-8 content using lossy conversion
 		let clean_title = String::from_utf8_lossy(title.as_bytes()).to_string();
@@ -237,13 +241,15 @@ impl MemoryProvider {
 
 		// Validate lengths directly on original content
 		if title.len() < 5 || title.len() > 200 {
-			return Err(anyhow::anyhow!(
-				"Title must be between 5 and 200 characters"
+			return Err(McpError::invalid_params(
+				"Title must be between 5 and 200 characters",
+				"memorize",
 			));
 		}
 		if content.len() < 10 || content.len() > 10000 {
-			return Err(anyhow::anyhow!(
-				"Content must be between 10 and 10000 characters"
+			return Err(McpError::invalid_params(
+				"Content must be between 10 and 10000 characters",
+				"memorize",
 			));
 		}
 
@@ -319,14 +325,19 @@ impl MemoryProvider {
 		);
 
 		// Change to working directory for Git context with error handling
-		let original_dir = std::env::current_dir()
-			.map_err(|e| anyhow::anyhow!("Failed to get current directory: {}", e))?;
+		let original_dir = std::env::current_dir().map_err(|e| {
+			McpError::internal_error(
+				format!("Failed to get current directory: {}", e),
+				"memorize",
+			)
+		})?;
 
 		if let Err(e) = std::env::set_current_dir(&self.working_directory) {
-			return Err(anyhow::anyhow!(
-				"Failed to change to working directory: {}",
-				e
-			));
+			return Err(McpError::internal_error(
+				format!("Failed to change to working directory: {}", e),
+				"memorize",
+			)
+			.with_details(format!("Path: {}", self.working_directory.display())));
 		}
 
 		let memory_result = {
@@ -342,7 +353,10 @@ impl MemoryProvider {
 					tags,
 					related_files,
 				)
-				.await?
+				.await
+				.map_err(|e| {
+					McpError::internal_error(format!("Failed to store memory: {}", e), "memorize")
+				})?
 		};
 
 		// Restore original directory regardless of result
@@ -361,7 +375,7 @@ impl MemoryProvider {
 	}
 
 	/// Execute the remember tool
-	pub async fn execute_remember(&self, arguments: &Value) -> Result<String> {
+	pub async fn execute_remember(&self, arguments: &Value) -> Result<String, McpError> {
 		// Parse queries - handle both string and array inputs
 		let queries: Vec<String> = match arguments.get("query") {
 			Some(Value::String(s)) => vec![s.clone()],
@@ -372,26 +386,27 @@ impl MemoryProvider {
 					.collect();
 
 				if queries.is_empty() {
-					return Err(anyhow::anyhow!(
-						"Invalid query array: must contain at least one non-empty string"
+					return Err(McpError::invalid_params(
+						"Invalid query array: must contain at least one non-empty string",
+						"remember",
 					));
 				}
 
 				queries
 			}
 			_ => {
-				return Err(anyhow::anyhow!(
-					"Missing required parameter 'query': must be a string or array of strings describing what to search for"
+				return Err(McpError::invalid_params(
+					"Missing required parameter 'query': must be a string or array of strings describing what to search for",
+					"remember"
 				));
 			}
 		};
 
 		// Validate queries
 		if queries.len() > MAX_QUERIES {
-			return Err(anyhow::anyhow!(
-				"Too many queries: maximum {} queries allowed, got {}. Use fewer, more specific terms.",
-				MAX_QUERIES,
-				queries.len()
+			return Err(McpError::invalid_params(
+				format!("Too many queries: maximum {} queries allowed, got {}. Use fewer, more specific terms.", MAX_QUERIES, queries.len()),
+				"remember"
 			));
 		}
 
@@ -401,21 +416,30 @@ impl MemoryProvider {
 			let query = clean_query.trim();
 
 			if query.len() < 3 {
-				return Err(anyhow::anyhow!(
-					"Invalid query {}: must be at least 3 characters long",
-					i + 1
+				return Err(McpError::invalid_params(
+					format!(
+						"Invalid query {}: must be at least 3 characters long",
+						i + 1
+					),
+					"remember",
 				));
 			}
 			if query.len() > 500 {
-				return Err(anyhow::anyhow!(
-					"Invalid query {}: must be no more than 500 characters long",
-					i + 1
+				return Err(McpError::invalid_params(
+					format!(
+						"Invalid query {}: must be no more than 500 characters long",
+						i + 1
+					),
+					"remember",
 				));
 			}
 			if query.is_empty() {
-				return Err(anyhow::anyhow!(
-					"Invalid query {}: cannot be empty or whitespace only",
-					i + 1
+				return Err(McpError::invalid_params(
+					format!(
+						"Invalid query {}: cannot be empty or whitespace only",
+						i + 1
+					),
+					"remember",
 				));
 			}
 		}
@@ -505,11 +529,23 @@ impl MemoryProvider {
 			if queries.len() == 1 {
 				manager_guard
 					.remember(&queries[0], Some(memory_query))
-					.await?
+					.await
+					.map_err(|e| {
+						McpError::internal_error(
+							format!("Failed to search memories: {}", e),
+							"remember",
+						)
+					})?
 			} else {
 				manager_guard
 					.remember_multi(&queries, Some(memory_query))
-					.await?
+					.await
+					.map_err(|e| {
+						McpError::internal_error(
+							format!("Failed to search memories: {}", e),
+							"remember",
+						)
+					})?
 			}
 		};
 
@@ -525,7 +561,7 @@ impl MemoryProvider {
 	}
 
 	/// Execute the forget tool
-	pub async fn execute_forget(&self, arguments: &Value) -> Result<String> {
+	pub async fn execute_forget(&self, arguments: &Value) -> Result<String, McpError> {
 		// Check confirm parameter
 		if !arguments
 			.get("confirm")
