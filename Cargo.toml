@@ -2,14 +2,25 @@
 name = "octocode"
 version = "0.6.0"
 edition = "2021"
+rust-version = "1.70"
 authors = ["Muvon Un Limited <opensource@muvon.io>"]
-description = "Intelligent code indexer and graph builder with semantic search capabilities"
+description = "AI-powered code indexer with semantic search, GraphRAG knowledge graphs, and MCP server for multi-language codebases"
 homepage = "https://octocode.muvon.io"
 repository = "https://github.com/muvon/octocode"
+documentation = "https://docs.rs/octocode"
 license = "Apache-2.0"
-keywords = ["code", "search", "indexer", "semantic", "graph"]
-categories = ["development-tools", "command-line-utilities"]
+keywords = ["ai", "semantic-search", "code-analysis", "graphrag", "mcp-server"]
+categories = ["development-tools", "command-line-utilities", "parsing", "text-processing", "algorithms"]
 readme = "README.md"
+exclude = [
+    "tests/fixtures/*",
+    "examples/*",
+    ".github/*",
+    "docs/*",
+    "scripts/*",
+    "*.md",
+    "install.sh"
+]
 
 [features]
 default = ["fastembed", "sentence-transformer"]
