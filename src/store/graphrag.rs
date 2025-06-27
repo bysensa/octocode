@@ -258,13 +258,22 @@ impl<'a> GraphRagOperations<'a> {
 
 		let table = self.db.open_table("graph_nodes").execute().await?;
 
-		// Perform vector similarity search
-		let mut results = table
+		// Perform vector similarity search with optimization
+		let query = table
 			.vector_search(embedding)?
 			.distance_type(DistanceType::Cosine)
-			.limit(limit)
-			.execute()
-			.await?;
+			.limit(limit);
+
+		// Apply intelligent search optimization
+		let optimized_query = crate::store::vector_optimizer::VectorOptimizer::optimize_query(
+			query,
+			&table,
+			"graph_nodes",
+		)
+		.await
+		.map_err(|e| anyhow::anyhow!("Failed to optimize query: {}", e))?;
+
+		let mut results = optimized_query.execute().await?;
 
 		// Collect all results into a single batch
 		let mut all_batches = Vec::new();

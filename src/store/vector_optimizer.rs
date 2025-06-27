@@ -20,7 +20,8 @@
 //! - System capabilities
 //! - LanceDB best practices
 
-use lancedb::DistanceType;
+use lancedb::Table;
+use lancedb::{query::VectorQuery, DistanceType};
 
 /// Vector index optimization parameters automatically calculated from dataset characteristics
 #[derive(Debug, Clone)]
@@ -43,6 +44,67 @@ pub struct SearchParams {
 pub struct VectorOptimizer;
 
 impl VectorOptimizer {
+	/// Apply intelligent search optimization to a vector query
+	///
+	/// This unified function handles:
+	/// - Index detection
+	/// - Partition estimation
+	/// - Search params calculation
+	/// - Query optimization (nprobes, refine_factor)
+	///
+	/// # Arguments
+	/// * `query` - The vector query to optimize
+	/// * `table` - The LanceDB table for index inspection
+	/// * `table_name` - Name for logging purposes
+	///
+	/// # Returns
+	/// The optimized query with applied search parameters
+	pub async fn optimize_query(
+		mut query: VectorQuery,
+		table: &Table,
+		table_name: &str,
+	) -> Result<VectorQuery, lancedb::Error> {
+		// Get table statistics
+		let row_count = table.count_rows(None).await?;
+		let indices = table.list_indices().await?;
+		let has_index = indices.iter().any(|idx| idx.columns == vec!["embedding"]);
+
+		// Apply intelligent search optimization if index exists
+		if has_index {
+			// Estimate partition count from row count
+			let estimated_partitions = if row_count < 1000 {
+				2
+			} else {
+				(row_count as f64).sqrt() as u32
+			};
+
+			let search_params = Self::calculate_search_params(estimated_partitions, row_count);
+
+			query = query.nprobes(search_params.nprobes);
+			if let Some(refine_factor) = search_params.refine_factor {
+				query = query.refine_factor(refine_factor);
+			}
+
+			tracing::debug!(
+				"Applied search optimization to {}: nprobes={}, refine_factor={:?}, rows={}, has_index={}",
+				table_name,
+				search_params.nprobes,
+				search_params.refine_factor,
+				row_count,
+				has_index
+			);
+		} else {
+			tracing::debug!(
+				"No index found for {}, using default search (rows={}, has_index={})",
+				table_name,
+				row_count,
+				has_index
+			);
+		}
+
+		Ok(query)
+	}
+
 	/// Calculate optimal index parameters based on dataset characteristics
 	///
 	/// Based on LanceDB documentation and best practices:

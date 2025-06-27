@@ -386,39 +386,17 @@ impl MemoryStore {
 				.await?;
 
 			// Start with optimized vector search
-			let row_count = table.count_rows(None).await?;
-			let indices = table.list_indices().await?;
-			let has_index = indices.iter().any(|idx| idx.columns == vec!["embedding"]);
-
 			let mut db_query = table
 				.vector_search(query_embedding.as_slice())?
 				.distance_type(DistanceType::Cosine)
 				.limit(limit * 2); // Get more results to filter
 
-			// Apply intelligent search optimization if index exists
-			if has_index {
-				let estimated_partitions = if row_count < 1000 {
-					2
-				} else {
-					(row_count as f64).sqrt() as u32
-				};
-				let search_params =
-					crate::store::vector_optimizer::VectorOptimizer::calculate_search_params(
-						estimated_partitions,
-						row_count,
-					);
-
-				db_query = db_query.nprobes(search_params.nprobes);
-				if let Some(refine_factor) = search_params.refine_factor {
-					db_query = db_query.refine_factor(refine_factor);
-				}
-
-				tracing::debug!(
-					"Using optimized search params for memories: nprobes={}, refine_factor={:?}",
-					search_params.nprobes,
-					search_params.refine_factor
-				);
-			}
+			// Apply intelligent search optimization
+			db_query = crate::store::vector_optimizer::VectorOptimizer::optimize_query(
+				db_query, &table, "memories",
+			)
+			.await
+			.map_err(|e| anyhow::anyhow!("Failed to optimize query: {}", e))?;
 
 			let mut db_results = db_query.execute().await?;
 

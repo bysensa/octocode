@@ -485,11 +485,6 @@ impl Store {
 
 		let table = self.db.open_table("code_blocks").execute().await?;
 
-		// Get intelligent search parameters
-		let row_count = table.count_rows(None).await?;
-		let indices = table.list_indices().await?;
-		let has_index = indices.iter().any(|idx| idx.columns == vec!["embedding"]);
-
 		let mut query = table
 			.vector_search(embedding)?
 			.distance_type(DistanceType::Cosine) // Always use Cosine for consistency
@@ -499,33 +494,10 @@ impl Store {
 			query = query.only_if(format!("language = '{}'", language));
 		}
 
-		// Apply intelligent search optimization if index exists
-		if has_index {
-			// Find the embedding index to get partition count
-			if let Some(_embedding_index) =
-				indices.iter().find(|idx| idx.columns == vec!["embedding"])
-			{
-				// Estimate partition count (we don't have direct access, so estimate from row count)
-				let estimated_partitions = if row_count < 1000 {
-					2
-				} else {
-					(row_count as f64).sqrt() as u32
-				};
-				let search_params =
-					VectorOptimizer::calculate_search_params(estimated_partitions, row_count);
-
-				query = query.nprobes(search_params.nprobes);
-				if let Some(refine_factor) = search_params.refine_factor {
-					query = query.refine_factor(refine_factor);
-				}
-
-				tracing::debug!(
-					"Using optimized search params for code_blocks: nprobes={}, refine_factor={:?}",
-					search_params.nprobes,
-					search_params.refine_factor
-				);
-			}
-		}
+		// Apply intelligent search optimization
+		query = VectorOptimizer::optimize_query(query, &table, "code_blocks")
+			.await
+			.map_err(|e| anyhow::anyhow!("Failed to optimize query: {}", e))?;
 
 		let mut results = query.execute().await?;
 		let mut all_code_blocks = Vec::new();
@@ -568,31 +540,15 @@ impl Store {
 
 		let table = self.db.open_table("text_blocks").execute().await?;
 
-		// Get intelligent search parameters
-		let row_count = table.count_rows(None).await?;
-		let indices = table.list_indices().await?;
-		let has_index = indices.iter().any(|idx| idx.columns == vec!["embedding"]);
-
 		let mut query = table
 			.vector_search(embedding)?
 			.distance_type(DistanceType::Cosine) // Always use Cosine for consistency
 			.limit(limit.unwrap_or(10));
 
-		// Apply intelligent search optimization if index exists
-		if has_index {
-			let estimated_partitions = if row_count < 1000 {
-				2
-			} else {
-				(row_count as f64).sqrt() as u32
-			};
-			let search_params =
-				VectorOptimizer::calculate_search_params(estimated_partitions, row_count);
-
-			query = query.nprobes(search_params.nprobes);
-			if let Some(refine_factor) = search_params.refine_factor {
-				query = query.refine_factor(refine_factor);
-			}
-		}
+		// Apply intelligent search optimization
+		query = VectorOptimizer::optimize_query(query, &table, "text_blocks")
+			.await
+			.map_err(|e| anyhow::anyhow!("Failed to optimize query: {}", e))?;
 
 		let mut results = query.execute().await?;
 		let mut all_text_blocks = Vec::new();
@@ -634,31 +590,15 @@ impl Store {
 
 		let table = self.db.open_table("document_blocks").execute().await?;
 
-		// Get intelligent search parameters
-		let row_count = table.count_rows(None).await?;
-		let indices = table.list_indices().await?;
-		let has_index = indices.iter().any(|idx| idx.columns == vec!["embedding"]);
-
 		let mut query = table
 			.vector_search(embedding)?
 			.distance_type(DistanceType::Cosine) // Always use Cosine for consistency
 			.limit(limit.unwrap_or(10));
 
-		// Apply intelligent search optimization if index exists
-		if has_index {
-			let estimated_partitions = if row_count < 1000 {
-				2
-			} else {
-				(row_count as f64).sqrt() as u32
-			};
-			let search_params =
-				VectorOptimizer::calculate_search_params(estimated_partitions, row_count);
-
-			query = query.nprobes(search_params.nprobes);
-			if let Some(refine_factor) = search_params.refine_factor {
-				query = query.refine_factor(refine_factor);
-			}
-		}
+		// Apply intelligent search optimization
+		query = VectorOptimizer::optimize_query(query, &table, "document_blocks")
+			.await
+			.map_err(|e| anyhow::anyhow!("Failed to optimize query: {}", e))?;
 
 		let mut results = query.execute().await?;
 		let mut all_document_blocks = Vec::new();
