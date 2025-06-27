@@ -391,8 +391,7 @@ impl MemoryStore {
 			let has_index = indices.iter().any(|idx| idx.columns == vec!["embedding"]);
 
 			let mut db_query = table
-				.query()
-				.nearest_to(query_embedding.as_slice())?
+				.vector_search(query_embedding.as_slice())?
 				.distance_type(DistanceType::Cosine)
 				.limit(limit * 2); // Get more results to filter
 

@@ -21,13 +21,12 @@ use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 
 // LanceDB imports
+use crate::store::{table_ops::TableOperations, CodeBlock};
 use futures::TryStreamExt;
 use lancedb::{
 	query::{ExecutableQuery, QueryBase},
-	Connection,
+	Connection, DistanceType,
 };
-
-use crate::store::{table_ops::TableOperations, CodeBlock};
 
 /// Handles GraphRAG-specific database operations
 pub struct GraphRagOperations<'a> {
@@ -261,8 +260,8 @@ impl<'a> GraphRagOperations<'a> {
 
 		// Perform vector similarity search
 		let mut results = table
-			.query()
-			.nearest_to(embedding)?
+			.vector_search(embedding)?
+			.distance_type(DistanceType::Cosine)
 			.limit(limit)
 			.execute()
 			.await?;

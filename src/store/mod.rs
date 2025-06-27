@@ -491,8 +491,7 @@ impl Store {
 		let has_index = indices.iter().any(|idx| idx.columns == vec!["embedding"]);
 
 		let mut query = table
-			.query()
-			.nearest_to(embedding)?
+			.vector_search(embedding)?
 			.distance_type(DistanceType::Cosine) // Always use Cosine for consistency
 			.limit(limit.unwrap_or(10));
 		// Apply language filter if specified
@@ -575,8 +574,7 @@ impl Store {
 		let has_index = indices.iter().any(|idx| idx.columns == vec!["embedding"]);
 
 		let mut query = table
-			.query()
-			.nearest_to(embedding)?
+			.vector_search(embedding)?
 			.distance_type(DistanceType::Cosine) // Always use Cosine for consistency
 			.limit(limit.unwrap_or(10));
 
@@ -642,8 +640,7 @@ impl Store {
 		let has_index = indices.iter().any(|idx| idx.columns == vec!["embedding"]);
 
 		let mut query = table
-			.query()
-			.nearest_to(embedding)?
+			.vector_search(embedding)?
 			.distance_type(DistanceType::Cosine) // Always use Cosine for consistency
 			.limit(limit.unwrap_or(10));
 
