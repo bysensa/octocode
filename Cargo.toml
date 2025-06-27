@@ -2,7 +2,7 @@
 name = "octocode"
 version = "0.6.0"
 edition = "2021"
-rust-version = "1.70"
+rust-version = "1.82"
 authors = ["Muvon Un Limited <opensource@muvon.io>"]
 description = "AI-powered code indexer with semantic search, GraphRAG knowledge graphs, and MCP server for multi-language codebases"
 homepage = "https://octocode.muvon.io"
