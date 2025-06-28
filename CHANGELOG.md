@@ -4,7 +4,7 @@
 
 ### 📋 Release Summary
 
-This release improves documentation clarity by fixing markdown formatting in the release workflow (39c0361e).
+This release is made exclusively for uploading the proper version to crates that had broken Rust indexing with an incorrect tree-sitter parser version.
 
 
 ### 📚 Documentation & Examples
