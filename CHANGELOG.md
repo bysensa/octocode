@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.7.1] - 2025-06-28
+
+### 📋 Release Summary
+
+This release improves documentation clarity by fixing markdown formatting in the release workflow (39c0361e).
+
+
+### 📚 Documentation & Examples
+
+- **ci**: fix markdown code block formatting in release workflow `39c0361e`
+
+### 📊 Release Summary
+
+**Total commits**: 1 across 1 categories
+
+📚 **1** documentation update - *Better developer experience*
+
 ## [0.7.0] - 2025-06-27
 
 ### 📋 Release Summary
