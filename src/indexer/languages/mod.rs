@@ -24,6 +24,7 @@ mod css;
 mod go;
 mod javascript;
 mod json;
+mod markdown;
 mod php;
 mod python;
 mod ruby;
@@ -38,6 +39,7 @@ pub use css::Css;
 pub use go::Go;
 pub use javascript::JavaScript;
 pub use json::Json;
+pub use markdown::Markdown;
 pub use php::Php;
 pub use python::Python;
 pub use ruby::Ruby;
@@ -108,6 +110,7 @@ pub fn get_language(name: &str) -> Option<Box<dyn Language>> {
 		"json" => Some(Box::new(Json {})),
 		"svelte" => Some(Box::new(Svelte {})),
 		"css" => Some(Box::new(Css {})),
+		"markdown" => Some(Box::new(Markdown {})),
 		_ => None,
 	}
 }

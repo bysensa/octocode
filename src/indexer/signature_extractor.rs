@@ -54,39 +54,52 @@ pub fn extract_file_signatures(files: &[PathBuf]) -> Result<Vec<FileSignature>> 
 
 	for file_path in files {
 		if let Some(language) = detect_language(file_path) {
-			// Get the language implementation
-			let lang_impl = match languages::get_language(language) {
-				Some(impl_) => impl_,
-				None => continue, // Skip unsupported languages
-			};
-
-			// Set the parser language
-			parser.set_language(&lang_impl.get_ts_language())?;
-
 			// Read file contents
 			if let Ok(contents) = fs::read_to_string(file_path) {
 				// Create a relative path for display using our utility
 				let display_path = path_utils::PathUtils::for_display(file_path, &current_dir);
 
-				// Parse the file
-				let tree = parser
-					.parse(&contents, None)
-					.unwrap_or_else(|| parser.parse("", None).unwrap());
+				// Handle markdown files specially (no tree-sitter parsing)
+				if language == "markdown" {
+					let signatures = extract_markdown_signatures(&contents);
+					let file_comment = extract_markdown_file_comment(&contents);
 
-				// Extract signatures from the file
-				let signatures =
-					extract_signatures(tree.root_node(), &contents, lang_impl.as_ref());
+					all_signatures.push(FileSignature {
+						path: display_path,
+						language: "markdown".to_string(),
+						file_comment,
+						signatures,
+					});
+				} else {
+					// Get the language implementation
+					let lang_impl = match languages::get_language(language) {
+						Some(impl_) => impl_,
+						None => continue, // Skip unsupported languages
+					};
 
-				// Extract file-level comment if present
-				let file_comment = extract_file_comment(tree.root_node(), &contents);
+					// Set the parser language
+					parser.set_language(&lang_impl.get_ts_language())?;
 
-				// Add to our results
-				all_signatures.push(FileSignature {
-					path: display_path,
-					language: lang_impl.name().to_string(),
-					file_comment,
-					signatures,
-				});
+					// Parse the file
+					let tree = parser
+						.parse(&contents, None)
+						.unwrap_or_else(|| parser.parse("", None).unwrap());
+
+					// Extract signatures from the file
+					let signatures =
+						extract_signatures(tree.root_node(), &contents, lang_impl.as_ref());
+
+					// Extract file-level comment if present
+					let file_comment = extract_file_comment(tree.root_node(), &contents);
+
+					// Add to our results
+					all_signatures.push(FileSignature {
+						path: display_path,
+						language: lang_impl.name().to_string(),
+						file_comment,
+						signatures,
+					});
+				}
 			}
 		}
 	}
@@ -299,4 +312,130 @@ fn map_node_kind_to_simple(kind: &str) -> String {
 fn detect_language(path: &Path) -> Option<&str> {
 	use crate::indexer::file_utils::FileUtils;
 	FileUtils::detect_language(path)
+}
+
+/// Extract signatures from markdown content
+fn extract_markdown_signatures(contents: &str) -> Vec<SignatureItem> {
+	let mut signatures = Vec::new();
+	let lines: Vec<&str> = contents.lines().collect();
+
+	for (line_idx, line) in lines.iter().enumerate() {
+		let trimmed = line.trim();
+
+		// Check if this is a heading
+		if trimmed.starts_with('#') && !trimmed.starts_with("```") {
+			let heading_level = trimmed.chars().take_while(|&c| c == '#').count();
+			let heading_text = trimmed.trim_start_matches('#').trim();
+
+			if !heading_text.is_empty() {
+				// Extract heading + content until next heading (like code blocks)
+				let mut content_lines = vec![*line];
+				let mut end_line = line_idx;
+
+				// Look ahead for content until next heading or end of file
+				for i in 1.. {
+					if line_idx + i >= lines.len() {
+						break;
+					}
+
+					let next_line = lines[line_idx + i];
+					let next_trimmed = next_line.trim();
+
+					// Stop if we hit another heading
+					if next_trimmed.starts_with('#') && !next_trimmed.starts_with("```") {
+						break;
+					}
+
+					content_lines.push(next_line);
+					end_line = line_idx + i;
+
+					// Limit content to reasonable size (like code blocks)
+					if content_lines.len() >= 20 {
+						break;
+					}
+				}
+
+				// Remove trailing empty lines for cleaner display
+				while content_lines.len() > 1 && content_lines.last().unwrap().trim().is_empty() {
+					content_lines.pop();
+					end_line -= 1;
+				}
+
+				let signature_content = content_lines.join("\n");
+
+				signatures.push(SignatureItem {
+					kind: format!("heading{}", heading_level),
+					name: heading_text.to_string(),
+					signature: signature_content,
+					description: None,
+					start_line: line_idx,
+					end_line,
+				});
+			}
+		}
+	}
+
+	signatures
+}
+
+/// Extract file-level comment from markdown (usually first paragraph or frontmatter)
+fn extract_markdown_file_comment(contents: &str) -> Option<String> {
+	let lines: Vec<&str> = contents.lines().collect();
+
+	if lines.is_empty() {
+		return None;
+	}
+
+	// Check for YAML frontmatter
+	if lines[0].trim() == "---" {
+		let mut comment_lines = Vec::new();
+		for line in lines.iter().skip(1) {
+			if line.trim() == "---" {
+				break;
+			}
+			comment_lines.push(*line);
+		}
+		if !comment_lines.is_empty() {
+			return Some(comment_lines.join("\n"));
+		}
+	}
+
+	// Look for first non-heading paragraph
+	let mut comment_lines = Vec::new();
+	let mut found_content = false;
+
+	for line in &lines {
+		let trimmed = line.trim();
+
+		// Skip headings
+		if trimmed.starts_with('#') {
+			if found_content {
+				break; // Stop at next heading
+			}
+			continue;
+		}
+
+		// Empty line handling
+		if trimmed.is_empty() {
+			if found_content {
+				break; // Stop at first empty line after content
+			}
+			continue;
+		}
+
+		// Found content
+		found_content = true;
+		comment_lines.push(*line);
+
+		// Limit to first paragraph (3 lines max)
+		if comment_lines.len() >= 3 {
+			break;
+		}
+	}
+
+	if comment_lines.is_empty() {
+		None
+	} else {
+		Some(comment_lines.join(" ").trim().to_string())
+	}
 }
