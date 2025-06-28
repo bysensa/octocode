@@ -79,9 +79,9 @@ pub struct SearchArgs {
 	#[arg(short, long, default_value = "cli")]
 	pub format: OutputFormat,
 
-	/// Similarity threshold (0.0-1.0). Higher values = more similar results only
-	#[arg(short, long, default_value = "0.8")]
-	pub threshold: f32,
+	/// Similarity threshold (0.0-1.0). Higher values = more similar results only. Defaults to config.search.similarity_threshold
+	#[arg(short, long)]
+	pub threshold: Option<f32>,
 
 	/// Expand symbols (show full function/class definitions)
 	#[arg(short, long)]
@@ -116,11 +116,14 @@ pub async fn execute(
 	// Validate queries
 	validate_queries(&args.queries)?;
 
+	// Use config default threshold if not provided via CLI
+	let threshold = args.threshold.unwrap_or(config.search.similarity_threshold);
+
 	// Validate similarity threshold
-	if args.threshold < 0.0 || args.threshold > 1.0 {
+	if !(0.0..=1.0).contains(&threshold) {
 		return Err(anyhow::anyhow!(
 			"Similarity threshold must be between 0.0 and 1.0, got: {}",
-			args.threshold
+			threshold
 		));
 	}
 
@@ -161,7 +164,7 @@ pub async fn execute(
 	}
 
 	// Convert similarity threshold to distance threshold
-	let distance_threshold = 1.0 - args.threshold;
+	let distance_threshold = 1.0 - threshold;
 
 	// Get effective detail level (default to "partial" for cli/text formats)
 	let effective_detail_level = args.detail_level.as_deref().unwrap_or("partial");
