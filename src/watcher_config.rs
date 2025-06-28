@@ -41,25 +41,10 @@ pub const WATCH_MAX_DEBOUNCE_SECS: u64 = 30;
 /// Minimum debounce time in seconds for watch command
 pub const WATCH_MIN_DEBOUNCE_SECS: u64 = 1;
 
-/// Paths to ignore during file watching
-pub const IGNORED_PATHS: &[&str] = &[
-	".octocode",
-	"target/",
-	".git/",
-	"node_modules/",
-	".vscode/",
-	".idea/",
-	".DS_Store",
-	"Thumbs.db",
-	".tmp",
-	".temp",
-];
-
 /// Ignore patterns manager for file watching
 pub struct IgnorePatterns {
 	gitignore_patterns: HashSet<String>,
 	noindex_patterns: HashSet<String>,
-	base_ignored_paths: HashSet<String>,
 	working_directory: PathBuf,
 }
 
@@ -69,7 +54,6 @@ impl IgnorePatterns {
 		let mut ignore_patterns = Self {
 			gitignore_patterns: HashSet::new(),
 			noindex_patterns: HashSet::new(),
-			base_ignored_paths: IGNORED_PATHS.iter().map(|s| s.to_string()).collect(),
 			working_directory,
 		};
 
@@ -111,15 +95,6 @@ impl IgnorePatterns {
 	/// Check if a path should be ignored during file watching
 	pub fn should_ignore_path(&self, path: &Path) -> bool {
 		let path_str = path.to_string_lossy();
-
-		// Check base ignored paths first
-		if self
-			.base_ignored_paths
-			.iter()
-			.any(|ignored| path_str.contains(ignored))
-		{
-			return true;
-		}
 
 		// Get relative path from working directory
 		let relative_path = if let Ok(rel_path) = path.strip_prefix(&self.working_directory) {
@@ -213,9 +188,4 @@ impl IgnorePatterns {
 		self.load_gitignore();
 		self.load_noindex();
 	}
-}
-
-/// Check if a path should be ignored during file watching (legacy function for backward compatibility)
-pub fn should_ignore_path(path: &str) -> bool {
-	IGNORED_PATHS.iter().any(|ignored| path.contains(ignored))
 }

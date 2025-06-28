@@ -91,8 +91,6 @@ pub struct IndexConfig {
 
 	/// Require git repository for indexing (default: true)
 	pub require_git: bool,
-
-	pub ignore_patterns: Vec<String>,
 }
 
 impl Default for IndexConfig {
@@ -104,11 +102,6 @@ impl Default for IndexConfig {
 			embeddings_max_tokens_per_batch: 100000,
 			flush_frequency: 2,
 			require_git: true,
-			ignore_patterns: vec![
-				".git/".to_string(),
-				"target/".to_string(),
-				"node_modules/".to_string(),
-			],
 		}
 	}
 }
