@@ -127,16 +127,16 @@ impl SemanticCodeProvider {
 	pub fn get_view_signatures_tool_definition() -> McpTool {
 		McpTool {
 			name: "view_signatures".to_string(),
-			description: "Extract and view function signatures, class definitions, and other meaningful code structures from files. Shows method signatures, class definitions, interfaces, and other declarations without full implementation details. Perfect for getting an overview of code structure and available APIs. Output includes 1-indexed line ranges and signature code with 1-indexed line numbers prefixed to each line.\n\nSupported Languages:\n- Rust (.rs): functions, structs, enums, traits, modules, constants, macros\n- JavaScript (.js): functions, methods, arrow functions\n- TypeScript (.ts, .tsx, .jsx): functions, methods, classes, interfaces, types\n- Python (.py): functions, classes, methods\n- Go (.go): functions, structs, interfaces, methods\n- C++ (.cpp, .cc, .cxx, .hpp, .h): functions, classes, structs, namespaces\n- PHP (.php): functions, classes, methods, traits\n- Ruby (.rb): classes, methods, modules\n- Bash (.sh, .bash): functions\n- JSON (.json): structure and key definitions\n- CSS (.css, .scss, .sass): rules, selectors, at-rules, keyframes\n- Svelte (.svelte): script blocks, style blocks, component elements with directives\n\nFor each supported language, extracts the most semantically meaningful constructs while filtering out noise and implementation details.".to_string(),
+			description: "Extract and view function signatures, class definitions, and other meaningful code structures from files. Shows method signatures, class definitions, interfaces, and other declarations without full implementation details. Perfect for getting an overview of code structure and available APIs. Output includes 1-indexed line ranges and signature code with 1-indexed line numbers prefixed to each line.\nSupported Languages:\nRust, JavaScript, TypeScript, Python, Go, C++, PHP, Ruby, Bash, JSON, CSS, Svelte, Markdown.\nSignatures are the structural definitions of code elements without their implementation details. They include function declarations, method headers, class definitions, interfaces, types, and other high-level constructs that define the API and architecture of code. Signatures provide a concise overview of what functionality exists and how it can be accessed, without showing the actual implementation logic.".to_string(),
 			input_schema: json!({
 				"type": "object",
 				"properties": {
 					"files": {
 						"type": "array",
-						"description": "Array of file paths or glob patterns to analyze for signatures. Examples: ['src/main.rs'], ['**/*.py'], ['src/**/*.ts', 'lib/**/*.js'], ['**/*.css'], ['components/**/*.svelte'], ['**/*.{rs,py,js,ts,css,svelte}']",
+						"description": "Array of file paths or glob patterns to analyze for signatures. Examples: ['src/main.rs'], ['**/*.py'], ['src/**/*.ts', 'lib/**/*.js'], ['**/*.css'], ['components/**/*.svelte'], ['**/*.{rs,py,js,ts,css,svelte,md}']",
 						"items": {
 							"type": "string",
-							"description": "File path or glob pattern. Can be exact paths like 'src/main.rs' or patterns like '**/*.py' to match multiple files. Supports all programming languages: .rs, .js, .ts, .py, .go, .cpp, .php, .rb, .sh, .json, .css, .scss, .sass, .svelte"
+							"description": "File path or glob pattern. Can be exact paths like 'src/main.rs' or patterns like '**/*.py' to match multiple files. Supports all programming languages: .rs, .js, .ts, .py, .go, .cpp, .php, .rb, .sh, .json, .css, .scss, .sass, .svelte, .md"
 						},
 						"minItems": 1,
 						"maxItems": 100
