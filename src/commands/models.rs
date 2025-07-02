@@ -113,7 +113,7 @@ async fn list_models(provider_filter: Option<String>) -> Result<()> {
 				println!("  Use 'info' command for real-time API validation");
 			}
 			EmbeddingProviderType::Voyage => {
-				println!("  Voyage models: voyage-3.5, voyage-code-2, voyage-finance-2, etc.");
+				println!("  Voyage models: voyage-3.5 (1024d), voyage-3.5-lite (1024d), voyage-3-large (1024d), voyage-code-2 (1536d), voyage-code-3 (1024d), voyage-finance-2 (1024d), voyage-law-2 (1024d), voyage-2 (1024d)");
 				println!("  Use 'info' command for real-time API validation");
 			}
 			EmbeddingProviderType::Google => {
@@ -189,8 +189,9 @@ fn parse_provider(provider_str: &str) -> Result<EmbeddingProviderType> {
 		"jina" => Ok(EmbeddingProviderType::Jina),
 		"voyage" => Ok(EmbeddingProviderType::Voyage),
 		"google" => Ok(EmbeddingProviderType::Google),
+		"openai" => Ok(EmbeddingProviderType::OpenAI),
 		_ => Err(anyhow::anyhow!(
-			"Unknown provider '{}'. Supported: fastembed, huggingface, jina, voyage, google",
+			"Unknown provider '{}'. Supported: fastembed, huggingface, jina, voyage, google, openai",
 			provider_str
 		)),
 	}
