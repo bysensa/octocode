@@ -111,12 +111,10 @@ fastembed:all-MiniLM-L6-v2                        # 384 dim, fast and efficient
 fastembed:BAAI/bge-small-en-v1.5                  # 384 dim, good balance
 ```
 
-#### For Text/Documentation (text_model)
-
 **Best Quality:**
 ```bash
-sentencetransformer:sentence-transformers/all-mpnet-base-v2  # 768 dim, excellent quality
-sentencetransformer:BAAI/bge-base-en-v1.5                   # 768 dim, high performance
+huggingface:sentence-transformers/all-mpnet-base-v2  # 768 dim, excellent quality
+huggingface:BAAI/bge-base-en-v1.5                   # 768 dim, high performance
 jinaai:jina-embeddings-v3                                   # 1024 dim, latest Jina model
 voyageai:voyage-3                                           # 1024 dim, excellent for text
 ```
@@ -124,6 +122,8 @@ voyageai:voyage-3                                           # 1024 dim, excellen
 **Fast Local:**
 ```bash
 fastembed:multilingual-e5-small                    # 384 dim, supports multiple languages
+huggingface:sentence-transformers/all-MiniLM-L6-v2  # 384 dim, fast
+```
 sentencetransformer:sentence-transformers/all-MiniLM-L6-v2  # 384 dim, fast
 ```
 

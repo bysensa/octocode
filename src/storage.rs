@@ -188,7 +188,7 @@ pub fn get_fastembed_cache_dir() -> Result<PathBuf> {
 
 /// Get the system-wide SentenceTransformer cache directory
 /// Stored directly under ~/.local/share/octocode/sentencetransformer/ on all systems
-pub fn get_sentencetransformer_cache_dir() -> Result<PathBuf> {
+pub fn get_huggingface_cache_dir() -> Result<PathBuf> {
 	let cache_dir = get_system_storage_dir()?.join("sentencetransformer");
 
 	// Create the directory if it doesn't exist
@@ -289,7 +289,7 @@ mod tests {
 
 	#[test]
 	fn test_sentencetransformer_cache_dir() {
-		let st_cache = get_sentencetransformer_cache_dir().unwrap();
+		let st_cache = get_huggingface_cache_dir().unwrap();
 
 		// Should contain "octocode" and "sentencetransformer" in the path
 		assert!(st_cache.to_string_lossy().contains("octocode"));

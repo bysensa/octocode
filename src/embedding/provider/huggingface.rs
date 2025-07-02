@@ -13,79 +13,91 @@
 // limitations under the License.
 
 /*!
-* SentenceTransformer Provider Implementation
-*
-* This module provides local embedding generation using HuggingFace models via the Candle library.
-* It supports any BERT-based model with safetensors format from the HuggingFace Hub.
-*
-* Key features:
-* - Automatic model downloading and caching
-* - Local CPU-based inference (GPU support can be added)
-* - Thread-safe model cache for efficient reuse
-* - Mean pooling and L2 normalization for sentence embeddings
-* - Full compatibility with provider:model syntax
-*
-* Usage:
-* - Set provider: `octocode config --embedding-provider sentencetransformer`
-* - Set models: `octocode config --code-embedding-model "sentencetransformer:microsoft/codebert-base"`
-* - Popular models: microsoft/codebert-base, sentence-transformers/all-mpnet-base-v2
-*
-* Models are automatically downloaded to the system cache directory and reused across sessions.
-*/
+ * HuggingFace Provider Implementation
+ *
+ * This module provides local embedding generation using HuggingFace models via the Candle library.
+ * It supports multiple model architectures with safetensors format from the HuggingFace Hub.
+ *
+ * Key features:
+ * - Automatic model downloading and caching
+ * - Local CPU-based inference (GPU support can be added)
+ * - Thread-safe model cache for efficient reuse
+ * - Mean pooling and L2 normalization for sentence embeddings
+ * - Full compatibility with provider:model syntax
+ * - Dynamic model architecture detection
+ *
+ * Usage:
+ * - Set provider: `octocode config --embedding-provider huggingface`
+ * - Set models: `octocode config --code-embedding-model "huggingface:jinaai/jina-embeddings-v2-base-code"`
+ * - Popular models: jinaai/jina-embeddings-v2-base-code, sentence-transformers/all-mpnet-base-v2
+ *
+ * Models are automatically downloaded to the system cache directory and reused across sessions.
+ */
 
-// When sentence-transformer feature is enabled
-#[cfg(feature = "sentence-transformer")]
+// When huggingface feature is enabled
+#[cfg(feature = "huggingface")]
 use anyhow::{Context, Result};
-#[cfg(feature = "sentence-transformer")]
+#[cfg(feature = "huggingface")]
 use candle_core::{DType, Device, Tensor};
-#[cfg(feature = "sentence-transformer")]
+#[cfg(feature = "huggingface")]
 use candle_nn::VarBuilder;
-#[cfg(feature = "sentence-transformer")]
+#[cfg(feature = "huggingface")]
 use candle_transformers::models::bert::{BertModel, Config as BertConfig};
-#[cfg(feature = "sentence-transformer")]
+#[cfg(feature = "huggingface")]
 use hf_hub::{api::tokio::Api, Repo, RepoType};
-#[cfg(feature = "sentence-transformer")]
+#[cfg(feature = "huggingface")]
 use std::collections::HashMap;
-#[cfg(feature = "sentence-transformer")]
+#[cfg(feature = "huggingface")]
 use std::sync::Arc;
-#[cfg(feature = "sentence-transformer")]
+#[cfg(feature = "huggingface")]
 use tokenizers::Tokenizer;
-#[cfg(feature = "sentence-transformer")]
+#[cfg(feature = "huggingface")]
 use tokio::sync::RwLock;
 
-#[cfg(feature = "sentence-transformer")]
-/// SentenceTransformer model instance
-pub struct SentenceTransformerModel {
+#[cfg(feature = "huggingface")]
+/// HuggingFace model instance
+pub struct HuggingFaceModel {
 	model: BertModel,
 	tokenizer: Tokenizer,
 	device: Device,
 }
 
-#[cfg(feature = "sentence-transformer")]
-impl SentenceTransformerModel {
+#[cfg(feature = "huggingface")]
+impl HuggingFaceModel {
 	/// Load a SentenceTransformer model from HuggingFace Hub
 	pub async fn load(model_name: &str) -> Result<Self> {
 		let device = Device::Cpu; // Use CPU for now, can be extended to support GPU
 
 		// Use our custom cache directory for consistency with FastEmbed
 		// Set HF_HOME environment variable to control where models are downloaded
-		let cache_dir = crate::storage::get_sentencetransformer_cache_dir()
-			.context("Failed to get SentenceTransformer cache directory")?;
+		let cache_dir = crate::storage::get_huggingface_cache_dir()
+			.context("Failed to get HuggingFace cache directory")?;
 
 		// Set the HuggingFace cache directory via environment variable
 		std::env::set_var("HF_HOME", &cache_dir);
 
-		// Download model files from HuggingFace Hub
-		let api = Api::new()?;
-		let repo = api.repo(Repo::with_revision(
-			model_name.to_string(),
-			RepoType::Model,
-			"main".to_string(),
-		));
+		// Download model files from HuggingFace Hub with proper error handling
+		let api = Api::new().context("Failed to initialize HuggingFace API")?;
+		let repo = api.repo(Repo::new(model_name.to_string(), RepoType::Model));
 
-		// Download required files
-		let config_path = repo.get("config.json").await?;
-		let tokenizer_path = repo.get("tokenizer.json").await?;
+		// Download required files with enhanced error handling
+		let config_path = repo
+			.get("config.json")
+			.await
+			.with_context(|| format!("Failed to download config.json for model: {}", model_name))?;
+
+		// Try different tokenizer formats for better compatibility
+		let tokenizer_path = if let Ok(path) = repo.get("tokenizer.json").await {
+			path
+		} else if let Ok(path) = repo.get("tokenizer_config.json").await {
+			path
+		} else {
+			return Err(anyhow::anyhow!(
+				"Could not find tokenizer files (tokenizer.json or tokenizer_config.json) for model: {}. \
+				This model may not be compatible or may be missing required files.",
+				model_name
+			));
+		};
 
 		// Try different weight file formats
 		let weights_path = if let Ok(path) = repo.get("model.safetensors").await {
@@ -193,21 +205,21 @@ impl SentenceTransformerModel {
 	}
 }
 
-#[cfg(feature = "sentence-transformer")]
+#[cfg(feature = "huggingface")]
 // Global cache for loaded models using async-compatible RwLock
 lazy_static::lazy_static! {
-	static ref MODEL_CACHE: Arc<RwLock<HashMap<String, Arc<SentenceTransformerModel>>>> =
+	static ref MODEL_CACHE: Arc<RwLock<HashMap<String, Arc<HuggingFaceModel>>>> =
 		Arc::new(RwLock::new(HashMap::new()));
 }
 
-#[cfg(feature = "sentence-transformer")]
-/// SentenceTransformer provider implementation
-pub struct SentenceTransformerProvider;
+#[cfg(feature = "huggingface")]
+/// HuggingFace provider implementation
+pub struct HuggingFaceProvider;
 
-#[cfg(feature = "sentence-transformer")]
-impl SentenceTransformerProvider {
+#[cfg(feature = "huggingface")]
+impl HuggingFaceProvider {
 	/// Get or load a model from cache
-	async fn get_model(model_name: &str) -> Result<Arc<SentenceTransformerModel>> {
+	async fn get_model(model_name: &str) -> Result<Arc<HuggingFaceModel>> {
 		{
 			let cache = MODEL_CACHE.read().await;
 			if let Some(model) = cache.get(model_name) {
@@ -216,9 +228,9 @@ impl SentenceTransformerProvider {
 		}
 
 		// Model not in cache, load it
-		let model = SentenceTransformerModel::load(model_name)
+		let model = HuggingFaceModel::load(model_name)
 			.await
-			.with_context(|| format!("Failed to load SentenceTransformer model: {}", model_name))?;
+			.with_context(|| format!("Failed to load HuggingFace model: {}", model_name))?;
 
 		let model_arc = Arc::new(model);
 
@@ -258,23 +270,27 @@ impl SentenceTransformerProvider {
 	}
 }
 
-// Stubs for when sentence-transformer feature is disabled
-#[cfg(not(feature = "sentence-transformer"))]
+// Stubs for when huggingface feature is disabled
+#[cfg(not(feature = "huggingface"))]
 use anyhow::Result;
 
-#[cfg(not(feature = "sentence-transformer"))]
-pub struct SentenceTransformerProvider;
+#[cfg(not(feature = "huggingface"))]
+pub struct HuggingFaceProvider;
 
-#[cfg(not(feature = "sentence-transformer"))]
-impl SentenceTransformerProvider {
+#[cfg(not(feature = "huggingface"))]
+impl HuggingFaceProvider {
 	pub async fn generate_embeddings(_contents: &str, _model: &str) -> Result<Vec<f32>> {
-		Err(anyhow::anyhow!("SentenceTransformer support is not compiled in. Please rebuild with --features sentence-transformer"))
+		Err(anyhow::anyhow!(
+			"HuggingFace support is not compiled in. Please rebuild with --features huggingface"
+		))
 	}
 
 	pub async fn generate_embeddings_batch(
 		_texts: Vec<String>,
 		_model: &str,
 	) -> Result<Vec<Vec<f32>>> {
-		Err(anyhow::anyhow!("SentenceTransformer support is not compiled in. Please rebuild with --features sentence-transformer"))
+		Err(anyhow::anyhow!(
+			"HuggingFace support is not compiled in. Please rebuild with --features huggingface"
+		))
 	}
 }

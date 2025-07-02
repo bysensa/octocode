@@ -38,11 +38,11 @@ static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(|| {
 
 // Feature-specific provider modules
 pub mod fastembed;
-pub mod sentence_transformer;
+pub mod huggingface;
 
 // Re-export providers
 pub use fastembed::{FastEmbedProvider, FastEmbedProviderImpl};
-pub use sentence_transformer::SentenceTransformerProvider;
+pub use huggingface::HuggingFaceProvider;
 
 /// Trait for embedding providers
 #[async_trait::async_trait]
@@ -74,25 +74,25 @@ pub fn create_embedding_provider_from_parts(
 		EmbeddingProviderType::Jina => Ok(Box::new(JinaProviderImpl::new(model))),
 		EmbeddingProviderType::Voyage => Ok(Box::new(VoyageProviderImpl::new(model))),
 		EmbeddingProviderType::Google => Ok(Box::new(GoogleProviderImpl::new(model))),
-		EmbeddingProviderType::SentenceTransformer => {
-			#[cfg(feature = "sentence-transformer")]
+		EmbeddingProviderType::HuggingFace => {
+			#[cfg(feature = "huggingface")]
 			{
-				Ok(Box::new(SentenceTransformerProviderImpl::new(model)))
+				Ok(Box::new(HuggingFaceProviderImpl::new(model)))
 			}
-			#[cfg(not(feature = "sentence-transformer"))]
+			#[cfg(not(feature = "huggingface"))]
 			{
-				Err(anyhow::anyhow!("SentenceTransformer support is not compiled in. Please rebuild with --features sentence-transformer"))
+				Err(anyhow::anyhow!("HuggingFace support is not compiled in. Please rebuild with --features huggingface"))
 			}
 		}
 	}
 }
 
-/// SentenceTransformer provider implementation for trait
-pub struct SentenceTransformerProviderImpl {
+/// HuggingFace provider implementation for trait
+pub struct HuggingFaceProviderImpl {
 	model_name: String,
 }
 
-impl SentenceTransformerProviderImpl {
+impl HuggingFaceProviderImpl {
 	pub fn new(model: &str) -> Self {
 		Self {
 			model_name: model.to_string(),
@@ -101,9 +101,9 @@ impl SentenceTransformerProviderImpl {
 }
 
 #[async_trait::async_trait]
-impl EmbeddingProvider for SentenceTransformerProviderImpl {
+impl EmbeddingProvider for HuggingFaceProviderImpl {
 	async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>> {
-		SentenceTransformerProvider::generate_embeddings(text, &self.model_name).await
+		HuggingFaceProvider::generate_embeddings(text, &self.model_name).await
 	}
 
 	async fn generate_embeddings_batch(
@@ -111,13 +111,12 @@ impl EmbeddingProvider for SentenceTransformerProviderImpl {
 		texts: Vec<String>,
 		input_type: InputType,
 	) -> Result<Vec<Vec<f32>>> {
-		// Apply prefix manually for SentenceTransformer (doesn't support input_type API)
+		// Apply prefix manually for HuggingFace (doesn't support input_type API)
 		let processed_texts: Vec<String> = texts
 			.into_iter()
 			.map(|text| input_type.apply_prefix(&text))
 			.collect();
-		SentenceTransformerProvider::generate_embeddings_batch(processed_texts, &self.model_name)
-			.await
+		HuggingFaceProvider::generate_embeddings_batch(processed_texts, &self.model_name).await
 	}
 }
 

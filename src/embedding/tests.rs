@@ -23,14 +23,14 @@ mod embedding_tests {
 		count_tokens, split_texts_into_token_limited_batches, EmbeddingProviderType,
 	};
 
-	#[cfg(any(feature = "sentence-transformer", feature = "fastembed"))]
+	#[cfg(any(feature = "huggingface", feature = "fastembed"))]
 	use crate::embedding::create_embedding_provider_from_parts;
 
 	#[test]
-	#[cfg(feature = "sentence-transformer")]
+	#[cfg(feature = "huggingface")]
 	fn test_sentence_transformer_provider_creation() {
 		// Test that we can create a SentenceTransformer provider
-		let provider_type = EmbeddingProviderType::SentenceTransformer;
+		let provider_type = EmbeddingProviderType::HuggingFace;
 		let model = "sentence-transformers/all-MiniLM-L6-v2";
 
 		let result = create_embedding_provider_from_parts(&provider_type, model);
@@ -50,10 +50,10 @@ mod embedding_tests {
 		)];
 
 		// Add SentenceTransformer test case only if feature is enabled
-		#[cfg(feature = "sentence-transformer")]
+		#[cfg(feature = "huggingface")]
 		test_cases.push((
 			"sentencetransformer:sentence-transformers/all-MiniLM-L6-v2",
-			EmbeddingProviderType::SentenceTransformer,
+			EmbeddingProviderType::HuggingFace,
 			"sentence-transformers/all-MiniLM-L6-v2",
 		));
 
@@ -128,33 +128,33 @@ mod embedding_tests {
 	}
 
 	#[test]
-	#[cfg(feature = "sentence-transformer")]
+	#[cfg(feature = "huggingface")]
 	fn test_embedding_config_methods() {
 		let config = EmbeddingConfig {
 			code_model: "sentencetransformer:microsoft/codebert-base".to_string(),
-			text_model: "sentencetransformer:sentence-transformers/all-mpnet-base-v2".to_string(),
+			text_model: "huggingface:sentence-transformers/all-mpnet-base-v2".to_string(),
 		};
 
 		// Test getting active provider
 		let active_provider = config.get_active_provider();
-		assert_eq!(active_provider, EmbeddingProviderType::SentenceTransformer);
+		assert_eq!(active_provider, EmbeddingProviderType::HuggingFace);
 
 		// Test vector dimensions
 		let dim = config.get_vector_dimension(
-			&EmbeddingProviderType::SentenceTransformer,
-			"microsoft/codebert-base",
+			&EmbeddingProviderType::HuggingFace,
+			"jinaai/jina-embeddings-v2-base-code",
 		);
 		assert_eq!(dim, 768);
 
 		let dim2 = config.get_vector_dimension(
-			&EmbeddingProviderType::SentenceTransformer,
+			&EmbeddingProviderType::HuggingFace,
 			"sentence-transformers/all-MiniLM-L6-v2",
 		);
 		assert_eq!(dim2, 384);
 	}
 
 	#[test]
-	#[cfg(not(feature = "sentence-transformer"))]
+	#[cfg(not(feature = "huggingface"))]
 	fn test_embedding_config_methods_without_sentence_transformer() {
 		let config = EmbeddingConfig {
 			code_model: "voyage:voyage-code-3".to_string(),

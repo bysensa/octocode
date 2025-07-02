@@ -67,7 +67,7 @@ pub enum EmbeddingProviderType {
 	Jina,
 	Voyage,
 	Google,
-	SentenceTransformer,
+	HuggingFace,
 }
 
 impl Default for EmbeddingProviderType {
@@ -122,9 +122,7 @@ pub fn parse_provider_model(input: &str) -> (EmbeddingProviderType, String) {
 			"jinaai" | "jina" => EmbeddingProviderType::Jina,
 			"voyageai" | "voyage" => EmbeddingProviderType::Voyage,
 			"google" => EmbeddingProviderType::Google,
-			"sentencetransformer" | "st" | "huggingface" | "hf" => {
-				EmbeddingProviderType::SentenceTransformer
-			}
+			"huggingface" | "hf" => EmbeddingProviderType::HuggingFace,
 			_ => {
 				// Default fallback - use FastEmbed if available, otherwise Voyage
 				#[cfg(feature = "fastembed")]
@@ -229,22 +227,27 @@ impl EmbeddingConfig {
 				"text-multilingual-embedding-002" => 768,
 				_ => panic!("Unsupported embedding model: {}", model),
 			},
-			EmbeddingProviderType::SentenceTransformer => {
-				// Common SentenceTransformer model dimensions
+			EmbeddingProviderType::HuggingFace => {
+				// Dynamic dimension detection - will be implemented
+				// For now, provide safe fallbacks for common models
 				match model {
+					// Common sentence-transformers models
 					"sentence-transformers/all-MiniLM-L6-v2" => 384,
 					"sentence-transformers/all-MiniLM-L12-v2" => 384,
 					"sentence-transformers/all-mpnet-base-v2" => 768,
 					"sentence-transformers/all-roberta-large-v1" => 1024,
 					"sentence-transformers/paraphrase-MiniLM-L6-v2" => 384,
 					"sentence-transformers/paraphrase-mpnet-base-v2" => 768,
-					"microsoft/codebert-base" => 768,
-					"microsoft/unixcoder-base" => 768,
 					"sentence-transformers/multi-qa-mpnet-base-dot-v1" => 768,
+					// Replace defunct microsoft/codebert-base with jinaai alternative
+					"jinaai/jina-embeddings-v2-base-code" => 768,
+					"microsoft/unixcoder-base" => 768,
+					// BAAI models
 					"BAAI/bge-small-en-v1.5" => 384,
 					"BAAI/bge-base-en-v1.5" => 768,
 					"BAAI/bge-large-en-v1.5" => 1024,
-					_ => panic!("Unsupported embedding model: {}", model),
+					// Safe fallback for unknown models
+					_ => 768, // Most common embedding dimension
 				}
 			}
 		}
