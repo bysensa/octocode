@@ -202,9 +202,9 @@ impl ProxyMcpInstance {
 		let result = match tool_name {
 			"semantic_search" => self.semantic_code.execute_search(arguments).await,
 			"view_signatures" => self.semantic_code.execute_view_signatures(arguments).await,
-			"graphrag_search" => match &self.graphrag {
-				Some(provider) => provider.execute_search(arguments).await,
-				None => Err(McpError::method_not_found("GraphRAG is not enabled in the current configuration. Please enable GraphRAG in octocode.toml to use relationship-aware search.", "graphrag_search")),
+			"graphrag" => match &self.graphrag {
+				Some(provider) => provider.execute(arguments).await,
+				None => Err(McpError::method_not_found("GraphRAG is not enabled in the current configuration. Please enable GraphRAG in octocode.toml to use relationship-aware search.", "graphrag")),
 			},
 			"memorize" => match &self.memory {
 				Some(provider) => provider.execute_memorize(arguments).await,
@@ -220,7 +220,7 @@ impl ProxyMcpInstance {
 			},
 			_ => {
 				let available_tools = format!("semantic_search, view_signatures{}{}",
-					if self.graphrag.is_some() { ", graphrag_search" } else { "" },
+				if self.graphrag.is_some() { ", graphrag" } else { "" },
 					if self.memory.is_some() { ", memorize, remember, forget" } else { "" }
 				);
 				Err(McpError::method_not_found(format!("Unknown tool '{}'. Available tools: {}", tool_name, available_tools), "proxy_call"))

@@ -781,7 +781,7 @@ impl McpServer {
 					"version": "0.1.0",
 					"description": "Semantic code search server with vector embeddings, memory system, and optional GraphRAG support"
 				},
-				"instructions": "This server provides modular AI tools: semantic code search, memory management, and GraphRAG. Use 'semantic_search' for code/documentation searches, memory tools for storing/retrieving context, and 'graphrag_search' (if available) for relationship queries."
+				"instructions": "This server provides modular AI tools: semantic code search, memory management, and GraphRAG. Use 'semantic_search' for code/documentation searches, memory tools for storing/retrieving context, and 'graphrag' (if available) for relationship queries."
 			})),
 			error: None,
 		}
@@ -880,9 +880,9 @@ impl McpServer {
 		let result = match tool_name {
 			"semantic_search" => self.semantic_code.execute_search(arguments).await,
 			"view_signatures" => self.semantic_code.execute_view_signatures(arguments).await,
-			"graphrag_search" => match &self.graphrag {
-				Some(provider) => provider.execute_search(arguments).await,
-				None => Err(McpError::method_not_found("GraphRAG is not enabled in the current configuration. Please enable GraphRAG in octocode.toml to use relationship-aware search.", "graphrag_search")),
+			"graphrag" => match &self.graphrag {
+				Some(provider) => provider.execute(arguments).await,
+				None => Err(McpError::method_not_found("GraphRAG is not enabled in the current configuration. Please enable GraphRAG in octocode.toml to use relationship-aware search.", "graphrag")),
 			},
 			"memorize" => match &self.memory {
 				Some(provider) => provider.execute_memorize(arguments).await,
@@ -941,7 +941,7 @@ impl McpServer {
 			},
 			_ => {
 				let available_tools = format!("semantic_search, view_signatures{}{}{}",
-					if self.graphrag.is_some() { ", graphrag_search" } else { "" },
+				if self.graphrag.is_some() { ", graphrag" } else { "" },
 					if self.memory.is_some() { ", memorize, remember, forget" } else { "" },
 					if self.lsp.is_some() { ", lsp_goto_definition, lsp_hover, lsp_find_references, lsp_document_symbols, lsp_workspace_symbols, lsp_completion" } else { "" }
 				);
@@ -1374,7 +1374,7 @@ fn handle_initialize_http(request: &JsonRpcRequest) -> JsonRpcResponse {
 				"version": "0.1.0",
 				"description": "Semantic code search server with vector embeddings, memory system, and optional GraphRAG support"
 			},
-			"instructions": "This server provides modular AI tools: semantic code search, memory management, and GraphRAG. Use 'semantic_search' for code/documentation searches, memory tools for storing/retrieving context, and 'graphrag_search' (if available) for relationship queries."
+			"instructions": "This server provides modular AI tools: semantic code search, memory management, and GraphRAG. Use 'semantic_search' for code/documentation searches, memory tools for storing/retrieving context, and 'graphrag' (if available) for relationship queries."
 		})),
 		error: None,
 	}
@@ -1476,9 +1476,9 @@ async fn handle_tools_call_http(
 	let result = match tool_name {
 		"semantic_search" => state.semantic_code.execute_search(arguments).await,
 		"view_signatures" => state.semantic_code.execute_view_signatures(arguments).await,
-		"graphrag_search" => match &state.graphrag {
-			Some(provider) => provider.execute_search(arguments).await,
-			None => Err(McpError::method_not_found("GraphRAG is not enabled in the current configuration. Please enable GraphRAG in octocode.toml to use relationship-aware search.", "graphrag_search")),
+		"graphrag" => match &state.graphrag {
+			Some(provider) => provider.execute(arguments).await,
+			None => Err(McpError::method_not_found("GraphRAG is not enabled in the current configuration. Please enable GraphRAG in octocode.toml to use relationship-aware search.", "graphrag")),
 		},
 		"memorize" => match &state.memory {
 			Some(provider) => provider.execute_memorize(arguments).await,
@@ -1537,7 +1537,7 @@ async fn handle_tools_call_http(
 		},
 		_ => {
 			let available_tools = format!("semantic_search, view_signatures{}{}{}",
-				if state.graphrag.is_some() { ", graphrag_search" } else { "" },
+			if state.graphrag.is_some() { ", graphrag" } else { "" },
 				if state.memory.is_some() { ", memorize, remember, forget" } else { "" },
 				if state.lsp.is_some() { ", lsp_goto_definition, lsp_hover, lsp_find_references, lsp_document_symbols, lsp_workspace_symbols, lsp_completion" } else { "" }
 			);
