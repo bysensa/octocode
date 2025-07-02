@@ -30,11 +30,15 @@ impl JinaProviderImpl {
 	pub fn new(model: &str) -> Result<Self> {
 		// Validate model first - fail fast if unsupported
 		let supported_models = [
+			"jina-embeddings-v4",
+			"jina-clip-v2",
 			"jina-embeddings-v3",
-			"jina-embeddings-v2-base-en",
-			"jina-embeddings-v2-base-code",
-			"jina-embeddings-v2-small-en",
 			"jina-clip-v1",
+			"jina-embeddings-v2-base-es",
+			"jina-embeddings-v2-base-code",
+			"jina-embeddings-v2-base-de",
+			"jina-embeddings-v2-base-zh",
+			"jina-embeddings-v2-base-en",
 		];
 
 		if !supported_models.contains(&model) {
@@ -54,11 +58,15 @@ impl JinaProviderImpl {
 
 	fn get_model_dimension(model: &str) -> usize {
 		match model {
+			"jina-embeddings-v4" => 2048,
+			"jina-clip-v2" => 1024,
 			"jina-embeddings-v3" => 1024,
-			"jina-embeddings-v2-base-en" => 768,
-			"jina-embeddings-v2-base-code" => 768,
-			"jina-embeddings-v2-small-en" => 512,
 			"jina-clip-v1" => 768,
+			"jina-embeddings-v2-base-es" => 768,
+			"jina-embeddings-v2-base-code" => 768,
+			"jina-embeddings-v2-base-de" => 768,
+			"jina-embeddings-v2-base-zh" => 768,
+			"jina-embeddings-v2-base-en" => 768,
 			_ => {
 				// This should never be reached due to validation in new()
 				panic!(
@@ -97,11 +105,15 @@ impl EmbeddingProvider for JinaProviderImpl {
 		// REAL validation - only support actual Jina models
 		matches!(
 			self.model_name.as_str(),
-			"jina-embeddings-v3"
-				| "jina-embeddings-v2-base-en"
-				| "jina-embeddings-v2-base-code"
-				| "jina-embeddings-v2-small-en"
+			"jina-embeddings-v4"
+				| "jina-clip-v2"
+				| "jina-embeddings-v3"
 				| "jina-clip-v1"
+				| "jina-embeddings-v2-base-es"
+				| "jina-embeddings-v2-base-code"
+				| "jina-embeddings-v2-base-de"
+				| "jina-embeddings-v2-base-zh"
+				| "jina-embeddings-v2-base-en"
 		)
 	}
 }

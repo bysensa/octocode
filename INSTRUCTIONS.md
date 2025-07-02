@@ -29,7 +29,7 @@ impl ProviderImpl {
             dimension,
         })
     }
-    
+
     fn get_model_dimension_static(model: &str) -> Result<usize> {
         match model {
             "model-1" => Ok(768),
@@ -52,6 +52,11 @@ use super::{EmbeddingProvider, HTTP_CLIENT};
 - `{provider}.rs`: Individual provider implementations
 - Feature-gated: fastembed.rs, huggingface.rs
 - Always available: jina.rs (138 lines), voyage.rs (154 lines), google.rs (116 lines)
+
+**Current Provider Models**:
+- **Jina**: jina-embeddings-v4 (2048d), jina-clip-v2 (1024d), jina-embeddings-v3 (1024d), jina-clip-v1 (768d), jina-embeddings-v2-base-es (768d), jina-embeddings-v2-base-code (768d), jina-embeddings-v2-base-de (768d), jina-embeddings-v2-base-zh (768d), jina-embeddings-v2-base-en (768d)
+- **Google**: gemini-embedding-001 (3072d), text-embedding-005 (768d), text-multilingual-embedding-002 (768d)
+- **Voyage**: voyage-3.5, voyage-code-2, voyage-finance-2, etc. (use 'info' command for dimensions)
 
 **Result-based Constructor Pattern**:
 All providers use `pub fn new(model: &str) -> Result<Self>` with graceful error handling and proper model validation. Factory function calls providers with `?` operator for consistent error propagation.

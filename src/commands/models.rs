@@ -107,7 +107,7 @@ async fn list_models(provider_filter: Option<String>) -> Result<()> {
 			}
 			EmbeddingProviderType::Jina => {
 				println!(
-					"  Jina models: jina-embeddings-v2-base-en, jina-embeddings-v2-small-en, etc."
+					"  Jina models: jina-embeddings-v4 (2048d), jina-clip-v2 (1024d), jina-embeddings-v3 (1024d), jina-clip-v1 (768d), jina-embeddings-v2-base-es (768d), jina-embeddings-v2-base-code (768d), jina-embeddings-v2-base-de (768d), jina-embeddings-v2-base-zh (768d), jina-embeddings-v2-base-en (768d)"
 				);
 				println!("  Use 'info' command for real-time API validation");
 			}
