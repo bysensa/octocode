@@ -140,19 +140,14 @@ impl<'a> MetadataOperations<'a> {
 		}
 
 		if file_exists {
-			// TODO: Fix LanceDB update API - current API doesn't support .set() method
-			// For now, we'll skip updating existing records and just insert new ones
-			// This is a temporary workaround until we figure out the correct LanceDB update syntax
-			/*
-			// Update existing record
+			// Update existing record using correct LanceDB UpdateBuilder API
 			table
 				.update()
 				.only_if(format!("path = '{}'", file_path))
-				.set("mtime", mtime as i64)
-				.set("indexed_at", chrono::Utc::now().timestamp())
+				.column("mtime", (mtime as i64).to_string())
+				.column("indexed_at", chrono::Utc::now().timestamp().to_string())
 				.execute()
 				.await?;
-			*/
 		} else {
 			// Insert new record
 			let schema = Arc::new(Schema::new(vec![

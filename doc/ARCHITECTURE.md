@@ -21,6 +21,7 @@ Octocode is built with a modular architecture that separates concerns and enable
 - **Efficient storage** (~10KB per file)
 - **Fast retrieval** with similarity thresholds
 - **Metadata indexing** for filtering
+- **File metadata tracking** with modification time updates using LanceDB UpdateBuilder API
 
 ### 4. GraphRAG Builder
 - **AI-powered relationship extraction** between files

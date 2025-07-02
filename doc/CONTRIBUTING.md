@@ -17,11 +17,15 @@ We welcome contributions! This project is part of the larger Muvon ecosystem and
 git clone https://github.com/muvon/octocode.git
 cd octocode
 
-# Build the project
-cargo build
+# Build the project (MANDATORY: always use --no-default-features)
+cargo build --no-default-features
 
 # Run tests
-cargo test
+cargo test --no-default-features
+
+# Check code quality
+cargo check --no-default-features --message-format=short
+cargo clippy --no-default-features
 
 # Run with debug logging
 RUST_LOG=debug cargo run -- index
