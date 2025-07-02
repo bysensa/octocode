@@ -81,6 +81,12 @@ enum Commands {
 	/// View MCP server logs
 	Logs(commands::LogsArgs),
 
+	/// Model management and discovery commands
+	Models {
+		#[command(subcommand)]
+		command: commands::ModelsCommand,
+	},
+
 	/// Generate shell completion scripts
 	Completion {
 		/// The shell to generate completion for
@@ -142,6 +148,11 @@ async fn main() -> Result<(), anyhow::Error> {
 		return commands::logs::execute(logs_args).await;
 	}
 
+	// Handle the Models command separately (doesn't need store)
+	if let Commands::Models { command } = &args.command {
+		return commands::models::execute_models_command(command.clone()).await;
+	}
+
 	// Handle the Completion command separately (doesn't need store)
 	if let Commands::Completion { shell } = &args.command {
 		let mut app = OctocodeArgs::command();
@@ -178,6 +189,7 @@ async fn main() -> Result<(), anyhow::Error> {
 		Commands::Release(_) => unreachable!(), // Already handled above
 		Commands::Format(_) => unreachable!(), // Already handled above
 		Commands::Logs(_) => unreachable!(),   // Already handled above
+		Commands::Models { .. } => unreachable!(), // Already handled above
 		Commands::Memory(_) => unreachable!(), // Already handled above
 		Commands::Completion { .. } => unreachable!(), // Already handled above
 	}

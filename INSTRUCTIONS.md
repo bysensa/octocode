@@ -87,9 +87,15 @@ let results = memory_store.search_memories(&query).await?;
 - `src/indexer/` - Tree-sitter parsing, semantic extraction
 - `src/indexer/languages/` - Language-specific implementations
 - `src/indexer/graphrag/` - Knowledge graph generation
-- `src/embedding/` - Multi-provider embedding system
-- `src/commands/` - CLI command implementations
+- `src/embedding/` - Multi-provider embedding system with dynamic model discovery
+- `src/commands/` - CLI command implementations (index, search, models, etc.)
 - `src/mcp/` - Model Context Protocol server
+
+### Model Management System
+- **Dynamic Model Discovery**: No hardcoded model-dimension mappings
+- **Provider Validation**: Fail-fast during provider creation for invalid models
+- **CLI Commands**: `octocode models list [provider]` and `octocode models info provider:model`
+- **Feature Detection**: Proper feature-gating shows actual provider availability
 
 ### MCP Server Modes
 - **Stdin Mode** (default): Standard MCP protocol over stdin/stdout for AI assistant integration

@@ -52,6 +52,14 @@ pub struct FastEmbedProviderImpl {
 #[cfg(feature = "fastembed")]
 impl FastEmbedProviderImpl {
 	pub fn new(model_name: &str) -> Result<Self> {
+		// Validate model is supported BEFORE creating
+		if !Self::is_model_supported_static(model_name) {
+			return Err(anyhow::anyhow!(
+				"Unsupported FastEmbed model: {}",
+				model_name
+			));
+		}
+
 		let model_enum = FastEmbedProvider::map_model_to_fastembed(model_name);
 
 		// Use system-wide cache for FastEmbed models
@@ -68,6 +76,50 @@ impl FastEmbedProviderImpl {
 		Ok(Self {
 			model: Arc::new(model),
 		})
+	}
+
+	/// Check if model is supported using PURE dynamic API discovery
+	fn is_model_supported_static(model_name: &str) -> bool {
+		// Use FastEmbed's dynamic model discovery API - NO STATIC LISTS
+		let supported_models = TextEmbedding::list_supported_models();
+
+		// Check if the model name matches any supported model
+		supported_models.iter().any(|model_info| {
+            // Convert ModelInfo to string representation to check against model_name
+            let model_str = format!("{:?}", model_info);
+            model_str.contains(model_name) ||
+            // Handle common aliases dynamically
+            (model_name == "all-MiniLM-L12-v2" && model_str.contains("sentence-transformers/all-MiniLM-L12-v2")) ||
+            (model_name == "multilingual-e5-small" && model_str.contains("intfloat/multilingual-e5-small")) ||
+            (model_name == "multilingual-e5-base" && model_str.contains("intfloat/multilingual-e5-base")) ||
+            (model_name == "multilingual-e5-large" && model_str.contains("intfloat/multilingual-e5-large"))
+        })
+	}
+
+	/// Get list of all supported models dynamically
+	pub fn list_supported_models() -> Vec<String> {
+		let supported_models = TextEmbedding::list_supported_models();
+		supported_models
+			.iter()
+			.map(|model_info| format!("{:?}", model_info)) // Convert ModelInfo to string
+			.collect()
+	}
+
+	/// Get model dimension dynamically from ModelInfo if available
+	pub fn get_model_dimension_from_api(model_name: &str) -> Option<usize> {
+		let supported_models = TextEmbedding::list_supported_models();
+
+		// Find the model in the supported list and try to extract dimension
+		for model_info in supported_models {
+			let model_str = format!("{:?}", model_info);
+			if model_str.contains(model_name) {
+				// Try to extract dimension from ModelInfo
+				// This is a placeholder - need to understand ModelInfo structure
+				// For now, we'll fall back to dynamic embedding generation
+				return None;
+			}
+		}
+		None
 	}
 }
 
@@ -114,6 +166,30 @@ impl EmbeddingProvider for FastEmbedProviderImpl {
 		.await??;
 
 		Ok(embeddings)
+	}
+
+	fn get_dimension(&self) -> usize {
+		// First try to get dimension from ModelInfo API if available
+		// This is more efficient than generating embeddings
+		// Note: This is a placeholder until we understand ModelInfo structure better
+
+		// Fall back to dynamic embedding generation (current working method)
+		// Generate a single embedding to get the dimension
+		// This is cached by FastEmbed, so subsequent calls are fast
+		let model = self.model.clone();
+
+		// Use a simple test text to get dimension
+		match model.embed(vec!["test"], None) {
+			Ok(embeddings) if !embeddings.is_empty() => embeddings[0].len(),
+			_ => {
+				tracing::warn!("Failed to get dimension from FastEmbed model, using fallback");
+				768 // Safe fallback
+			}
+		}
+	}
+
+	fn is_model_supported(&self) -> bool {
+		true // If we created the provider, the model is supported
 	}
 }
 
@@ -208,6 +284,14 @@ impl super::super::EmbeddingProvider for FastEmbedProviderImpl {
 		Err(anyhow::anyhow!(
 			"FastEmbed support is not compiled in. Please rebuild with --features fastembed"
 		))
+	}
+
+	fn get_dimension(&self) -> usize {
+		768 // Safe fallback when feature is disabled
+	}
+
+	fn is_model_supported(&self) -> bool {
+		false // No support when feature is disabled
 	}
 }
 

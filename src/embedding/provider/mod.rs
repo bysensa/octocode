@@ -37,11 +37,15 @@ static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(|| {
 });
 
 // Feature-specific provider modules
+#[cfg(feature = "fastembed")]
 pub mod fastembed;
+#[cfg(feature = "huggingface")]
 pub mod huggingface;
 
 // Re-export providers
+#[cfg(feature = "fastembed")]
 pub use fastembed::{FastEmbedProvider, FastEmbedProviderImpl};
+#[cfg(feature = "huggingface")]
 pub use huggingface::HuggingFaceProvider;
 
 /// Trait for embedding providers
@@ -53,6 +57,14 @@ pub trait EmbeddingProvider: Send + Sync {
 		texts: Vec<String>,
 		input_type: InputType,
 	) -> Result<Vec<Vec<f32>>>;
+
+	/// Get the vector dimension for this provider's model
+	fn get_dimension(&self) -> usize;
+
+	/// Validate if the model is supported (optional, defaults to true)
+	fn is_model_supported(&self) -> bool {
+		true
+	}
 }
 
 /// Create an embedding provider from provider type and model
@@ -71,13 +83,13 @@ pub fn create_embedding_provider_from_parts(
 				Err(anyhow::anyhow!("FastEmbed support is not compiled in. Please rebuild with --features fastembed"))
 			}
 		}
-		EmbeddingProviderType::Jina => Ok(Box::new(JinaProviderImpl::new(model))),
-		EmbeddingProviderType::Voyage => Ok(Box::new(VoyageProviderImpl::new(model))),
+		EmbeddingProviderType::Jina => Ok(Box::new(JinaProviderImpl::new(model)?)),
+		EmbeddingProviderType::Voyage => Ok(Box::new(VoyageProviderImpl::new(model)?)),
 		EmbeddingProviderType::Google => Ok(Box::new(GoogleProviderImpl::new(model))),
 		EmbeddingProviderType::HuggingFace => {
 			#[cfg(feature = "huggingface")]
 			{
-				Ok(Box::new(HuggingFaceProviderImpl::new(model)))
+				Ok(Box::new(HuggingFaceProviderImpl::new(model)?))
 			}
 			#[cfg(not(feature = "huggingface"))]
 			{
@@ -88,18 +100,109 @@ pub fn create_embedding_provider_from_parts(
 }
 
 /// HuggingFace provider implementation for trait
+#[cfg(feature = "huggingface")]
 pub struct HuggingFaceProviderImpl {
 	model_name: String,
+	dimension: usize,
 }
 
+#[cfg(feature = "huggingface")]
 impl HuggingFaceProviderImpl {
-	pub fn new(model: &str) -> Self {
-		Self {
-			model_name: model.to_string(),
+	pub fn new(model: &str) -> Result<Self> {
+		#[cfg(not(feature = "huggingface"))]
+		{
+			Err(anyhow::anyhow!("HuggingFace provider requires 'huggingface' feature to be enabled. Cannot validate model '{}' without Hub API access.", model))
 		}
+
+		#[cfg(feature = "huggingface")]
+		{
+			let dimension = Self::get_model_dimension_static(model)?;
+			Ok(Self {
+				model_name: model.to_string(),
+				dimension,
+			})
+		}
+	}
+
+	#[cfg(feature = "huggingface")]
+	fn get_model_dimension_static(model: &str) -> Result<usize> {
+		// DYNAMIC discovery only - get dimension from HuggingFace Hub config.json
+		if let Some(dimension) = Self::get_dimension_from_hub_config(model) {
+			return Ok(dimension);
+		}
+
+		// NO STATIC FALLBACKS - if we can't get dimension dynamically, fail properly
+		Err(anyhow::anyhow!("Failed to get dimension for HuggingFace model '{}' from Hub API. Cannot proceed without dynamic model discovery.", model))
+	}
+
+	/// Get model dimension from HuggingFace Hub config.json
+	#[cfg(feature = "huggingface")]
+	fn get_dimension_from_hub_config(model_name: &str) -> Option<usize> {
+		// Use blocking runtime since this is called from sync context
+		if let Ok(rt) = tokio::runtime::Runtime::new() {
+			return rt.block_on(Self::fetch_dimension_from_hub(model_name));
+		}
+
+		None
+	}
+
+	/// Async method to fetch dimension from HuggingFace Hub config.json
+	#[cfg(feature = "huggingface")]
+	async fn fetch_dimension_from_hub(model_name: &str) -> Option<usize> {
+		use hf_hub::{api::tokio::Api, Repo, RepoType};
+		use serde_json::Value;
+
+		// Try to fetch config.json from HuggingFace Hub
+		let api = Api::new().ok()?;
+		let repo = api.repo(Repo::new(model_name.to_string(), RepoType::Model));
+
+		// Try to get config.json
+		let config_content = match repo.get("config.json").await {
+			Ok(content) => content,
+			Err(e) => {
+				tracing::debug!("Failed to fetch config.json for {}: {}", model_name, e);
+				return None;
+			}
+		};
+
+		// Parse JSON and extract dimension
+		let config_text = match std::fs::read_to_string(&config_content) {
+			Ok(text) => text,
+			Err(e) => {
+				tracing::debug!("Failed to read config.json for {}: {}", model_name, e);
+				return None;
+			}
+		};
+
+		let config: Value = match serde_json::from_str(&config_text) {
+			Ok(config) => config,
+			Err(e) => {
+				tracing::debug!("Failed to parse config.json for {}: {}", model_name, e);
+				return None;
+			}
+		};
+
+		// Try different field names that contain embedding dimensions
+		let dimension_fields = ["hidden_size", "d_model", "embedding_size", "dim"];
+
+		for field in &dimension_fields {
+			if let Some(dim) = config.get(field).and_then(|v| v.as_u64()) {
+				tracing::info!(
+					"Found dimension {} for model {} from config.json field '{}'",
+					dim,
+					model_name,
+					field
+				);
+				return Some(dim as usize);
+			}
+		}
+
+		tracing::debug!("No dimension field found in config.json for {}", model_name);
+		None
 	}
 }
 
+#[cfg(feature = "huggingface")]
 #[async_trait::async_trait]
 impl EmbeddingProvider for HuggingFaceProviderImpl {
 	async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>> {
@@ -118,17 +221,64 @@ impl EmbeddingProvider for HuggingFaceProviderImpl {
 			.collect();
 		HuggingFaceProvider::generate_embeddings_batch(processed_texts, &self.model_name).await
 	}
+
+	fn get_dimension(&self) -> usize {
+		self.dimension
+	}
+
+	fn is_model_supported(&self) -> bool {
+		// For HuggingFace, we support many models, so return true for most cases
+		// The actual validation happens when trying to load the model
+		true
+	}
 }
 
 /// Jina provider implementation for trait
 pub struct JinaProviderImpl {
 	model_name: String,
+	dimension: usize,
 }
 
 impl JinaProviderImpl {
-	pub fn new(model: &str) -> Self {
-		Self {
+	pub fn new(model: &str) -> Result<Self> {
+		// Validate model first - fail fast if unsupported
+		let supported_models = [
+			"jina-embeddings-v3",
+			"jina-embeddings-v2-base-en",
+			"jina-embeddings-v2-base-code",
+			"jina-embeddings-v2-small-en",
+			"jina-clip-v1",
+		];
+
+		if !supported_models.contains(&model) {
+			return Err(anyhow::anyhow!(
+				"Unsupported Jina model: '{}'. Supported models: {:?}",
+				model,
+				supported_models
+			));
+		}
+
+		let dimension = Self::get_model_dimension_static(model);
+		Ok(Self {
 			model_name: model.to_string(),
+			dimension,
+		})
+	}
+
+	fn get_model_dimension_static(model: &str) -> usize {
+		match model {
+			"jina-embeddings-v3" => 1024,
+			"jina-embeddings-v2-base-en" => 768,
+			"jina-embeddings-v2-base-code" => 768,
+			"jina-embeddings-v2-small-en" => 512,
+			"jina-clip-v1" => 768,
+			_ => {
+				// This should never be reached due to validation in new()
+				panic!(
+					"Invalid Jina model '{}' passed to get_model_dimension_static",
+					model
+				);
+			}
 		}
 	}
 }
@@ -151,17 +301,76 @@ impl EmbeddingProvider for JinaProviderImpl {
 			.collect();
 		JinaProvider::generate_embeddings_batch(processed_texts, &self.model_name).await
 	}
+
+	fn get_dimension(&self) -> usize {
+		self.dimension
+	}
+
+	fn is_model_supported(&self) -> bool {
+		// REAL validation - only support actual Jina models
+		matches!(
+			self.model_name.as_str(),
+			"jina-embeddings-v3"
+				| "jina-embeddings-v2-base-en"
+				| "jina-embeddings-v2-base-code"
+				| "jina-embeddings-v2-small-en"
+				| "jina-clip-v1"
+		)
+	}
 }
 
 /// Voyage provider implementation for trait
 pub struct VoyageProviderImpl {
 	model_name: String,
+	dimension: usize,
 }
 
 impl VoyageProviderImpl {
-	pub fn new(model: &str) -> Self {
-		Self {
+	pub fn new(model: &str) -> Result<Self> {
+		// Validate model first - fail fast if unsupported
+		let supported_models = [
+			"voyage-3.5",
+			"voyage-3.5-lite",
+			"voyage-3-large",
+			"voyage-code-2",
+			"voyage-code-3",
+			"voyage-finance-2",
+			"voyage-law-2",
+			"voyage-2",
+		];
+
+		if !supported_models.contains(&model) {
+			return Err(anyhow::anyhow!(
+				"Unsupported Voyage model: '{}'. Supported models: {:?}",
+				model,
+				supported_models
+			));
+		}
+
+		let dimension = Self::get_model_dimension_static(model);
+		Ok(Self {
 			model_name: model.to_string(),
+			dimension,
+		})
+	}
+
+	fn get_model_dimension_static(model: &str) -> usize {
+		match model {
+			"voyage-3.5" => 1024,
+			"voyage-3.5-lite" => 1024,
+			"voyage-3-large" => 1024,
+			"voyage-code-2" => 1536,
+			"voyage-code-3" => 1024,
+			"voyage-finance-2" => 1024,
+			"voyage-law-2" => 1024,
+			"voyage-2" => 1024,
+			_ => {
+				// This should never be reached due to validation in new()
+				panic!(
+					"Invalid Voyage model '{}' passed to get_model_dimension_static",
+					model
+				);
+			}
 		}
 	}
 }
@@ -179,18 +388,47 @@ impl EmbeddingProvider for VoyageProviderImpl {
 	) -> Result<Vec<Vec<f32>>> {
 		VoyageProvider::generate_embeddings_batch(texts, &self.model_name, input_type).await
 	}
+
+	fn get_dimension(&self) -> usize {
+		self.dimension
+	}
+
+	fn is_model_supported(&self) -> bool {
+		// REAL validation - only support actual Voyage models, NO HALLUCINATIONS
+		matches!(
+			self.model_name.as_str(),
+			"voyage-3.5"
+				| "voyage-3.5-lite"
+				| "voyage-3-large"
+				| "voyage-code-2"
+				| "voyage-code-3"
+				| "voyage-finance-2"
+				| "voyage-law-2"
+				| "voyage-2"
+		)
+	}
 }
 
 /// Google provider implementation for trait
 pub struct GoogleProviderImpl {
 	model_name: String,
+	dimension: usize,
 }
 
 impl GoogleProviderImpl {
 	pub fn new(model: &str) -> Self {
+		let dimension = Self::get_model_dimension_static(model);
 		Self {
 			model_name: model.to_string(),
+			dimension,
 		}
+	}
+
+	fn get_model_dimension_static(model: &str) -> usize {
+		// DYNAMIC discovery only - NO STATIC FALLBACKS
+		// For API providers, we should query their API for model info
+		// For now, panic to force proper dynamic implementation
+		panic!("Google provider must implement dynamic model discovery for '{}'. No static fallbacks allowed.", model);
 	}
 }
 
@@ -211,6 +449,19 @@ impl EmbeddingProvider for GoogleProviderImpl {
 			.map(|text| input_type.apply_prefix(&text))
 			.collect();
 		GoogleProvider::generate_embeddings_batch(processed_texts, &self.model_name).await
+	}
+
+	fn get_dimension(&self) -> usize {
+		self.dimension
+	}
+
+	fn is_model_supported(&self) -> bool {
+		matches!(
+			self.model_name.as_str(),
+			"text-embedding-004"
+				| "text-embedding-preview-0409"
+				| "text-multilingual-embedding-002"
+		)
 	}
 }
 

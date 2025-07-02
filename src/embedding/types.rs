@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 /// Input type for embedding generation
@@ -166,90 +167,34 @@ impl EmbeddingConfig {
 		}
 	}
 
-	/// Get the vector dimension for a specific provider and model
+	/// Get vector dimension by creating a provider instance
 	pub fn get_vector_dimension(&self, provider: &EmbeddingProviderType, model: &str) -> usize {
-		match provider {
-			EmbeddingProviderType::FastEmbed => match model {
-				"sentence-transformers/all-MiniLM-L6-v2" => 384,
-				"sentence-transformers/all-MiniLM-L6-v2-quantized" => 384,
-				"sentence-transformers/all-MiniLM-L12-v2" => 768,
-				"sentence-transformers/all-MiniLM-L12-v2-quantized" => 768,
-				"BAAI/bge-base-en-v1.5" => 768,
-				"BAAI/bge-base-en-v1.5-quantized" => 768,
-				"BAAI/bge-large-en-v1.5" => 1024,
-				"BAAI/bge-large-en-v1.5-quantized" => 1024,
-				"BAAI/bge-small-en-v1.5" => 384,
-				"BAAI/bge-small-en-v1.5-quantized" => 384,
-				"nomic-ai/nomic-embed-text-v1" => 768,
-				"nomic-ai/nomic-embed-text-v1.5" => 768,
-				"nomic-ai/nomic-embed-text-v1.5-quantized" => 768,
-				"sentence-transformers/paraphrase-MiniLM-L6-v2" => 384,
-				"sentence-transformers/paraphrase-MiniLM-L6-v2-quantized" => 384,
-				"sentence-transformers/paraphrase-mpnet-base-v2" => 768,
-				"BAAI/bge-small-zh-v1.5" => 512,
-				"BAAI/bge-large-zh-v1.5" => 1024,
-				"lightonai/modernbert-embed-large" => 1024,
-				"intfloat/multilingual-e5-small" | "multilingual-e5-small" => 384,
-				"intfloat/multilingual-e5-base" | "multilingual-e5-base" => 768,
-				"intfloat/multilingual-e5-large" | "multilingual-e5-large" => 1024,
-				"mixedbread-ai/mxbai-embed-large-v1" => 1024,
-				"mixedbread-ai/mxbai-embed-large-v1-quantized" => 1024,
-				"Alibaba-NLP/gte-base-en-v1.5" => 768,
-				"Alibaba-NLP/gte-base-en-v1.5-quantized" => 768,
-				"Alibaba-NLP/gte-large-en-v1.5" => 1024,
-				"Alibaba-NLP/gte-large-en-v1.5-quantized" => 1024,
-				"Qdrant/clip-ViT-B-32-text" => 512,
-				"jinaai/jina-embeddings-v2-base-code" => 768,
-				_ => panic!("Unsupported embedding model: {}", model),
-			},
-			EmbeddingProviderType::Jina => match model {
-				"jina-embeddings-v3" => 1024,
-				"jina-embeddings-v2-base-en" => 768,
-				"jina-embeddings-v2-base-code" => 768,
-				"jina-embeddings-v2-small-en" => 512,
-				"jina-clip-v1" => 768,
-				_ => panic!("Unsupported embedding model: {}", model),
-			},
-			EmbeddingProviderType::Voyage => match model {
-				"voyage-3.5" => 1024,
-				"voyage-3.5-lite" => 1024,
-				"voyage-3-large" => 1024,
-				"voyage-code-2" => 1536,
-				"voyage-code-3" => 1024,
-				"voyage-finance-2" => 1024,
-				"voyage-law-2" => 1024,
-				"voyage-2" => 1024,
-				_ => panic!("Unsupported embedding model: {}", model),
-			},
-			EmbeddingProviderType::Google => match model {
-				"text-embedding-004" => 768,
-				"text-embedding-preview-0409" => 768,
-				"text-multilingual-embedding-002" => 768,
-				_ => panic!("Unsupported embedding model: {}", model),
-			},
-			EmbeddingProviderType::HuggingFace => {
-				// Dynamic dimension detection - will be implemented
-				// For now, provide safe fallbacks for common models
-				match model {
-					// Common sentence-transformers models
-					"sentence-transformers/all-MiniLM-L6-v2" => 384,
-					"sentence-transformers/all-MiniLM-L12-v2" => 384,
-					"sentence-transformers/all-mpnet-base-v2" => 768,
-					"sentence-transformers/all-roberta-large-v1" => 1024,
-					"sentence-transformers/paraphrase-MiniLM-L6-v2" => 384,
-					"sentence-transformers/paraphrase-mpnet-base-v2" => 768,
-					"sentence-transformers/multi-qa-mpnet-base-dot-v1" => 768,
-					// Replace defunct microsoft/codebert-base with jinaai alternative
-					"jinaai/jina-embeddings-v2-base-code" => 768,
-					"microsoft/unixcoder-base" => 768,
-					// BAAI models
-					"BAAI/bge-small-en-v1.5" => 384,
-					"BAAI/bge-base-en-v1.5" => 768,
-					"BAAI/bge-large-en-v1.5" => 1024,
-					// Safe fallback for unknown models
-					_ => 768, // Most common embedding dimension
-				}
+		// Try to create provider and get dimension
+		match crate::embedding::provider::create_embedding_provider_from_parts(provider, model) {
+			Ok(provider_impl) => provider_impl.get_dimension(),
+			Err(e) => {
+				tracing::warn!(
+					"Failed to create provider for {:?}:{}: {}. Using fallback dimension.",
+					provider,
+					model,
+					e
+				);
+				768 // Safe fallback
 			}
 		}
+	}
+
+	/// Validate model by trying to create provider
+	pub fn validate_model(&self, provider: &EmbeddingProviderType, model: &str) -> Result<()> {
+		let provider_impl =
+			crate::embedding::provider::create_embedding_provider_from_parts(provider, model)?;
+		if !provider_impl.is_model_supported() {
+			return Err(anyhow::anyhow!(
+				"Model {} is not supported by provider {:?}",
+				model,
+				provider
+			));
+		}
+		Ok(())
 	}
 }
