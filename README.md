@@ -36,9 +36,8 @@ For detailed installation instructions, see [Installation Guide](INSTALL.md).
 **⚠️ Required for functionality:**
 
 ```bash
-# Required: Choose one embedding provider
-export VOYAGE_API_KEY="your-voyage-api-key"     # Voyage AI - 200M free tokens/month
-export OPENAI_API_KEY="your-openai-api-key"     # OpenAI - Latest models
+# Required: Voyage AI (embeddings) - 200M free tokens/month
+export VOYAGE_API_KEY="your-voyage-api-key"
 
 # Optional: OpenRouter (LLM features)
 export OPENROUTER_API_KEY="your-openrouter-api-key"
@@ -46,7 +45,6 @@ export OPENROUTER_API_KEY="your-openrouter-api-key"
 
 **Get your free API keys:**
 - **Voyage AI**: [Get free API key](https://www.voyageai.com/) (200M tokens/month free)
-- **OpenAI**: [Get API key](https://platform.openai.com/api-keys) (latest embedding models)
 - **OpenRouter**: [Get API key](https://openrouter.ai/) (optional, for AI features)
 
 ## 🚀 Quick Start
