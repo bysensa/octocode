@@ -13,8 +13,8 @@ octocode config --show
 ```bash
 # Use SentenceTransformer (recommended for quality)
 octocode config \
-  --code-embedding-model "sentencetransformer:microsoft/codebert-base" \
-  --text-embedding-model "sentencetransformer:sentence-transformers/all-mpnet-base-v2"
+  --code-embedding-model "huggingface:microsoft/codebert-base" \
+  --text-embedding-model "huggingface:sentence-transformers/all-mpnet-base-v2"
 
 # Use FastEmbed (recommended for speed)
 octocode config \
@@ -23,7 +23,7 @@ octocode config \
 
 # Mix providers as needed
 octocode config \
-  --code-embedding-model "sentencetransformer:microsoft/codebert-base" \
+  --code-embedding-model "huggingface:microsoft/codebert-base" \
   --text-embedding-model "fastembed:multilingual-e5-small"
 ```
 
@@ -50,8 +50,8 @@ api_key = "your-openrouter-key"  # Or set OPENROUTER_API_KEY env var
 
 [embedding]
 # Direct model configuration - provider auto-detected from prefix
-code_model = "sentencetransformer:microsoft/codebert-base"
-text_model = "sentencetransformer:sentence-transformers/all-mpnet-base-v2"
+code_model = "huggingface:microsoft/codebert-base"
+text_model = "huggingface:sentence-transformers/all-mpnet-base-v2"
 
 # Provider-specific sections only for API keys
 [embedding.jina]
@@ -87,7 +87,7 @@ max_memories = 10000
 
 | Provider | Format | API Key Required | Local/Cloud | Quality | Speed |
 |----------|--------|------------------|-------------|---------|-------|
-| **SentenceTransformer** | `sentencetransformer:model-name` | ❌ No | 🖥️ Local | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ |
+| **SentenceTransformer** | `huggingface:model-name` | ❌ No | 🖥️ Local | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ |
 | **FastEmbed** | `fastembed:model-name` | ❌ No | 🖥️ Local | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
 | **Jina AI** | `jinaai:model-name` | ✅ Yes | ☁️ Cloud | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ |
 | **Voyage AI** | `voyageai:model-name` | ✅ Yes | ☁️ Cloud | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ |
@@ -99,10 +99,10 @@ max_memories = 10000
 
 **Best Quality:**
 ```bash
-sentencetransformer:microsoft/codebert-base        # 768 dim, excellent for code
-sentencetransformer:microsoft/unixcoder-base       # 768 dim, Unix/shell code
-jinaai:jina-embeddings-v2-base-code               # 768 dim, specialized for code
-voyageai:voyage-code-2                            # 1536 dim, high quality
+huggingface:microsoft/codebert-base                    # 768 dim, BERT, excellent for code
+huggingface:jinaai/jina-embeddings-v2-base-code       # 768 dim, JinaBERT, code-optimized
+jinaai:jina-embeddings-v2-base-code                   # 768 dim, specialized for code
+voyageai:voyage-code-2                                # 1536 dim, high quality
 ```
 
 **Fast Local:**
@@ -111,20 +111,23 @@ fastembed:all-MiniLM-L6-v2                        # 384 dim, fast and efficient
 fastembed:BAAI/bge-small-en-v1.5                  # 384 dim, good balance
 ```
 
+#### For Text Understanding (text_model)
+
 **Best Quality:**
 ```bash
-huggingface:sentence-transformers/all-mpnet-base-v2  # 768 dim, excellent quality
-huggingface:BAAI/bge-base-en-v1.5                   # 768 dim, high performance
-jinaai:jina-embeddings-v3                                   # 1024 dim, latest Jina model
-voyageai:voyage-3                                           # 1024 dim, excellent for text
+huggingface:sentence-transformers/all-mpnet-base-v2   # 768 dim, BERT, excellent quality
+huggingface:BAAI/bge-base-en-v1.5                     # 768 dim, BERT, high performance
+jinaai:jina-embeddings-v3                             # 1024 dim, latest Jina model
+voyageai:voyage-3                                     # 1024 dim, excellent for text
 ```
 
 **Fast Local:**
 ```bash
-fastembed:multilingual-e5-small                    # 384 dim, supports multiple languages
-huggingface:sentence-transformers/all-MiniLM-L6-v2  # 384 dim, fast
+fastembed:multilingual-e5-small                       # 384 dim, supports multiple languages
+huggingface:sentence-transformers/all-MiniLM-L6-v2    # 384 dim, BERT, fast
 ```
-sentencetransformer:sentence-transformers/all-MiniLM-L6-v2  # 384 dim, fast
+
+**Note**: HuggingFace provider supports BERT and JinaBERT architectures with automatic dimension detection.
 ```
 
 ## Environment Variables
@@ -330,8 +333,8 @@ max_results = 20
 ### For Quality
 ```toml
 [embedding]
-code_model = "sentencetransformer:microsoft/codebert-base"
-text_model = "sentencetransformer:sentence-transformers/all-mpnet-base-v2"
+code_model = "huggingface:microsoft/codebert-base"
+text_model = "huggingface:sentence-transformers/all-mpnet-base-v2"
 
 [index]
 chunk_size = 2000

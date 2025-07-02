@@ -93,9 +93,19 @@ octocode config \
 
 # SentenceTransformer (highest quality)
 octocode config \
-  --code-embedding-model "sentencetransformer:microsoft/codebert-base" \
-  --text-embedding-model "sentencetransformer:sentence-transformers/all-mpnet-base-v2"
+  --code-embedding-model "huggingface:microsoft/codebert-base" \
+  --text-embedding-model "huggingface:sentence-transformers/all-mpnet-base-v2"
 ```
+
+**Supported Architectures:**
+- **BERT**: Standard BERT models (e.g., `sentence-transformers/all-MiniLM-L6-v2`)
+- **JinaBERT**: Jina's BERT variants (e.g., `jinaai/jina-embeddings-v2-base-code`)
+
+**Popular Models:**
+- `sentence-transformers/all-MiniLM-L6-v2` - 384 dimensions, fast and efficient
+- `sentence-transformers/all-mpnet-base-v2` - 768 dimensions, high quality
+- `microsoft/codebert-base` - 768 dimensions, code-specialized
+- `jinaai/jina-embeddings-v2-base-code` - 768 dimensions, code-optimized
 
 **Note**: Local models require building from source on macOS. Prebuilt binaries use cloud embeddings only.
 
@@ -189,7 +199,7 @@ octocode config --model "anthropic/claude-3.5-sonnet"
 ### For Code Understanding (code_model)
 
 **Best Quality:**
-- `sentencetransformer:microsoft/codebert-base` (768 dim, local)
+- `huggingface:microsoft/codebert-base` (768 dim, local)
 - `jina:jina-embeddings-v2-base-code` (768 dim, cloud)
 - `voyage:voyage-code-3` (1024 dim, cloud)
 
@@ -200,14 +210,14 @@ octocode config --model "anthropic/claude-3.5-sonnet"
 ### For Text/Documentation (text_model)
 
 **Best Quality:**
-- `sentencetransformer:sentence-transformers/all-mpnet-base-v2` (768 dim, local)
+- `huggingface:sentence-transformers/all-mpnet-base-v2` (768 dim, local)
 - `jina:jina-embeddings-v3` (1024 dim, cloud)
 - `voyage:voyage-3.5-lite` (1024 dim, cloud)
 - `openai:text-embedding-3-large` (3072 dim, cloud)
 
 **Fast Local:**
 - `fastembed:multilingual-e5-small` (384 dim)
-- `sentencetransformer:sentence-transformers/all-MiniLM-L6-v2` (384 dim)
+- `huggingface:sentence-transformers/all-MiniLM-L6-v2` (384 dim)
 
 ## Quick Setup Examples
 

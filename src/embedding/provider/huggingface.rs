@@ -43,6 +43,7 @@ use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 #[cfg(feature = "huggingface")]
 use candle_transformers::models::bert::{BertModel, Config as BertConfig};
+use candle_transformers::models::jina_bert::Config as JinaBertConfig;
 #[cfg(feature = "huggingface")]
 use hf_hub::{api::tokio::Api, Repo, RepoType};
 #[cfg(feature = "huggingface")]
@@ -324,79 +325,125 @@ impl HuggingFaceProviderImpl {
 
 	#[cfg(feature = "huggingface")]
 	fn get_model_dimension(model: &str) -> Result<usize> {
-		// DYNAMIC discovery only - get dimension from HuggingFace Hub config.json
-		if let Some(dimension) = Self::get_dimension_from_hub_config(model) {
-			return Ok(dimension);
-		}
-
-		// NO STATIC FALLBACKS - if we can't get dimension dynamically, fail properly
-		Err(anyhow::anyhow!("Failed to get dimension for HuggingFace model '{}' from Hub API. Cannot proceed without dynamic model discovery.", model))
+		Self::get_dimension_from_config(model)
 	}
 
-	/// Get model dimension from HuggingFace Hub config.json
+	/// Get model dimension using Candle config structs (like examples)
 	#[cfg(feature = "huggingface")]
-	fn get_dimension_from_hub_config(model_name: &str) -> Option<usize> {
-		// Use blocking runtime since this is called from sync context
-		if let Ok(rt) = tokio::runtime::Runtime::new() {
-			return rt.block_on(Self::fetch_dimension_from_hub(model_name));
+	fn get_dimension_from_config(model_name: &str) -> Result<usize> {
+		// Download config.json
+		let rt = tokio::runtime::Runtime::new()?;
+		let config_json = rt.block_on(Self::download_config_direct(model_name))?;
+
+		// Try different Candle config types - JinaBert first, then standard Bert
+		if let Ok(config) = Self::parse_as_jina_bert_config(&config_json) {
+			return Ok(config.hidden_size);
 		}
 
-		None
+		if let Ok(config) = Self::parse_as_bert_config(&config_json) {
+			return Ok(config.hidden_size);
+		}
+
+		// Fallback to JSON parsing
+		Self::parse_hidden_size_from_json(&config_json, model_name)
 	}
 
-	/// Async method to fetch dimension from HuggingFace Hub config.json
+	/// Try to parse config as JinaBert config (for Jina models)
 	#[cfg(feature = "huggingface")]
-	async fn fetch_dimension_from_hub(model_name: &str) -> Option<usize> {
-		use hf_hub::{api::tokio::Api, Repo, RepoType};
+	fn parse_as_jina_bert_config(config_json: &str) -> Result<JinaBertConfig> {
+		serde_json::from_str::<JinaBertConfig>(config_json)
+			.map_err(|e| anyhow::anyhow!("Failed to parse as JinaBertConfig: {}", e))
+	}
+
+	/// Try to parse config as standard Candle BertConfig
+	#[cfg(feature = "huggingface")]
+	fn parse_as_bert_config(
+		config_json: &str,
+	) -> Result<candle_transformers::models::bert::Config> {
+		use candle_transformers::models::bert::Config as BertConfig;
+		serde_json::from_str::<BertConfig>(config_json)
+			.map_err(|e| anyhow::anyhow!("Failed to parse as BertConfig: {}", e))
+	}
+
+	/// Parse hidden_size from JSON config flexibly
+	#[cfg(feature = "huggingface")]
+	fn parse_hidden_size_from_json(config_json: &str, model_name: &str) -> Result<usize> {
 		use serde_json::Value;
 
-		// Try to fetch config.json from HuggingFace Hub
-		let api = Api::new().ok()?;
-		let repo = api.repo(Repo::new(model_name.to_string(), RepoType::Model));
-
-		// Try to get config.json
-		let config_content = match repo.get("config.json").await {
-			Ok(content) => content,
-			Err(e) => {
-				tracing::debug!("Failed to fetch config.json for {}: {}", model_name, e);
-				return None;
-			}
-		};
-
-		// Parse JSON and extract dimension
-		let config_text = match std::fs::read_to_string(&config_content) {
-			Ok(text) => text,
-			Err(e) => {
-				tracing::debug!("Failed to read config.json for {}: {}", model_name, e);
-				return None;
-			}
-		};
-
-		let config: Value = match serde_json::from_str(&config_text) {
-			Ok(config) => config,
-			Err(e) => {
-				tracing::debug!("Failed to parse config.json for {}: {}", model_name, e);
-				return None;
-			}
-		};
+		let config: Value = serde_json::from_str(config_json).with_context(|| {
+			format!(
+				"Failed to parse config.json as JSON for model: {}",
+				model_name
+			)
+		})?;
 
 		// Try different field names that contain embedding dimensions
 		let dimension_fields = ["hidden_size", "d_model", "embedding_size", "dim"];
 
 		for field in &dimension_fields {
 			if let Some(dim) = config.get(field).and_then(|v| v.as_u64()) {
-				tracing::info!(
+				tracing::debug!(
 					"Found dimension {} for model {} from config.json field '{}'",
 					dim,
 					model_name,
 					field
 				);
-				return Some(dim as usize);
+				return Ok(dim as usize);
 			}
 		}
 
-		tracing::debug!("No dimension field found in config.json for {}", model_name);
-		None
+		Err(anyhow::anyhow!(
+			"No dimension field found in config.json for model '{}'. \
+			Searched for fields: {:?}. Available fields: {:?}",
+			model_name,
+			dimension_fields,
+			config
+				.as_object()
+				.map(|obj| obj.keys().collect::<Vec<_>>())
+				.unwrap_or_default()
+		))
+	}
+
+	/// Download config.json directly from HuggingFace Hub using HTTP
+	#[cfg(feature = "huggingface")]
+	async fn download_config_direct(model_name: &str) -> Result<String> {
+		use reqwest;
+
+		// Construct direct URL to config.json
+		let config_url = format!("https://huggingface.co/{}/raw/main/config.json", model_name);
+
+		tracing::debug!("Downloading config from: {}", config_url);
+
+		// Use reqwest for direct HTTP download
+		let client = reqwest::Client::new();
+		let response = client
+			.get(&config_url)
+			.header("User-Agent", "octocode/0.7.1")
+			.send()
+			.await
+			.with_context(|| format!("Failed to download config.json from {}", config_url))?;
+
+		if !response.status().is_success() {
+			return Err(anyhow::anyhow!(
+				"Failed to download config.json for model '{}'. HTTP status: {}. \
+				This could be due to:\n\
+				1. Model doesn't exist on HuggingFace Hub\n\
+				2. Network connectivity issues\n\
+				3. Model is private and requires authentication\n\
+				4. Model doesn't have a config.json file",
+				model_name,
+				response.status()
+			));
+		}
+
+		let config_text = response.text().await.with_context(|| {
+			format!(
+				"Failed to read config.json response for model: {}",
+				model_name
+			)
+		})?;
+
+		Ok(config_text)
 	}
 }
 

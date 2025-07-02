@@ -175,13 +175,10 @@ impl EmbeddingConfig {
 		match crate::embedding::provider::create_embedding_provider_from_parts(provider, model) {
 			Ok(provider_impl) => provider_impl.get_dimension(),
 			Err(e) => {
-				tracing::warn!(
+				panic!(
 					"Failed to create provider for {:?}:{}: {}. Using fallback dimension.",
-					provider,
-					model,
-					e
+					provider, model, e
 				);
-				768 // Safe fallback
 			}
 		}
 	}

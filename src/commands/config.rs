@@ -23,11 +23,11 @@ pub struct ConfigArgs {
 	#[arg(long)]
 	pub model: Option<String>,
 
-	/// Set the code embedding model (use provider:model format, e.g. "sentencetransformer:microsoft/codebert-base")
+	/// Set the code embedding model (use provider:model format, e.g. "huggingface:microsoft/codebert-base")
 	#[arg(long)]
 	pub code_embedding_model: Option<String>,
 
-	/// Set the text embedding model (use provider:model format, e.g. "sentencetransformer:sentence-transformers/all-mpnet-base-v2")
+	/// Set the text embedding model (use provider:model format, e.g. "huggingface:sentence-transformers/all-mpnet-base-v2")
 	#[arg(long)]
 	pub text_embedding_model: Option<String>,
 
@@ -297,8 +297,8 @@ pub fn execute(args: &ConfigArgs, mut config: Config) -> Result<()> {
 		println!();
 		println!("Example usage:");
 		println!("  # Set SentenceTransformer models (provider is auto-detected):");
-		println!("  octocode config --code-embedding-model 'sentencetransformer:microsoft/codebert-base'");
-		println!("  octocode config --text-embedding-model 'sentencetransformer:sentence-transformers/all-mpnet-base-v2'");
+		println!("  octocode config --code-embedding-model 'huggingface:microsoft/codebert-base'");
+		println!("  octocode config --text-embedding-model 'huggingface:sentence-transformers/all-mpnet-base-v2'");
 		println!();
 		println!("  # Use other providers:");
 		println!("  octocode config --code-embedding-model 'fastembed:all-MiniLM-L6-v2'");

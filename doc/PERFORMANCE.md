@@ -41,8 +41,8 @@ text_model = "fastembed:multilingual-e5-small"  # 384 dim, multilingual
 ```bash
 # SentenceTransformer - Good balance
 octocode config \
-  --code-embedding-model "sentencetransformer:microsoft/codebert-base" \
-  --text-embedding-model "sentencetransformer:sentence-transformers/all-MiniLM-L6-v2"
+  --code-embedding-model "huggingface:microsoft/codebert-base" \
+  --text-embedding-model "huggingface:sentence-transformers/all-MiniLM-L6-v2"
 ```
 
 #### For Maximum Quality (Cloud)
@@ -311,8 +311,8 @@ similarity_threshold = 0.3
 #### Production (Quality Focus)
 ```toml
 [embedding]
-code_model = "sentencetransformer:microsoft/codebert-base"
-text_model = "sentencetransformer:sentence-transformers/all-mpnet-base-v2"
+code_model = "huggingface:microsoft/codebert-base"
+text_model = "huggingface:sentence-transformers/all-mpnet-base-v2"
 
 [index]
 chunk_size = 2000

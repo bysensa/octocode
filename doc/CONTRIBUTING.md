@@ -159,7 +159,7 @@ Embedding providers are in `src/embedding/provider/`. To add a new provider:
 2. Implement the `EmbeddingProvider` trait
 3. Add to module exports in `mod.rs`
 
-Supported providers: FastEmbed, Jina, Voyage, Google, HuggingFace, OpenAI
+Supported providers: FastEmbed, Jina, Voyage, Google, HuggingFace (BERT/JinaBERT), OpenAI
 
 ### 1. Provider Implementation
 

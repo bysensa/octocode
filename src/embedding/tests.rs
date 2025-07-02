@@ -34,9 +34,13 @@ mod embedding_tests {
 		let model = "sentence-transformers/all-MiniLM-L6-v2";
 
 		let result = create_embedding_provider_from_parts(&provider_type, model);
+		if let Err(e) = &result {
+			eprintln!("Error creating HuggingFace provider: {}", e);
+		}
 		assert!(
 			result.is_ok(),
-			"Should be able to create SentenceTransformer provider"
+			"Should be able to create SentenceTransformer provider: {:?}",
+			result.err()
 		);
 	}
 
@@ -52,7 +56,7 @@ mod embedding_tests {
 		// Add SentenceTransformer test case only if feature is enabled
 		#[cfg(feature = "huggingface")]
 		test_cases.push((
-			"sentencetransformer:sentence-transformers/all-MiniLM-L6-v2",
+			"huggingface:sentence-transformers/all-MiniLM-L6-v2",
 			EmbeddingProviderType::HuggingFace,
 			"sentence-transformers/all-MiniLM-L6-v2",
 		));
@@ -131,7 +135,7 @@ mod embedding_tests {
 	#[cfg(feature = "huggingface")]
 	fn test_embedding_config_methods() {
 		let config = EmbeddingConfig {
-			code_model: "sentencetransformer:microsoft/codebert-base".to_string(),
+			code_model: "huggingface:microsoft/codebert-base".to_string(),
 			text_model: "huggingface:sentence-transformers/all-mpnet-base-v2".to_string(),
 		};
 
@@ -253,7 +257,7 @@ mod embedding_tests {
 	//     let mut config = Config::default();
 	//     config.embedding.provider = EmbeddingProviderType::SentenceTransformer;
 	//     config.embedding.sentencetransformer.text_model =
-	//         "sentencetransformer:sentence-transformers/all-MiniLM-L6-v2".to_string();
+	//         "huggingface:sentence-transformers/all-MiniLM-L6-v2".to_string();
 	//
 	//     let text = "This is a test text for embedding generation.";
 	//     let result = generate_embeddings(text, false, &config).await;
