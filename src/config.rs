@@ -40,16 +40,20 @@ pub struct GraphRAGConfig {
 	pub use_llm: bool,
 	pub description_model: String,
 	pub relationship_model: String,
+	pub ai_batch_size: usize,
+	pub max_sample_tokens: usize,
+	pub confidence_threshold: f32,
+	pub architectural_weight: f32,
+	pub relationship_system_prompt: String,
+	pub description_system_prompt: String,
 }
 
+// NOTE: This Default implementation should NEVER be used in practice
+// All GraphRAG values must come from the config template file
+// This exists only to satisfy serde's requirements for deserialization
 impl Default for GraphRAGConfig {
 	fn default() -> Self {
-		Self {
-			enabled: false,
-			use_llm: false,
-			description_model: "openai/gpt-4.1-mini".to_string(),
-			relationship_model: "openai/gpt-4.1-mini".to_string(),
-		}
+		panic!("GraphRAG config must be loaded from template file - defaults not allowed")
 	}
 }
 
@@ -168,6 +172,7 @@ impl Default for Config {
 			index: IndexConfig::default(),
 			search: SearchConfig::default(),
 			embedding: EmbeddingConfig::default(),
+			// This should never be reached - template loading should provide GraphRAG config
 			graphrag: GraphRAGConfig::default(),
 		}
 	}
@@ -206,7 +211,7 @@ impl Config {
 	}
 
 	/// Load configuration from the default template
-	fn load_from_template() -> Result<Self> {
+	pub fn load_from_template() -> Result<Self> {
 		// Try to load from embedded template first
 		let template_content = Self::get_default_template_content()?;
 		let config: Config = toml::from_str(&template_content)?;
@@ -266,11 +271,12 @@ mod tests {
 
 	#[test]
 	fn test_default_config() {
-		let config = Config::default();
+		// Use template loading instead of Config::default() to avoid GraphRAG panic
+		let config = Config::load_from_template().expect("Failed to load template config");
 		assert_eq!(config.version, 1);
 		assert_eq!(config.openrouter.model, "openai/gpt-4.1-mini");
 		assert_eq!(config.index.chunk_size, 2000);
-		assert_eq!(config.search.max_results, 50);
+		assert_eq!(config.search.max_results, 20);
 
 		// Test active provider based on available features
 		#[cfg(feature = "fastembed")]
@@ -292,6 +298,18 @@ mod tests {
 		assert!(!config.graphrag.use_llm);
 		assert_eq!(config.graphrag.description_model, "openai/gpt-4.1-mini");
 		assert_eq!(config.graphrag.relationship_model, "openai/gpt-4.1-mini");
+		assert_eq!(config.graphrag.ai_batch_size, 3);
+		assert_eq!(config.graphrag.max_sample_tokens, 1500);
+		assert_eq!(config.graphrag.confidence_threshold, 0.8);
+		assert_eq!(config.graphrag.architectural_weight, 0.9);
+		assert!(config
+			.graphrag
+			.relationship_system_prompt
+			.contains("expert software architect"));
+		assert!(config
+			.graphrag
+			.description_system_prompt
+			.contains("ROLE and PURPOSE"));
 	}
 
 	#[test]
@@ -311,5 +329,24 @@ mod tests {
 		assert!(!config.graphrag.use_llm);
 		assert_eq!(config.graphrag.description_model, "openai/gpt-4.1-mini");
 		assert_eq!(config.graphrag.relationship_model, "openai/gpt-4.1-mini");
+		assert_eq!(config.graphrag.ai_batch_size, 3);
+		assert_eq!(config.graphrag.max_sample_tokens, 1500);
+		assert_eq!(config.graphrag.confidence_threshold, 0.8);
+		assert_eq!(config.graphrag.architectural_weight, 0.9);
+		assert!(config
+			.graphrag
+			.relationship_system_prompt
+			.contains("expert software architect"));
+		assert!(config
+			.graphrag
+			.description_system_prompt
+			.contains("ROLE and PURPOSE"));
+	}
+
+	#[test]
+	#[should_panic(expected = "GraphRAG config must be loaded from template file")]
+	fn test_graphrag_default_panics() {
+		// Verify that GraphRAGConfig::default() panics to enforce strict config loading
+		let _ = GraphRAGConfig::default();
 	}
 }

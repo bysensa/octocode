@@ -17,7 +17,6 @@
 
 #[cfg(test)]
 mod embedding_tests {
-	use crate::config::Config;
 	use crate::embedding::types::{parse_provider_model, EmbeddingConfig};
 	use crate::embedding::{
 		count_tokens, split_texts_into_token_limited_batches, EmbeddingProviderType,
@@ -101,7 +100,8 @@ mod embedding_tests {
 	#[test]
 	fn test_default_config_format() {
 		// Test that default config uses new provider:model format
-		let config = Config::default();
+		let config =
+			crate::config::Config::load_from_template().expect("Failed to load template config");
 
 		// Check that default models use provider:model format
 		assert!(
@@ -240,7 +240,8 @@ mod embedding_tests {
 
 	#[test]
 	fn test_config_has_token_limit() {
-		let config = Config::default();
+		let config =
+			crate::config::Config::load_from_template().expect("Failed to load template config");
 		assert!(
 			config.index.embeddings_max_tokens_per_batch > 0,
 			"Should have positive token limit"

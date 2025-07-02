@@ -85,8 +85,8 @@ impl AIEnhancements {
 		}
 
 		// Process in small batches to avoid overwhelming the AI
-		const AI_BATCH_SIZE: usize = 3;
-		for batch in complex_files.chunks(AI_BATCH_SIZE) {
+		let ai_batch_size = self.config.graphrag.ai_batch_size;
+		for batch in complex_files.chunks(ai_batch_size) {
 			if let Ok(batch_relationships) = self
 				.analyze_architectural_relationships_batch(batch, all_nodes)
 				.await
@@ -197,10 +197,10 @@ impl AIEnhancements {
 					// Filter and validate relationships
 					let valid_relationships: Vec<CodeRelationship> = ai_relationships
 						.into_iter()
-						.filter(|rel| rel.confidence > 0.7) // Only high-confidence architectural relationships
+						.filter(|rel| rel.confidence > self.config.graphrag.confidence_threshold) // Only high-confidence architectural relationships
 						.filter(|rel| all_nodes.iter().any(|n| n.path == rel.target)) // Ensure target exists
 						.map(|mut rel| {
-							rel.weight = 0.9; // High weight for architectural relationships
+							rel.weight = self.config.graphrag.architectural_weight; // High weight for architectural relationships
 							rel
 						})
 						.collect();
@@ -296,15 +296,16 @@ impl AIEnhancements {
 	// Build a meaningful content sample for AI analysis (not full file content)
 	pub fn build_content_sample_for_ai(&self, file_blocks: &[&crate::store::CodeBlock]) -> String {
 		let mut sample = String::new();
-		let mut total_chars = 0;
-		const MAX_SAMPLE_SIZE: usize = 1500; // Reasonable size for AI context
+		let mut total_tokens = 0;
+		let max_tokens = self.config.graphrag.max_sample_tokens;
 
 		// Prioritize blocks with more symbols (more important code)
 		let mut sorted_blocks: Vec<&crate::store::CodeBlock> = file_blocks.to_vec();
 		sorted_blocks.sort_by(|a, b| b.symbols.len().cmp(&a.symbols.len()));
 
 		for block in sorted_blocks {
-			if total_chars >= MAX_SAMPLE_SIZE {
+			let block_tokens = crate::embedding::count_tokens(&block.content);
+			if total_tokens + block_tokens >= max_tokens {
 				break;
 			}
 
@@ -331,7 +332,7 @@ impl AIEnhancements {
 				block.symbols.len(),
 				block_content
 			));
-			total_chars += block_content.len() + 50; // +50 for formatting
+			total_tokens += block_tokens + 50; // +50 for formatting tokens
 		}
 
 		sample
@@ -354,17 +355,9 @@ impl AIEnhancements {
 			.filter(|s| s.contains("class_") || s.contains("struct_"))
 			.count();
 
-		let prompt = format!(
-			"Analyze this {} file and provide a concise 2-3 sentence description focusing on its ROLE and PURPOSE in the codebase.\n\
-				Focus on what this file accomplishes, its architectural significance, and how it fits into the larger system.\n\
-				Avoid listing specific functions/classes - instead describe the file's overall responsibility.\n\n\
-				File: {}\n\
-				Language: {}\n\
-				Stats: {} functions, {} classes/structs\n\
-				Key symbols: {}\n\n\
-				Code sample:\n{}\n\n\
-				Description:",
-			language,
+		// Separate system prompt from file data for better LLM handling
+		let user_message = format!(
+			"File: {}\nLanguage: {}\nStats: {} functions, {} classes/structs\nKey symbols: {}\n\nCode sample:\n{}",
 			std::path::Path::new(file_path).file_name().and_then(|s| s.to_str()).unwrap_or("unknown"),
 			language,
 			function_count,
@@ -374,7 +367,11 @@ impl AIEnhancements {
 		);
 
 		match self
-			.call_llm(&self.config.graphrag.description_model, prompt, None)
+			.call_llm(
+				&self.config.graphrag.description_model,
+				self.config.graphrag.description_system_prompt.clone(),
+				Some(serde_json::Value::String(user_message)),
+			)
 			.await
 		{
 			Ok(description) => {

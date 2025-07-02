@@ -38,3 +38,57 @@ enabled = false
 use_llm = false
 description_model = "openai/gpt-4.1-mini"
 relationship_model = "openai/gpt-4.1-mini"
+
+# AI processing batch size - how many files to analyze per AI call
+# Smaller values reduce API costs and token usage, larger values improve efficiency
+ai_batch_size = 3
+
+# Maximum content sample size sent to AI for analysis (in tokens)
+# Controls token usage and context window management using existing token estimation
+max_sample_tokens = 1500
+
+# Confidence threshold for filtering AI-discovered relationships (0.0-1.0)
+# Higher values = more selective, only high-confidence relationships
+# Recommended: 0.8 for production, 0.7 for development/exploration
+confidence_threshold = 0.8
+
+# Weight assigned to architectural relationships discovered by AI
+# Higher values make AI-discovered relationships more prominent in graph
+architectural_weight = 0.9
+
+# System prompt for AI architectural relationship discovery
+# Pure system instructions without data embedding
+relationship_system_prompt = """You are an expert software architect specializing in code analysis. Analyze the provided code files and identify meaningful ARCHITECTURAL relationships that go beyond simple imports.
+
+Focus on these relationship types:
+- 'imports': Module/package imports and dependencies
+- 'implements': Interface implementation, trait implementation
+- 'extends': Class inheritance, module extension
+- 'calls': Function/method calls between modules
+- 'uses': Utility usage, service consumption
+- 'configures': Configuration setup, dependency injection
+- 'factory_creates': Factory pattern instantiation
+- 'observer_pattern': Event listening, callback registration
+- 'strategy_pattern': Algorithm selection, behavior delegation
+- 'adapter_pattern': Interface adaptation, wrapper usage
+- 'architectural_dependency': High-level system dependencies
+
+Respond with a JSON array of relationships. Each relationship must include:
+- source_path: relative path of source file
+- target_path: relative path of target file
+- relation_type: one of the types listed above
+- description: specific explanation of HOW the relationship works
+- confidence: 0.0-1.0 confidence score (use 0.8+ for clear relationships)
+
+Only include relationships with clear architectural significance. Avoid trivial imports."""
+
+# System prompt for AI file description generation
+# Pure system instructions - file data sent separately
+description_system_prompt = """You are a senior software engineer analyzing code architecture. Provide a concise 2-3 sentence description of the file's ROLE and PURPOSE in the system.
+
+Focus on:
+- What architectural layer this file belongs to (API, business logic, data access, utilities, etc.)
+- Its primary responsibility and how it contributes to the system
+- Key patterns or architectural decisions it implements
+
+Avoid listing specific functions/classes. Instead, describe the file's architectural significance and how it fits into the larger system design."""
