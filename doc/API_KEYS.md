@@ -55,6 +55,32 @@ octocode config \
 
 **Get API key**: [Google AI Studio](https://makersuite.google.com/app/apikey)
 
+### OpenAI
+
+**Best for**: High-quality embeddings with latest models
+
+```bash
+# Set environment variable
+export OPENAI_API_KEY="your-openai-api-key"
+
+# Configure models
+octocode config \
+  --code-embedding-model "openai:text-embedding-3-small" \
+  --text-embedding-model "openai:text-embedding-3-small"
+
+# Or use large model for higher quality
+octocode config \
+  --code-embedding-model "openai:text-embedding-3-large" \
+  --text-embedding-model "openai:text-embedding-3-large"
+```
+
+**Get API key**: [OpenAI Platform](https://platform.openai.com/api-keys)
+
+**Available models:**
+- `text-embedding-3-small` - 1536 dimensions, cost-effective
+- `text-embedding-3-large` - 3072 dimensions, highest quality
+- `text-embedding-ada-002` - 1536 dimensions, legacy model
+
 ### Local Models (macOS Only)
 
 **Best for**: Privacy, no API costs, offline usage
@@ -177,6 +203,7 @@ octocode config --model "anthropic/claude-3.5-sonnet"
 - `sentencetransformer:sentence-transformers/all-mpnet-base-v2` (768 dim, local)
 - `jina:jina-embeddings-v3` (1024 dim, cloud)
 - `voyage:voyage-3.5-lite` (1024 dim, cloud)
+- `openai:text-embedding-3-large` (3072 dim, cloud)
 
 **Fast Local:**
 - `fastembed:multilingual-e5-small` (384 dim)

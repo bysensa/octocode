@@ -44,6 +44,7 @@ pub mod huggingface;
 // Always available provider modules
 pub mod google;
 pub mod jina;
+pub mod openai;
 pub mod voyage;
 
 // Re-export providers
@@ -55,6 +56,7 @@ pub use huggingface::{HuggingFaceProvider, HuggingFaceProviderImpl};
 // Always available provider re-exports
 pub use google::{GoogleProvider, GoogleProviderImpl};
 pub use jina::{JinaProvider, JinaProviderImpl};
+pub use openai::{OpenAIProvider, OpenAIProviderImpl};
 pub use voyage::{VoyageProvider, VoyageProviderImpl};
 
 /// Trait for embedding providers
@@ -95,6 +97,7 @@ pub fn create_embedding_provider_from_parts(
 		EmbeddingProviderType::Jina => Ok(Box::new(JinaProviderImpl::new(model)?)),
 		EmbeddingProviderType::Voyage => Ok(Box::new(VoyageProviderImpl::new(model)?)),
 		EmbeddingProviderType::Google => Ok(Box::new(GoogleProviderImpl::new(model)?)),
+		EmbeddingProviderType::OpenAI => Ok(Box::new(OpenAIProviderImpl::new(model)?)),
 		EmbeddingProviderType::HuggingFace => {
 			#[cfg(feature = "huggingface")]
 			{

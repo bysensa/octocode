@@ -69,6 +69,7 @@ pub enum EmbeddingProviderType {
 	Voyage,
 	Google,
 	HuggingFace,
+	OpenAI,
 }
 
 impl Default for EmbeddingProviderType {
@@ -124,6 +125,7 @@ pub fn parse_provider_model(input: &str) -> (EmbeddingProviderType, String) {
 			"voyageai" | "voyage" => EmbeddingProviderType::Voyage,
 			"google" => EmbeddingProviderType::Google,
 			"huggingface" | "hf" => EmbeddingProviderType::HuggingFace,
+			"openai" => EmbeddingProviderType::OpenAI,
 			_ => {
 				// Default fallback - use FastEmbed if available, otherwise Voyage
 				#[cfg(feature = "fastembed")]

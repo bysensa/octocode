@@ -29,6 +29,7 @@ search_block_max_characters = 400  # Maximum characters to display per code/text
 [embedding]
 code_model = "voyage:voyage-code-3"
 text_model = "voyage:voyage-3.5-lite"
+
 # API keys are sourced from environment variables:
 # JINA_API_KEY, VOYAGE_API_KEY, GOOGLE_API_KEY
 

@@ -153,7 +153,13 @@ mod tests {
 
 ## Adding Embedding Providers
 
-Embedding providers are in `src/indexer/embeddings/`. To add a new provider:
+Embedding providers are in `src/embedding/provider/`. To add a new provider:
+
+1. Create provider file (e.g., `your_provider.rs`)
+2. Implement the `EmbeddingProvider` trait
+3. Add to module exports in `mod.rs`
+
+Supported providers: FastEmbed, Jina, Voyage, Google, HuggingFace, OpenAI
 
 ### 1. Provider Implementation
 

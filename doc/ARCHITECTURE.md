@@ -11,10 +11,11 @@ Octocode is built with a modular architecture that separates concerns and enable
 - **Chunk-based processing** for large files
 
 ### 2. Embedding System
-- **Multiple providers**: FastEmbed (local), SentenceTransformer (local), Jina AI, Voyage AI, Google (cloud)
+- **Multiple providers**: FastEmbed (local), SentenceTransformer (local), Jina AI, Voyage AI, Google, OpenAI (cloud)
 - **Dual embedding models**: Separate models for code and text/documentation
 - **Batch processing** for efficient embedding generation
 - **Provider auto-detection** from model string format
+- **Input type support** for query vs document optimization
 
 ### 3. Vector Database
 - **Lance columnar database** for fast similarity search

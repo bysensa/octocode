@@ -73,6 +73,7 @@ async fn list_models(provider_filter: Option<String>) -> Result<()> {
 			EmbeddingProviderType::Jina,
 			EmbeddingProviderType::Voyage,
 			EmbeddingProviderType::Google,
+			EmbeddingProviderType::OpenAI,
 		]
 	};
 
@@ -117,6 +118,10 @@ async fn list_models(provider_filter: Option<String>) -> Result<()> {
 			}
 			EmbeddingProviderType::Google => {
 				println!("  Google models: gemini-embedding-001 (3072d), text-embedding-005 (768d), text-multilingual-embedding-002 (768d)");
+				println!("  Use 'info' command for real-time API validation");
+			}
+			EmbeddingProviderType::OpenAI => {
+				println!("  OpenAI models: text-embedding-3-small (1536d), text-embedding-3-large (3072d), text-embedding-ada-002 (1536d)");
 				println!("  Use 'info' command for real-time API validation");
 			}
 		}
