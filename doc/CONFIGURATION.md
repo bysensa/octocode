@@ -32,8 +32,13 @@ octocode config \
 ```bash
 # Use cloud providers for highest quality
 octocode config \
-  --code-embedding-model "jinaai:jina-embeddings-v2-base-code" \
-  --text-embedding-model "voyageai:voyage-3"
+  --code-embedding-model "jina:jina-embeddings-v2-base-code" \
+  --text-embedding-model "voyage:voyage-3.5-lite"
+
+# OpenAI models (high quality)
+octocode config \
+  --code-embedding-model "openai:text-embedding-3-small" \
+  --text-embedding-model "openai:text-embedding-3-small"
 
 # Google models
 octocode config \
@@ -89,8 +94,8 @@ max_memories = 10000
 |----------|--------|------------------|-------------|---------|-------|
 | **SentenceTransformer** | `huggingface:model-name` | ❌ No | 🖥️ Local | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ |
 | **FastEmbed** | `fastembed:model-name` | ❌ No | 🖥️ Local | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
-| **Jina AI** | `jinaai:model-name` | ✅ Yes | ☁️ Cloud | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ |
-| **Voyage AI** | `voyageai:model-name` | ✅ Yes | ☁️ Cloud | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ |
+| **Jina AI** | `jina:model-name` | ✅ Yes | ☁️ Cloud | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ |
+| **Voyage AI** | `voyage:model-name` | ✅ Yes | ☁️ Cloud | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ |
 | **Google** | `google:model-name` | ✅ Yes | ☁️ Cloud | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ |
 
 ### Model Recommendations
@@ -101,8 +106,9 @@ max_memories = 10000
 ```bash
 huggingface:microsoft/codebert-base                    # 768 dim, BERT, excellent for code
 huggingface:jinaai/jina-embeddings-v2-base-code       # 768 dim, JinaBERT, code-optimized
-jinaai:jina-embeddings-v2-base-code                   # 768 dim, specialized for code
-voyageai:voyage-code-2                                # 1536 dim, high quality
+jina:jina-embeddings-v2-base-code                     # 768 dim, specialized for code
+voyage:voyage-code-3                                  # 1024 dim, latest code model
+openai:text-embedding-3-small                         # 1536 dim, versatile for code
 ```
 
 **Fast Local:**
@@ -117,8 +123,10 @@ fastembed:BAAI/bge-small-en-v1.5                  # 384 dim, good balance
 ```bash
 huggingface:sentence-transformers/all-mpnet-base-v2   # 768 dim, BERT, excellent quality
 huggingface:BAAI/bge-base-en-v1.5                     # 768 dim, BERT, high performance
-jinaai:jina-embeddings-v3                             # 1024 dim, latest Jina model
-voyageai:voyage-3                                     # 1024 dim, excellent for text
+jina:jina-embeddings-v3                               # 1024 dim, latest Jina model
+voyage:voyage-3.5-lite                                # 1024 dim, excellent for text
+openai:text-embedding-3-large                         # 3072 dim, highest quality
+openai:text-embedding-3-small                         # 1536 dim, cost-effective
 ```
 
 **Fast Local:**
@@ -140,6 +148,7 @@ export OPENROUTER_API_KEY="your-openrouter-api-key"
 export JINA_API_KEY="your-jina-key"
 export VOYAGE_API_KEY="your-voyage-key"
 export GOOGLE_API_KEY="your-google-key"
+export OPENAI_API_KEY="your-openai-key"
 ```
 
 **Note**: Environment variables always take priority over config file settings.
@@ -162,8 +171,15 @@ Core embedding configuration.
 Knowledge graph generation settings.
 
 - `enabled`: Enable/disable GraphRAG features
+- `use_llm`: Enable AI-powered relationship discovery and file descriptions
 - `description_model`: Model for generating file descriptions
 - `relationship_model`: Model for extracting relationships
+- `ai_batch_size`: Number of files to analyze per AI call (default: 3)
+- `max_sample_tokens`: Maximum content sample size sent to AI (default: 1500)
+- `confidence_threshold`: Confidence threshold for AI relationships (default: 0.8)
+- `architectural_weight`: Weight for AI-discovered relationships (default: 0.9)
+- `relationship_system_prompt`: System prompt for relationship discovery
+- `description_system_prompt`: System prompt for file descriptions
 
 ### [search]
 Search behavior configuration.

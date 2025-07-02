@@ -49,8 +49,8 @@ octocode config \
 ```bash
 # High-quality cloud models (slower due to API calls)
 octocode config \
-  --code-embedding-model "voyageai:voyage-code-2" \
-  --text-embedding-model "voyageai:voyage-3"
+  --code-embedding-model "voyage:voyage-code-3" \
+  --text-embedding-model "voyage:voyage-3.5-lite"
 ```
 
 ### 2. Indexing Configuration

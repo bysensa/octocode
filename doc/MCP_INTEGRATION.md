@@ -126,17 +126,64 @@ Semantic search across your codebase with multi-query support.
 }
 ```
 
-### graphrag_search
+### graphrag
 
-Relationship-aware search using the knowledge graph.
+Advanced relationship-aware GraphRAG operations for code analysis. Supports multiple operations for exploring the knowledge graph.
 
 **Parameters:**
-- `query` (string) - Complex architectural query about relationships
+- `operation` (string, required) - Operation to perform: "search", "get-node", "get-relationships", "find-path", "overview"
+- `query` (string, optional) - Search query for 'search' operation
+- `node_id` (string, optional) - Node identifier for 'get-node' and 'get-relationships' operations
+- `source_id` (string, optional) - Source node identifier for 'find-path' operation
+- `target_id` (string, optional) - Target node identifier for 'find-path' operation
+- `max_depth` (integer, optional) - Maximum path depth for 'find-path' operation (default: 3)
+- `format` (string, optional) - Output format: "text", "json", "markdown" (default: "text")
+- `max_tokens` (integer, optional) - Maximum tokens in output (default: 2000)
 
-**Example:**
+**Operation Examples:**
+
+**Search for nodes by semantic query:**
 ```json
 {
+  "operation": "search",
   "query": "How does user authentication flow through the system?"
+}
+```
+
+**Get detailed node information:**
+```json
+{
+  "operation": "get-node",
+  "node_id": "src/auth/mod.rs",
+  "format": "markdown"
+}
+```
+
+**Find all relationships for a node:**
+```json
+{
+  "operation": "get-relationships",
+  "node_id": "src/auth/mod.rs",
+  "format": "text"
+}
+```
+
+**Find connection paths between nodes:**
+```json
+{
+  "operation": "find-path",
+  "source_id": "src/auth/mod.rs",
+  "target_id": "src/database/mod.rs",
+  "max_depth": 3,
+  "format": "markdown"
+}
+```
+
+**Get graph overview and statistics:**
+```json
+{
+  "operation": "overview",
+  "format": "json"
 }
 ```
 
@@ -330,8 +377,9 @@ octocode mcp-proxy --bind "127.0.0.1:8080" --path /path/to/parent/directory
 **Claude uses:**
 ```json
 {
-  "tool": "graphrag_search",
+  "tool": "graphrag",
   "arguments": {
+    "operation": "search",
     "query": "database component relationships and data flow patterns"
   }
 }

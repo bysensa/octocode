@@ -116,6 +116,42 @@ octocode config --chunk-size 2000
 octocode config --embeddings-batch-size 16
 ```
 
+### `octocode models`
+
+Discover and validate embedding models dynamically.
+
+```bash
+# List all supported models for all providers
+octocode models list
+
+# List models for specific provider
+octocode models list voyage
+octocode models list openai
+octocode models list jina
+
+# Get detailed information about a specific model
+octocode models info voyage:voyage-code-3
+octocode models info openai:text-embedding-3-small
+octocode models info jina:jina-embeddings-v4
+
+# Validate model support and get dimensions
+octocode models info google:text-embedding-004
+```
+
+**Supported providers:**
+- `voyage` - Voyage AI models (voyage-code-3, voyage-3.5-lite, etc.)
+- `openai` - OpenAI embedding models (text-embedding-3-small, text-embedding-3-large, etc.)
+- `jina` - Jina AI models (jina-embeddings-v4, jina-clip-v2, etc.)
+- `google` - Google AI models (text-embedding-004, gemini-embedding-001, etc.)
+- `fastembed` - Local FastEmbed models (macOS only)
+- `huggingface` - HuggingFace models (macOS only)
+
+**Features:**
+- **Dynamic discovery**: No hardcoded model lists, real-time API validation
+- **Fail-fast validation**: Instantly verify if a model is supported
+- **Dimension detection**: Get exact embedding dimensions for each model
+- **Feature-gated**: Shows only available providers based on build features
+
 ## AI-Powered Git Commands
 
 ### `octocode commit`
@@ -229,7 +265,7 @@ octocode mcp --path /path/to/project --debug
 
 **Available MCP tools:**
 - `semantic_search` - Semantic code search (supports multi-query)
-- `graphrag_search` - Relationship-aware search
+- `graphrag` - Advanced GraphRAG operations (search, get-node, get-relationships, find-path, overview)
 - `memorize` - Store information for future reference
 - `remember` - Retrieve stored information (supports multi-query)
 - `forget` - Remove stored information

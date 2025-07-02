@@ -229,7 +229,7 @@ octocode mcp --path /path/to/your/project --with-lsp "typescript-language-server
 | Tool | Description | Parameters |
 |------|-------------|------------|
 | **semantic_search** | Semantic code search across the codebase (supports multi-query) | `query` (string or array), `mode` (string: all/code/docs/text), `detail_level` (string), `max_results` (integer) |
-| **graphrag_search** | Relationship-aware search using GraphRAG | `query` (string) |
+| **graphrag** | Advanced GraphRAG operations: search, get-node, get-relationships, find-path, overview | `operation` (string), `query` (string), `node_id` (string), `source_id` (string), `target_id` (string), `max_depth` (integer), `format` (string) |
 | **memorize** | Store important information for future reference | `title` (string), `content` (string), `tags` (array) |
 | **remember** | Retrieve stored information by query (supports multi-query) | `query` (string or array), `memory_types` (array), `tags` (array), `related_files` (array), `limit` (integer) |
 | **forget** | Remove stored information | `query` (string), `confirm` (boolean) |
