@@ -294,3 +294,139 @@ impl HuggingFaceProvider {
 		))
 	}
 }
+use super::super::types::InputType;
+use super::EmbeddingProvider;
+
+/// HuggingFace provider implementation for trait
+#[cfg(feature = "huggingface")]
+pub struct HuggingFaceProviderImpl {
+	model_name: String,
+	dimension: usize,
+}
+
+#[cfg(feature = "huggingface")]
+impl HuggingFaceProviderImpl {
+	pub fn new(model: &str) -> Result<Self> {
+		#[cfg(not(feature = "huggingface"))]
+		{
+			Err(anyhow::anyhow!("HuggingFace provider requires 'huggingface' feature to be enabled. Cannot validate model '{}' without Hub API access.", model))
+		}
+
+		#[cfg(feature = "huggingface")]
+		{
+			let dimension = Self::get_model_dimension_static(model)?;
+			Ok(Self {
+				model_name: model.to_string(),
+				dimension,
+			})
+		}
+	}
+
+	#[cfg(feature = "huggingface")]
+	fn get_model_dimension_static(model: &str) -> Result<usize> {
+		// DYNAMIC discovery only - get dimension from HuggingFace Hub config.json
+		if let Some(dimension) = Self::get_dimension_from_hub_config(model) {
+			return Ok(dimension);
+		}
+
+		// NO STATIC FALLBACKS - if we can't get dimension dynamically, fail properly
+		Err(anyhow::anyhow!("Failed to get dimension for HuggingFace model '{}' from Hub API. Cannot proceed without dynamic model discovery.", model))
+	}
+
+	/// Get model dimension from HuggingFace Hub config.json
+	#[cfg(feature = "huggingface")]
+	fn get_dimension_from_hub_config(model_name: &str) -> Option<usize> {
+		// Use blocking runtime since this is called from sync context
+		if let Ok(rt) = tokio::runtime::Runtime::new() {
+			return rt.block_on(Self::fetch_dimension_from_hub(model_name));
+		}
+
+		None
+	}
+
+	/// Async method to fetch dimension from HuggingFace Hub config.json
+	#[cfg(feature = "huggingface")]
+	async fn fetch_dimension_from_hub(model_name: &str) -> Option<usize> {
+		use hf_hub::{api::tokio::Api, Repo, RepoType};
+		use serde_json::Value;
+
+		// Try to fetch config.json from HuggingFace Hub
+		let api = Api::new().ok()?;
+		let repo = api.repo(Repo::new(model_name.to_string(), RepoType::Model));
+
+		// Try to get config.json
+		let config_content = match repo.get("config.json").await {
+			Ok(content) => content,
+			Err(e) => {
+				tracing::debug!("Failed to fetch config.json for {}: {}", model_name, e);
+				return None;
+			}
+		};
+
+		// Parse JSON and extract dimension
+		let config_text = match std::fs::read_to_string(&config_content) {
+			Ok(text) => text,
+			Err(e) => {
+				tracing::debug!("Failed to read config.json for {}: {}", model_name, e);
+				return None;
+			}
+		};
+
+		let config: Value = match serde_json::from_str(&config_text) {
+			Ok(config) => config,
+			Err(e) => {
+				tracing::debug!("Failed to parse config.json for {}: {}", model_name, e);
+				return None;
+			}
+		};
+
+		// Try different field names that contain embedding dimensions
+		let dimension_fields = ["hidden_size", "d_model", "embedding_size", "dim"];
+
+		for field in &dimension_fields {
+			if let Some(dim) = config.get(field).and_then(|v| v.as_u64()) {
+				tracing::info!(
+					"Found dimension {} for model {} from config.json field '{}'",
+					dim,
+					model_name,
+					field
+				);
+				return Some(dim as usize);
+			}
+		}
+
+		tracing::debug!("No dimension field found in config.json for {}", model_name);
+		None
+	}
+}
+
+#[cfg(feature = "huggingface")]
+#[async_trait::async_trait]
+impl EmbeddingProvider for HuggingFaceProviderImpl {
+	async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>> {
+		HuggingFaceProvider::generate_embeddings(text, &self.model_name).await
+	}
+
+	async fn generate_embeddings_batch(
+		&self,
+		texts: Vec<String>,
+		input_type: InputType,
+	) -> Result<Vec<Vec<f32>>> {
+		// Apply prefix manually for HuggingFace (doesn't support input_type API)
+		let processed_texts: Vec<String> = texts
+			.into_iter()
+			.map(|text| input_type.apply_prefix(&text))
+			.collect();
+		HuggingFaceProvider::generate_embeddings_batch(processed_texts, &self.model_name).await
+	}
+
+	fn get_dimension(&self) -> usize {
+		self.dimension
+	}
+
+	fn is_model_supported(&self) -> bool {
+		// For HuggingFace, we support many models, so return true for most cases
+		// The actual validation happens when trying to load the model
+		true
+	}
+}

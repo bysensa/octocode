@@ -10,6 +10,38 @@
 
 ### Code Reuse & Architecture
 
+#### Embedding Provider Architecture
+Embedding providers follow a strict modular architecture with each provider in its own file:
+
+```rust
+// Standard provider structure (src/embedding/provider/{provider}.rs)
+pub struct ProviderImpl {
+    model_name: String,
+    dimension: usize,
+}
+
+impl ProviderImpl {
+    pub fn new(model: &str) -> Result<Self> {
+        // Validate supported models first - fail fast
+        let supported_models = [...];
+        if !supported_models.contains(&model) {
+            return Err(anyhow::anyhow!("Unsupported model"));
+        }
+        // Dynamic dimension discovery preferred over static fallbacks
+    }
+}
+
+// Required imports for all providers
+use super::super::types::InputType;
+use super::{EmbeddingProvider, HTTP_CLIENT};
+```
+
+**Provider Files Structure**:
+- `mod.rs`: Shared code (HTTP_CLIENT, trait, factory)
+- `{provider}.rs`: Individual provider implementations
+- Feature-gated: fastembed.rs, huggingface.rs
+- Always available: jina.rs, voyage.rs, google.rs
+
 #### Indexer Core Pattern
 ```rust
 // Always use this pattern for file processing
@@ -257,8 +289,38 @@ let walker = NoindexWalker::create_walker(&current_dir).build();
 - **Manual testing** with real projects during development
 - **HTTP endpoint testing** using curl or similar tools
 
-#### Architecture Decisions
-- **Configuration-first** - All features configurable via `config-templates/default.toml`
-- **Modular providers** - Each tool provider (semantic search, GraphRAG, memory, LSP) is independent
+## Development Patterns
+
+### Feature-Gating Best Practices
+```rust
+// Module declarations in mod.rs
+#[cfg(feature = "provider")]
+pub mod provider;
+
+// Conditional compilation in factory functions
+#[cfg(feature = "provider")]
+{ Ok(Box::new(ProviderImpl::new(model)?)) }
+#[cfg(not(feature = "provider"))]
+{ Err(anyhow::anyhow!("Provider not compiled")) }
+```
+
+### Shared Resource Patterns
+```rust
+// HTTP client sharing across providers
+static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(|| {
+    Client::builder()
+        .pool_max_idle_per_host(10)
+        .pool_idle_timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(120))
+        .build()
+        .expect("Failed to create HTTP client")
+});
+```
+
+## Quality Standards
+
+- **Single Responsibility** - Each provider in its own file
+- **Fail-fast validation** - Validate models during provider creation
+- **Dynamic discovery** - No hardcoded dimensions where possible
 - **Async-first** - Use tokio throughout for non-blocking operations
 - **Error resilience** - Graceful degradation when optional features fail
