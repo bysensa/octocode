@@ -22,12 +22,23 @@ pub struct ProviderImpl {
 
 impl ProviderImpl {
     pub fn new(model: &str) -> Result<Self> {
-        // Validate supported models first - fail fast
-        let supported_models = [...];
-        if !supported_models.contains(&model) {
-            return Err(anyhow::anyhow!("Unsupported model"));
+        // Validate supported models first - fail fast with proper error messages
+        let dimension = Self::get_model_dimension_static(model)?;
+        Ok(Self {
+            model_name: model.to_string(),
+            dimension,
+        })
+    }
+    
+    fn get_model_dimension_static(model: &str) -> Result<usize> {
+        match model {
+            "model-1" => Ok(768),
+            "model-2" => Ok(1024),
+            _ => Err(anyhow::anyhow!(
+                "Unsupported model: '{}'. Supported models: model-1 (768d), model-2 (1024d)",
+                model
+            )),
         }
-        // Dynamic dimension discovery preferred over static fallbacks
     }
 }
 
@@ -37,10 +48,13 @@ use super::{EmbeddingProvider, HTTP_CLIENT};
 ```
 
 **Provider Files Structure**:
-- `mod.rs`: Shared code (HTTP_CLIENT, trait, factory)
+- `mod.rs`: Shared code (HTTP_CLIENT, trait, factory) - 110 lines
 - `{provider}.rs`: Individual provider implementations
 - Feature-gated: fastembed.rs, huggingface.rs
-- Always available: jina.rs, voyage.rs, google.rs
+- Always available: jina.rs (138 lines), voyage.rs (154 lines), google.rs (116 lines)
+
+**Result-based Constructor Pattern**:
+All providers use `pub fn new(model: &str) -> Result<Self>` with graceful error handling and proper model validation. Factory function calls providers with `?` operator for consistent error propagation.
 
 #### Indexer Core Pattern
 ```rust

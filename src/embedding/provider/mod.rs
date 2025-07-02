@@ -94,7 +94,7 @@ pub fn create_embedding_provider_from_parts(
 		}
 		EmbeddingProviderType::Jina => Ok(Box::new(JinaProviderImpl::new(model)?)),
 		EmbeddingProviderType::Voyage => Ok(Box::new(VoyageProviderImpl::new(model)?)),
-		EmbeddingProviderType::Google => Ok(Box::new(GoogleProviderImpl::new(model))),
+		EmbeddingProviderType::Google => Ok(Box::new(GoogleProviderImpl::new(model)?)),
 		EmbeddingProviderType::HuggingFace => {
 			#[cfg(feature = "huggingface")]
 			{

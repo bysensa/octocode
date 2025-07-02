@@ -116,7 +116,7 @@ async fn list_models(provider_filter: Option<String>) -> Result<()> {
 				println!("  Use 'info' command for real-time API validation");
 			}
 			EmbeddingProviderType::Google => {
-				println!("  Google models: text-embedding-004, text-multilingual-embedding-002");
+				println!("  Google models: gemini-embedding-001 (3072d), text-embedding-005 (768d), text-multilingual-embedding-002 (768d)");
 				println!("  Use 'info' command for real-time API validation");
 			}
 		}

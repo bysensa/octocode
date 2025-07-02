@@ -27,19 +27,24 @@ pub struct GoogleProviderImpl {
 }
 
 impl GoogleProviderImpl {
-	pub fn new(model: &str) -> Self {
-		let dimension = Self::get_model_dimension_static(model);
-		Self {
+	pub fn new(model: &str) -> Result<Self> {
+		let dimension = Self::get_model_dimension(model)?;
+		Ok(Self {
 			model_name: model.to_string(),
 			dimension,
-		}
+		})
 	}
 
-	fn get_model_dimension_static(model: &str) -> usize {
-		// DYNAMIC discovery only - NO STATIC FALLBACKS
-		// For API providers, we should query their API for model info
-		// For now, panic to force proper dynamic implementation
-		panic!("Google provider must implement dynamic model discovery for '{}'. No static fallbacks allowed.", model);
+	fn get_model_dimension(model: &str) -> Result<usize> {
+		match model {
+			"gemini-embedding-001" => Ok(3072),  // Up to 3072 dimensions, state-of-the-art performance
+			"text-embedding-005" => Ok(768),     // Specialized in English and code tasks
+			"text-multilingual-embedding-002" => Ok(768), // Specialized in multilingual tasks
+			_ => Err(anyhow::anyhow!(
+				"Unsupported Google model: '{}'. Supported models: gemini-embedding-001 (3072d), text-embedding-005 (768d), text-multilingual-embedding-002 (768d)",
+				model
+			)),
+		}
 	}
 }
 
@@ -69,9 +74,7 @@ impl EmbeddingProvider for GoogleProviderImpl {
 	fn is_model_supported(&self) -> bool {
 		matches!(
 			self.model_name.as_str(),
-			"text-embedding-004"
-				| "text-embedding-preview-0409"
-				| "text-multilingual-embedding-002"
+			"gemini-embedding-001" | "text-embedding-005" | "text-multilingual-embedding-002"
 		)
 	}
 }
@@ -80,6 +83,14 @@ impl EmbeddingProvider for GoogleProviderImpl {
 pub struct GoogleProvider;
 
 impl GoogleProvider {
+	/// Get list of supported models for dynamic discovery
+	pub fn get_supported_models() -> Vec<&'static str> {
+		vec![
+			"gemini-embedding-001",
+			"text-embedding-005",
+			"text-multilingual-embedding-002",
+		]
+	}
 	pub async fn generate_embeddings(contents: &str, model: &str) -> Result<Vec<f32>> {
 		let result = Self::generate_embeddings_batch(vec![contents.to_string()], model).await?;
 		result

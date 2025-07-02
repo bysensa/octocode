@@ -48,14 +48,14 @@ impl VoyageProviderImpl {
 			));
 		}
 
-		let dimension = Self::get_model_dimension_static(model);
+		let dimension = Self::get_model_dimension(model);
 		Ok(Self {
 			model_name: model.to_string(),
 			dimension,
 		})
 	}
 
-	fn get_model_dimension_static(model: &str) -> usize {
+	fn get_model_dimension(model: &str) -> usize {
 		match model {
 			"voyage-3.5" => 1024,
 			"voyage-3.5-lite" => 1024,
@@ -68,7 +68,7 @@ impl VoyageProviderImpl {
 			_ => {
 				// This should never be reached due to validation in new()
 				panic!(
-					"Invalid Voyage model '{}' passed to get_model_dimension_static",
+					"Invalid Voyage model '{}' passed to get_model_dimension",
 					model
 				);
 			}

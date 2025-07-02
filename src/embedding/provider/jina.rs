@@ -45,14 +45,14 @@ impl JinaProviderImpl {
 			));
 		}
 
-		let dimension = Self::get_model_dimension_static(model);
+		let dimension = Self::get_model_dimension(model);
 		Ok(Self {
 			model_name: model.to_string(),
 			dimension,
 		})
 	}
 
-	fn get_model_dimension_static(model: &str) -> usize {
+	fn get_model_dimension(model: &str) -> usize {
 		match model {
 			"jina-embeddings-v3" => 1024,
 			"jina-embeddings-v2-base-en" => 768,
@@ -62,7 +62,7 @@ impl JinaProviderImpl {
 			_ => {
 				// This should never be reached due to validation in new()
 				panic!(
-					"Invalid Jina model '{}' passed to get_model_dimension_static",
+					"Invalid Jina model '{}' passed to get_model_dimension",
 					model
 				);
 			}

@@ -314,7 +314,7 @@ impl HuggingFaceProviderImpl {
 
 		#[cfg(feature = "huggingface")]
 		{
-			let dimension = Self::get_model_dimension_static(model)?;
+			let dimension = Self::get_model_dimension(model)?;
 			Ok(Self {
 				model_name: model.to_string(),
 				dimension,
@@ -323,7 +323,7 @@ impl HuggingFaceProviderImpl {
 	}
 
 	#[cfg(feature = "huggingface")]
-	fn get_model_dimension_static(model: &str) -> Result<usize> {
+	fn get_model_dimension(model: &str) -> Result<usize> {
 		// DYNAMIC discovery only - get dimension from HuggingFace Hub config.json
 		if let Some(dimension) = Self::get_dimension_from_hub_config(model) {
 			return Ok(dimension);
