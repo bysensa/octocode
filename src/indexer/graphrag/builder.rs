@@ -341,36 +341,67 @@ impl GraphBuilder {
 			.await?;
 		}
 
-		// Collect all processed nodes for relationship discovery
-		let all_processed_nodes = {
-			let graph = self.graph.read().await;
-			graph.nodes.values().cloned().collect::<Vec<CodeNode>>()
-		};
-
-		// Discover relationships efficiently for all processed nodes
-		if !all_processed_nodes.is_empty() {
-			// Get only the newly processed nodes for relationship discovery
-			let _new_node_ids: std::collections::HashSet<String> =
-				all_processed_nodes.iter().map(|n| n.id.clone()).collect();
-
-			let relationships = if self.llm_enabled() {
-				// Enhanced relationship discovery with optional AI for complex cases
-				self.discover_relationships_with_ai_enhancement(&all_processed_nodes)
-					.await?
-			} else {
-				// Fast rule-based relationship discovery only
-				self.discover_relationships_efficiently(&all_processed_nodes)
-					.await?
+		// Discover relationships incrementally for processed nodes
+		// This ensures relationships are stored during processing, not just at the end
+		if processed_count > 0 {
+			// Collect all processed nodes for relationship discovery
+			let all_processed_nodes = {
+				let graph = self.graph.read().await;
+				graph.nodes.values().cloned().collect::<Vec<CodeNode>>()
 			};
 
-			if !relationships.is_empty() {
-				let mut graph = self.graph.write().await;
-				graph.relationships.extend(relationships.clone());
-				drop(graph);
+			if !all_processed_nodes.is_empty() {
+				// Process relationships in batches to avoid storing everything at the end
+				let relationship_batch_size = self.config.index.embeddings_batch_size * 4; // Larger batches for relationships
 
-				// Save just the relationships (nodes were already saved in batches)
-				let db_ops = DatabaseOperations::new(&self.store);
-				db_ops.save_graph_incremental(&[], &relationships).await?;
+				let all_relationships = if self.llm_enabled() {
+					// Enhanced relationship discovery with optional AI for complex cases
+					self.discover_relationships_with_ai_enhancement(&all_processed_nodes)
+						.await?
+				} else {
+					// Fast rule-based relationship discovery only
+					self.discover_relationships_efficiently(&all_processed_nodes)
+						.await?
+				};
+
+				// Store relationships in batches for incremental storage
+				if !all_relationships.is_empty() {
+					let mut relationship_batches_processed = 0;
+
+					for relationship_batch in all_relationships.chunks(relationship_batch_size) {
+						// Add relationships to in-memory graph
+						{
+							let mut graph = self.graph.write().await;
+							graph
+								.relationships
+								.extend(relationship_batch.iter().cloned());
+						}
+
+						// Save relationship batch to database incrementally
+						let db_ops = DatabaseOperations::new(&self.store);
+						db_ops
+							.save_graph_incremental(&[], relationship_batch)
+							.await?;
+
+						relationship_batches_processed += 1;
+
+						// Flush relationships periodically (same logic as nodes)
+						if relationship_batches_processed >= self.config.index.flush_frequency {
+							self.store.flush().await?;
+							relationship_batches_processed = 0;
+						}
+
+						// Update state to show relationship processing progress
+						if let Some(ref state) = state {
+							let mut state_guard = state.write();
+							state_guard.status_message = format!(
+								"Processing relationships: {} of {} batches completed",
+								(relationship_batches_processed + 1),
+								all_relationships.len().div_ceil(relationship_batch_size)
+							);
+						}
+					}
+				}
 			}
 		}
 
