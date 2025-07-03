@@ -315,37 +315,24 @@ impl RelationshipDiscovery {
 		let mut imports = Vec::new();
 		let mut exports = Vec::new();
 
-		// Use symbol patterns to determine imports/exports without re-parsing
-		for symbol in symbols {
-			if symbol.contains("import_") {
-				if let Some(import_name) = symbol.strip_prefix("import_") {
-					imports.push(import_name.to_string());
+	// NOTE: Current limitation - symbols are identifiers, not import/export statements
+	// Real import/export extraction needs to parse actual code content for:
+	// Rust: "use crate::module;" and "pub fn/struct/enum/mod"
+	// For now, we assume all symbols are potential exports since they're defined in the file
+	
+	// Language-specific patterns based on available symbols
+	match language {
+		"rust" => {
+			// For Rust, all extracted symbols are potential exports
+			// since they represent defined items in the file
+			for symbol in symbols {
+				if !symbol.is_empty() {
+					exports.push(symbol.clone());
 				}
 			}
-
-			if symbol.contains("export_") || symbol.contains("public_") {
-				if let Some(export_name) = symbol
-					.strip_prefix("export_")
-					.or_else(|| symbol.strip_prefix("public_"))
-				{
-					exports.push(export_name.to_string());
-				}
-			}
+			// Note: We can't extract "use" statements from symbols alone
+			// This would require parsing the actual code content
 		}
-
-		// Language-specific patterns
-		match language {
-			"rust" => {
-				// For Rust, look for typical patterns
-				for symbol in symbols {
-					if symbol.starts_with("use_") {
-						imports.push(symbol.strip_prefix("use_").unwrap_or(symbol).to_string());
-					}
-					if symbol.starts_with("pub_") {
-						exports.push(symbol.strip_prefix("pub_").unwrap_or(symbol).to_string());
-					}
-				}
-			}
 			"javascript" | "typescript" => {
 				// For JS/TS, look for module patterns
 				for symbol in symbols {

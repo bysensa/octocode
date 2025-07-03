@@ -80,11 +80,12 @@ pub async fn execute(
 		super::index::execute(
 			store,
 			config,
-			&IndexArgs {
-				no_git: args.no_git,
-				list_files: false,
-				show_file: None,
-			},
+		&IndexArgs {
+			no_git: args.no_git,
+			list_files: false,
+			show_file: None,
+			graphrag: None,
+		},
 		)
 		.await?
 	} else {
@@ -184,11 +185,12 @@ pub async fn execute(
 					super::index::execute(
 						store,
 						&config,
-						&IndexArgs {
-							no_git: args.no_git,
-							list_files: false,
-							show_file: None,
-						},
+				&IndexArgs {
+					no_git: args.no_git,
+					list_files: false,
+					show_file: None,
+					graphrag: None,
+				},
 					)
 					.await?
 				} else {

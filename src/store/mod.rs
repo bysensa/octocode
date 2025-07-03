@@ -672,10 +672,10 @@ impl Store {
 			.await?;
 		// Clean up GraphRAG data for the file
 		table_ops
-			.remove_blocks_by_path(file_path, "graph_nodes")
+			.remove_blocks_by_path(file_path, "graphrag_nodes")
 			.await?;
 		table_ops
-			.remove_blocks_by_path(file_path, "graph_relationships")
+			.remove_blocks_by_path(file_path, "graphrag_relationships")
 			.await?;
 		Ok(())
 	}

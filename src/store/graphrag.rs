@@ -49,15 +49,15 @@ impl<'a> GraphRagOperations<'a> {
 		// Check if GraphRAG tables exist
 		if !self
 			.table_ops
-			.tables_exist(&["graph_nodes", "graph_relationships"])
+			.tables_exist(&["graphrag_nodes", "graphrag_relationships"])
 			.await?
 		{
 			return Ok(true); // Tables don't exist, need indexing
 		}
 
 		// Check if tables are empty
-		let nodes_table = self.db.open_table("graph_nodes").execute().await?;
-		let relationships_table = self.db.open_table("graph_relationships").execute().await?;
+		let nodes_table = self.db.open_table("graphrag_nodes").execute().await?;
+		let relationships_table = self.db.open_table("graphrag_relationships").execute().await?;
 
 		let nodes_count = nodes_table.count_rows(None).await?;
 		let relationships_count = relationships_table.count_rows(None).await?;
@@ -109,11 +109,11 @@ impl<'a> GraphRagOperations<'a> {
 	pub async fn store_graph_nodes(&self, node_batch: RecordBatch) -> Result<()> {
 		// Use the same proven pattern as code_blocks, text_blocks, document_blocks
 		self.table_ops
-			.store_batch("graph_nodes", node_batch)
+			.store_batch("graphrag_nodes", node_batch)
 			.await?;
 
 		// Create or optimize vector index based on dataset growth
-		if let Ok(table) = self.db.open_table("graph_nodes").execute().await {
+		if let Ok(table) = self.db.open_table("graphrag_nodes").execute().await {
 			let row_count = table.count_rows(None).await?;
 			let indices = table.list_indices().await?;
 			let has_index = indices.iter().any(|idx| idx.columns == vec!["embedding"]);
@@ -122,7 +122,7 @@ impl<'a> GraphRagOperations<'a> {
 				// Create initial index
 				if let Err(e) = self
 					.table_ops
-					.create_vector_index_optimized("graph_nodes", "embedding", self.code_vector_dim)
+					.create_vector_index_optimized("graphrag_nodes", "embedding", self.code_vector_dim)
 					.await
 				{
 					tracing::warn!(
@@ -137,18 +137,18 @@ impl<'a> GraphRagOperations<'a> {
 					self.code_vector_dim,
 					true,
 				) {
-					tracing::info!("Dataset growth detected, optimizing graph_nodes index");
+					tracing::info!("Dataset growth detected, optimizing graphrag_nodes index");
 					if let Err(e) = self
 						.table_ops
-						.recreate_vector_index_optimized(
-							"graph_nodes",
-							"embedding",
-							self.code_vector_dim,
-						)
+					.recreate_vector_index_optimized(
+						"graphrag_nodes",
+						"embedding",
+						self.code_vector_dim,
+					)
 						.await
 					{
 						tracing::warn!(
-							"Failed to recreate optimized vector index on graph_nodes: {}",
+							"Failed to recreate optimized vector index on graphrag_nodes: {}",
 							e
 						);
 					}
@@ -163,48 +163,48 @@ impl<'a> GraphRagOperations<'a> {
 	pub async fn store_graph_relationships(&self, rel_batch: RecordBatch) -> Result<()> {
 		// Open or create the table
 		self.table_ops
-			.store_batch("graph_relationships", rel_batch)
+			.store_batch("graphrag_relationships", rel_batch)
 			.await
 	}
 
 	/// Clear all graph nodes from the database
 	pub async fn clear_graph_nodes(&self) -> Result<()> {
-		self.table_ops.clear_table("graph_nodes").await
+		self.table_ops.clear_table("graphrag_nodes").await
 	}
 
 	/// Clear all graph relationships from the database
 	pub async fn clear_graph_relationships(&self) -> Result<()> {
-		self.table_ops.clear_table("graph_relationships").await
+		self.table_ops.clear_table("graphrag_relationships").await
 	}
 
 	/// Remove GraphRAG nodes associated with a specific file path
 	pub async fn remove_graph_nodes_by_path(&self, file_path: &str) -> Result<usize> {
 		self.table_ops
-			.remove_blocks_by_path(file_path, "graph_nodes")
+			.remove_blocks_by_path(file_path, "graphrag_nodes")
 			.await
 	}
 
 	/// Remove GraphRAG relationships associated with a specific file path
 	pub async fn remove_graph_relationships_by_path(&self, file_path: &str) -> Result<usize> {
 		// For relationships, we need to check both source_path and target_path
-		if !self.table_ops.table_exists("graph_relationships").await? {
+		if !self.table_ops.table_exists("graphrag_relationships").await? {
 			return Ok(0);
 		}
 
-		let table = self.db.open_table("graph_relationships").execute().await?;
+		let table = self.db.open_table("graphrag_relationships").execute().await?;
 
 		// Count rows before deletion for reporting
 		let before_count = table.count_rows(None).await?;
 
 		// Delete rows where either source_path or target_path matches
 		let filter = format!(
-			"source_path = '{}' OR target_path = '{}'",
+			"source = '{}' OR target = '{}'",
 			file_path, file_path
 		);
 		table
 			.delete(&filter)
 			.await
-			.map_err(|e| anyhow::anyhow!("Failed to delete from graph_relationships: {}", e))?;
+			.map_err(|e| anyhow::anyhow!("Failed to delete from graphrag_relationships: {}", e))?;
 
 		// Count rows after deletion
 		let after_count = table.count_rows(None).await?;
@@ -224,20 +224,26 @@ impl<'a> GraphRagOperations<'a> {
 			));
 		}
 
-		if !self.table_ops.table_exists("graph_nodes").await? {
-			// Return empty batch with expected schema
+		if !self.table_ops.table_exists("graphrag_nodes").await? {
+			// Return empty batch with expected schema that matches the actual storage schema
 			let schema = Arc::new(Schema::new(vec![
 				Field::new("id", DataType::Utf8, false),
-				Field::new("file_path", DataType::Utf8, false),
-				Field::new("node_type", DataType::Utf8, false),
 				Field::new("name", DataType::Utf8, false),
-				Field::new("content", DataType::Utf8, false),
-				Field::new("description", DataType::Utf8, true),
+				Field::new("kind", DataType::Utf8, false),
+				Field::new("path", DataType::Utf8, false),
+				Field::new("description", DataType::Utf8, false),
+				Field::new("symbols", DataType::Utf8, true),
+				Field::new("imports", DataType::Utf8, true),
+				Field::new("exports", DataType::Utf8, true),
+				Field::new("functions", DataType::Utf8, true),
+				Field::new("size_lines", DataType::UInt32, false),
+				Field::new("language", DataType::Utf8, false),
+				Field::new("hash", DataType::Utf8, false),
 			]));
 			return Ok(RecordBatch::new_empty(schema));
 		}
 
-		let table = self.db.open_table("graph_nodes").execute().await?;
+		let table = self.db.open_table("graphrag_nodes").execute().await?;
 
 		// Perform vector similarity search with optimization
 		let query = table
@@ -249,7 +255,7 @@ impl<'a> GraphRagOperations<'a> {
 		let optimized_query = crate::store::vector_optimizer::VectorOptimizer::optimize_query(
 			query,
 			&table,
-			"graph_nodes",
+			"graphrag_nodes",
 		)
 		.await
 		.map_err(|e| anyhow::anyhow!("Failed to optimize query: {}", e))?;
@@ -305,21 +311,21 @@ impl<'a> GraphRagOperations<'a> {
 
 	/// Get all graph relationships
 	pub async fn get_graph_relationships(&self) -> Result<RecordBatch> {
-		if !self.table_ops.table_exists("graph_relationships").await? {
-			// Return empty batch with expected schema
+		if !self.table_ops.table_exists("graphrag_relationships").await? {
+			// Return empty batch with expected schema that matches the actual storage schema
 			let schema = Arc::new(Schema::new(vec![
 				Field::new("id", DataType::Utf8, false),
-				Field::new("source_id", DataType::Utf8, false),
-				Field::new("target_id", DataType::Utf8, false),
-				Field::new("relationship_type", DataType::Utf8, false),
-				Field::new("source_path", DataType::Utf8, false),
-				Field::new("target_path", DataType::Utf8, false),
-				Field::new("description", DataType::Utf8, true),
+				Field::new("source", DataType::Utf8, false),
+				Field::new("target", DataType::Utf8, false),
+				Field::new("relation_type", DataType::Utf8, false),
+				Field::new("description", DataType::Utf8, false),
+				Field::new("confidence", DataType::Float32, false),
+				Field::new("weight", DataType::Float32, false),
 			]));
 			return Ok(RecordBatch::new_empty(schema));
 		}
 
-		let table = self.db.open_table("graph_relationships").execute().await?;
+		let table = self.db.open_table("graphrag_relationships").execute().await?;
 
 		// Get all relationships
 		let mut results = table.query().execute().await?;
