@@ -117,18 +117,9 @@ mod embedding_tests {
 		let (code_provider, _) = parse_provider_model(&config.embedding.code_model);
 		let (text_provider, _) = parse_provider_model(&config.embedding.text_model);
 
-		// Default provider depends on available features
-		#[cfg(feature = "fastembed")]
-		{
-			assert_eq!(code_provider, EmbeddingProviderType::FastEmbed);
-			assert_eq!(text_provider, EmbeddingProviderType::FastEmbed);
-		}
-		#[cfg(not(feature = "fastembed"))]
-		{
-			// When FastEmbed is not available, should fall back to Voyage
-			assert_eq!(code_provider, EmbeddingProviderType::Voyage);
-			assert_eq!(text_provider, EmbeddingProviderType::Voyage);
-		}
+		// When FastEmbed is not available, should fall back to Voyage
+		assert_eq!(code_provider, EmbeddingProviderType::Voyage);
+		assert_eq!(text_provider, EmbeddingProviderType::Voyage);
 	}
 
 	#[test]
