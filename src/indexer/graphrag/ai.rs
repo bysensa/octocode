@@ -24,11 +24,16 @@ use serde_json::json;
 pub struct AIEnhancements {
 	config: Config,
 	client: Client,
+	quiet: bool,
 }
 
 impl AIEnhancements {
-	pub fn new(config: Config, client: Client) -> Self {
-		Self { config, client }
+	pub fn new(config: Config, client: Client, quiet: bool) -> Self {
+		Self {
+			config,
+			client,
+			quiet,
+		}
 	}
 
 	// Check if LLM enhancements are enabled
@@ -383,7 +388,9 @@ impl AIEnhancements {
 				}
 			}
 			Err(e) => {
-				eprintln!("Warning: AI description failed for {}: {}", file_path, e);
+				if !self.quiet {
+					eprintln!("Warning: AI description failed for {}: {}", file_path, e);
+				}
 				Err(e)
 			}
 		}

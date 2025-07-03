@@ -41,6 +41,7 @@ pub struct GraphBuilder {
 	store: Store,
 	project_root: PathBuf, // Project root for relative path calculations
 	ai_enhancements: Option<AIEnhancements>,
+	quiet: bool, // Quiet flag for suppressing console output
 }
 
 impl GraphBuilder {
@@ -71,7 +72,7 @@ impl GraphBuilder {
 		// Initialize AI enhancements if enabled
 		let client = Client::new();
 		let ai_enhancements = if config.graphrag.use_llm {
-			Some(AIEnhancements::new(config.clone(), client.clone()))
+			Some(AIEnhancements::new(config.clone(), client.clone(), quiet))
 		} else {
 			None
 		};
@@ -83,6 +84,7 @@ impl GraphBuilder {
 			store,
 			project_root,
 			ai_enhancements,
+			quiet,
 		})
 	}
 
@@ -162,6 +164,17 @@ impl GraphBuilder {
 			drop(graph);
 
 			if needs_processing {
+				// Clean up old GraphRAG data for this file if it exists
+				// This ensures we don't have stale data when a file is reprocessed
+				if let Err(e) = self.store.remove_graph_nodes_by_path(&relative_path).await {
+					if !self.quiet {
+						eprintln!(
+							"Warning: Failed to clean up old GraphRAG data for {}: {}",
+							relative_path, e
+						);
+					}
+				}
+
 				// Extract file information efficiently
 				let file_name = Path::new(&file_path)
 					.file_stem()
@@ -426,6 +439,24 @@ impl GraphBuilder {
 		if let Some(ref state) = state {
 			let mut state_guard = state.write();
 			state_guard.status_message = "Building GraphRAG from existing database...".to_string();
+		}
+
+		// Clear existing GraphRAG data to avoid duplicates
+		if let Err(e) = self.store.clear_graph_nodes().await {
+			eprintln!("Warning: Failed to clear existing graph nodes: {}", e);
+		}
+		if let Err(e) = self.store.clear_graph_relationships().await {
+			eprintln!(
+				"Warning: Failed to clear existing graph relationships: {}",
+				e
+			);
+		}
+
+		// Clear in-memory graph to keep it in sync with database
+		{
+			let mut graph = self.graph.write().await;
+			graph.nodes.clear();
+			graph.relationships.clear();
 		}
 
 		// Get all existing code blocks from the database

@@ -340,6 +340,19 @@ pub async fn index_files_with_quiet(
 										changed_files.len()
 									);
 								}
+
+								// Clean up existing data for changed files (includes GraphRAG cleanup)
+								for file_path in &changed_files {
+									if let Err(e) = store.remove_blocks_by_path(file_path).await {
+										if !quiet {
+											eprintln!(
+												"Warning: Failed to clean up data for {}: {}",
+												file_path, e
+											);
+										}
+									}
+								}
+
 								Some(
 									changed_files
 										.into_iter()
@@ -776,6 +789,17 @@ pub async fn index_files_with_quiet(
 			{
 				let mut state_guard = state.write();
 				state_guard.status_message = "".to_string();
+			}
+
+			// Store GraphRAG commit hash after successful processing
+			if let Some(git_root) = git_repo_root {
+				if let Ok(current_commit) = git::get_current_commit_hash(git_root) {
+					if let Err(e) = store.store_graphrag_commit_hash(&current_commit).await {
+						if !quiet {
+							eprintln!("Warning: Could not store GraphRAG git metadata: {}", e);
+						}
+					}
+				}
 			}
 		}
 	}

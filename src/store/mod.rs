@@ -670,6 +670,13 @@ impl Store {
 		table_ops
 			.remove_blocks_by_path(file_path, "document_blocks")
 			.await?;
+		// Clean up GraphRAG data for the file
+		table_ops
+			.remove_blocks_by_path(file_path, "graph_nodes")
+			.await?;
+		table_ops
+			.remove_blocks_by_path(file_path, "graph_relationships")
+			.await?;
 		Ok(())
 	}
 
@@ -743,6 +750,16 @@ impl Store {
 	pub async fn clear_git_metadata(&self) -> Result<()> {
 		let metadata_ops = MetadataOperations::new(&self.db);
 		metadata_ops.clear_git_metadata().await
+	}
+
+	pub async fn get_graphrag_last_commit_hash(&self) -> Result<Option<String>> {
+		let metadata_ops = MetadataOperations::new(&self.db);
+		metadata_ops.get_graphrag_last_commit_hash().await
+	}
+
+	pub async fn store_graphrag_commit_hash(&self, commit_hash: &str) -> Result<()> {
+		let metadata_ops = MetadataOperations::new(&self.db);
+		metadata_ops.store_graphrag_commit_hash(commit_hash).await
 	}
 
 	// GraphRAG operations
