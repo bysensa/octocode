@@ -101,7 +101,7 @@ impl FastEmbedProviderImpl {
 		let supported_models = TextEmbedding::list_supported_models();
 		supported_models
 			.iter()
-			.map(|model_info| format!("{:?}", model_info)) // Convert ModelInfo to string
+			.map(|model_info| model_info.model_code.clone()) // Use actual model name
 			.collect()
 	}
 
@@ -202,17 +202,27 @@ impl FastEmbedProvider {
 	/// Map model name to FastEmbed model enum
 	pub fn map_model_to_fastembed(model: &str) -> EmbeddingModel {
 		match model {
-			"sentence-transformers/all-MiniLM-L6-v2" => EmbeddingModel::AllMiniLML6V2,
-			"sentence-transformers/all-MiniLM-L6-v2-quantized" => EmbeddingModel::AllMiniLML6V2Q,
-			"sentence-transformers/all-MiniLM-L12-v2" | "all-MiniLM-L12-v2" => {
-				EmbeddingModel::AllMiniLML12V2
+			"sentence-transformers/all-MiniLM-L6-v2" | "Xenova/all-MiniLM-L6-v2" => {
+				EmbeddingModel::AllMiniLML6V2
 			}
+			"sentence-transformers/all-MiniLM-L6-v2-quantized" | "Qdrant/all-MiniLM-L6-v2-onnx" => {
+				EmbeddingModel::AllMiniLML6V2Q
+			}
+			"sentence-transformers/all-MiniLM-L12-v2"
+			| "all-MiniLM-L12-v2"
+			| "Xenova/all-MiniLM-L12-v2" => EmbeddingModel::AllMiniLML12V2,
 			"sentence-transformers/all-MiniLM-L12-v2-quantized" => EmbeddingModel::AllMiniLML12V2Q,
-			"BAAI/bge-base-en-v1.5" => EmbeddingModel::BGEBaseENV15,
-			"BAAI/bge-base-en-v1.5-quantized" => EmbeddingModel::BGEBaseENV15Q,
-			"BAAI/bge-large-en-v1.5" => EmbeddingModel::BGELargeENV15,
-			"BAAI/bge-large-en-v1.5-quantized" => EmbeddingModel::BGELargeENV15Q,
-			"BAAI/bge-small-en-v1.5" => EmbeddingModel::BGESmallENV15,
+			"BAAI/bge-base-en-v1.5" | "Xenova/bge-base-en-v1.5" => EmbeddingModel::BGEBaseENV15,
+			"BAAI/bge-base-en-v1.5-quantized" | "Qdrant/bge-base-en-v1.5-onnx-Q" => {
+				EmbeddingModel::BGEBaseENV15Q
+			}
+			"BAAI/bge-large-en-v1.5" | "Xenova/bge-large-en-v1.5" => EmbeddingModel::BGELargeENV15,
+			"BAAI/bge-large-en-v1.5-quantized" | "Qdrant/bge-large-en-v1.5-onnx-Q" => {
+				EmbeddingModel::BGELargeENV15Q
+			}
+			"BAAI/bge-small-en-v1.5"
+			| "Xenova/bge-small-en-v1.5"
+			| "Qdrant/bge-small-en-v1.5-onnx-Q" => EmbeddingModel::BGESmallENV15,
 			"BAAI/bge-small-en-v1.5-quantized" => EmbeddingModel::BGESmallENV15Q,
 			"nomic-ai/nomic-embed-text-v1" => EmbeddingModel::NomicEmbedTextV1,
 			"nomic-ai/nomic-embed-text-v1.5" => EmbeddingModel::NomicEmbedTextV15,
@@ -220,14 +230,14 @@ impl FastEmbedProvider {
 			"sentence-transformers/paraphrase-MiniLM-L6-v2" => {
 				EmbeddingModel::ParaphraseMLMiniLML12V2
 			}
-			"sentence-transformers/paraphrase-MiniLM-L6-v2-quantized" => {
+			"sentence-transformers/paraphrase-MiniLM-L6-v2-quantized"
+			| "Qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q" => {
 				EmbeddingModel::ParaphraseMLMiniLML12V2Q
 			}
-			"sentence-transformers/paraphrase-mpnet-base-v2" => {
-				EmbeddingModel::ParaphraseMLMpnetBaseV2
-			}
-			"BAAI/bge-small-zh-v1.5" => EmbeddingModel::BGESmallZHV15,
-			"BAAI/bge-large-zh-v1.5" => EmbeddingModel::BGELargeZHV15,
+			"sentence-transformers/paraphrase-mpnet-base-v2"
+			| "Xenova/paraphrase-multilingual-mpnet-base-v2" => EmbeddingModel::ParaphraseMLMpnetBaseV2,
+			"BAAI/bge-small-zh-v1.5" | "Xenova/bge-small-zh-v1.5" => EmbeddingModel::BGESmallZHV15,
+			"BAAI/bge-large-zh-v1.5" | "Xenova/bge-large-zh-v1.5" => EmbeddingModel::BGELargeZHV15,
 			"lightonai/modernbert-embed-large" => EmbeddingModel::ModernBertEmbedLarge,
 			"intfloat/multilingual-e5-small" | "multilingual-e5-small" => {
 				EmbeddingModel::MultilingualE5Small
@@ -235,9 +245,9 @@ impl FastEmbedProvider {
 			"intfloat/multilingual-e5-base" | "multilingual-e5-base" => {
 				EmbeddingModel::MultilingualE5Base
 			}
-			"intfloat/multilingual-e5-large" | "multilingual-e5-large" => {
-				EmbeddingModel::MultilingualE5Large
-			}
+			"intfloat/multilingual-e5-large"
+			| "multilingual-e5-large"
+			| "Qdrant/multilingual-e5-large-onnx" => EmbeddingModel::MultilingualE5Large,
 			"mixedbread-ai/mxbai-embed-large-v1" => EmbeddingModel::MxbaiEmbedLargeV1,
 			"mixedbread-ai/mxbai-embed-large-v1-quantized" => EmbeddingModel::MxbaiEmbedLargeV1Q,
 			"Alibaba-NLP/gte-base-en-v1.5" => EmbeddingModel::GTEBaseENV15,
