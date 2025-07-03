@@ -84,10 +84,10 @@ async fn list_models(provider_filter: Option<String>) -> Result<()> {
 			EmbeddingProviderType::FastEmbed => {
 				#[cfg(feature = "fastembed")]
 				{
-					let models = FastEmbedProviderImpl::list_supported_models();
+					let models = FastEmbedProviderImpl::list_supported_models_with_dimensions();
 					println!("Found {} models:", models.len());
-					for (i, model) in models.iter().enumerate() {
-						println!("  {}. {}", i + 1, model);
+					for (i, (model, dim)) in models.iter().enumerate() {
+						println!("  {}. {} ({}d)", i + 1, model, dim);
 					}
 				}
 				#[cfg(not(feature = "fastembed"))]
@@ -98,6 +98,7 @@ async fn list_models(provider_filter: Option<String>) -> Result<()> {
 			EmbeddingProviderType::HuggingFace => {
 				#[cfg(feature = "huggingface")]
 				{
+					println!("Found dynamic models:");
 					println!("  HuggingFace: Dynamic discovery via Hub API");
 					println!("  Use 'info' command with specific model names");
 				}
@@ -107,21 +108,62 @@ async fn list_models(provider_filter: Option<String>) -> Result<()> {
 				}
 			}
 			EmbeddingProviderType::Jina => {
-				println!(
-					"  Jina models: jina-embeddings-v4 (2048d), jina-clip-v2 (1024d), jina-embeddings-v3 (1024d), jina-clip-v1 (768d), jina-embeddings-v2-base-es (768d), jina-embeddings-v2-base-code (768d), jina-embeddings-v2-base-de (768d), jina-embeddings-v2-base-zh (768d), jina-embeddings-v2-base-en (768d)"
-				);
+				let jina_models = [
+					("jina-embeddings-v4", 2048),
+					("jina-clip-v2", 1024),
+					("jina-embeddings-v3", 1024),
+					("jina-clip-v1", 768),
+					("jina-embeddings-v2-base-es", 768),
+					("jina-embeddings-v2-base-code", 768),
+					("jina-embeddings-v2-base-de", 768),
+					("jina-embeddings-v2-base-zh", 768),
+					("jina-embeddings-v2-base-en", 768),
+				];
+				println!("Found {} models:", jina_models.len());
+				for (i, (model, dim)) in jina_models.iter().enumerate() {
+					println!("  {}. {} ({}d)", i + 1, model, dim);
+				}
 				println!("  Use 'info' command for real-time API validation");
 			}
 			EmbeddingProviderType::Voyage => {
-				println!("  Voyage models: voyage-3.5 (1024d), voyage-3.5-lite (1024d), voyage-3-large (1024d), voyage-code-2 (1536d), voyage-code-3 (1024d), voyage-finance-2 (1024d), voyage-law-2 (1024d), voyage-2 (1024d)");
+				let voyage_models = [
+					("voyage-3.5", 1024),
+					("voyage-3.5-lite", 1024),
+					("voyage-3-large", 1024),
+					("voyage-code-2", 1536),
+					("voyage-code-3", 1024),
+					("voyage-finance-2", 1024),
+					("voyage-law-2", 1024),
+					("voyage-2", 1024),
+				];
+				println!("Found {} models:", voyage_models.len());
+				for (i, (model, dim)) in voyage_models.iter().enumerate() {
+					println!("  {}. {} ({}d)", i + 1, model, dim);
+				}
 				println!("  Use 'info' command for real-time API validation");
 			}
 			EmbeddingProviderType::Google => {
-				println!("  Google models: gemini-embedding-001 (3072d), text-embedding-005 (768d), text-multilingual-embedding-002 (768d)");
+				let google_models = [
+					("gemini-embedding-001", 3072),
+					("text-embedding-005", 768),
+					("text-multilingual-embedding-002", 768),
+				];
+				println!("Found {} models:", google_models.len());
+				for (i, (model, dim)) in google_models.iter().enumerate() {
+					println!("  {}. {} ({}d)", i + 1, model, dim);
+				}
 				println!("  Use 'info' command for real-time API validation");
 			}
 			EmbeddingProviderType::OpenAI => {
-				println!("  OpenAI models: text-embedding-3-small (1536d), text-embedding-3-large (3072d), text-embedding-ada-002 (1536d)");
+				let openai_models = [
+					("text-embedding-3-small", 1536),
+					("text-embedding-3-large", 3072),
+					("text-embedding-ada-002", 1536),
+				];
+				println!("Found {} models:", openai_models.len());
+				for (i, (model, dim)) in openai_models.iter().enumerate() {
+					println!("  {}. {} ({}d)", i + 1, model, dim);
+				}
 				println!("  Use 'info' command for real-time API validation");
 			}
 		}

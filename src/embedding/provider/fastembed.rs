@@ -105,6 +105,15 @@ impl FastEmbedProviderImpl {
 			.collect()
 	}
 
+	/// Get list of all supported models with dimensions
+	pub fn list_supported_models_with_dimensions() -> Vec<(String, usize)> {
+		let supported_models = TextEmbedding::list_supported_models();
+		supported_models
+			.iter()
+			.map(|model_info| (model_info.model_code.clone(), model_info.dim))
+			.collect()
+	}
+
 	/// Get model dimension dynamically from ModelInfo if available
 	pub fn get_model_dimension_from_api(model_name: &str) -> Option<usize> {
 		let supported_models = TextEmbedding::list_supported_models();
