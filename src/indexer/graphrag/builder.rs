@@ -210,22 +210,60 @@ impl GraphBuilder {
 
 				let symbols: Vec<String> = all_symbols.into_iter().collect();
 
-				// Efficiently extract imports and exports based on language and symbols
-				let (imports, exports) = RelationshipDiscovery::extract_imports_exports_efficient(
-					&symbols,
-					&language,
-					&relative_path,
-				);
+				// Extract imports and exports using language-specific AST parsing
+				let (imports, exports) = self
+					.extract_imports_exports_from_file(&file_path, &language)
+					.await
+					.unwrap_or_else(|e| {
+						if !self.quiet {
+							eprintln!(
+								"⚠️  Import/export extraction failed for {}: {}",
+								relative_path, e
+							);
+						}
+						// Fallback to old method if AST parsing fails
+						RelationshipDiscovery::extract_imports_exports_efficient(
+							&symbols,
+							&language,
+							&relative_path,
+						)
+					});
+
+				if !self.quiet && (!imports.is_empty() || !exports.is_empty()) {
+					eprintln!(
+						"📦 Found {} imports, {} exports in {}",
+						imports.len(),
+						exports.len(),
+						relative_path
+					);
+					if !imports.is_empty() {
+						eprintln!("  Imports: {:?}", imports);
+					}
+					if !exports.is_empty() {
+						eprintln!("  Exports: {:?}", exports);
+					}
+				}
 
 				// Generate description - use AI for complex files when enabled
 				let description = if self.llm_enabled()
 					&& self.should_use_ai_for_description(&symbols, total_lines as u32, &language)
 				{
+					if !self.quiet {
+						eprintln!(
+							"🤖 Using AI for description: {} ({} lines, {} symbols)",
+							relative_path,
+							total_lines,
+							symbols.len()
+						);
+					}
 					// Collect a meaningful content sample for AI analysis
 					let content_sample = self.build_content_sample_for_ai(&file_blocks);
 					self.extract_ai_description(&content_sample, &file_path, &language, &symbols)
 						.await
-						.unwrap_or_else(|_| {
+						.unwrap_or_else(|e| {
+							if !self.quiet {
+								eprintln!("⚠️  AI description failed for {}: {}", relative_path, e);
+							}
 							RelationshipDiscovery::generate_simple_description(
 								&file_name,
 								&language,
@@ -234,6 +272,12 @@ impl GraphBuilder {
 							)
 						})
 				} else {
+					if !self.quiet && self.llm_enabled() {
+						eprintln!(
+							"📝 Using simple description for: {} (AI criteria not met)",
+							relative_path
+						);
+					}
 					RelationshipDiscovery::generate_simple_description(
 						&file_name,
 						&language,
@@ -507,7 +551,27 @@ impl GraphBuilder {
 	// Get the full graph
 	pub async fn get_graph(&self) -> Result<CodeGraph> {
 		let graph = self.graph.read().await;
-		Ok(graph.clone())
+
+		// If the in-memory graph is empty, load from database
+		if graph.nodes.is_empty() && graph.relationships.is_empty() {
+			drop(graph); // Release read lock before loading
+
+			// Load graph from database
+			let db_ops = DatabaseOperations::new(&self.store);
+			let loaded_graph = db_ops
+				.load_graph(std::path::Path::new("."), self.quiet)
+				.await?;
+
+			// Update in-memory graph with loaded data
+			{
+				let mut graph_write = self.graph.write().await;
+				*graph_write = loaded_graph.clone();
+			}
+
+			Ok(loaded_graph)
+		} else {
+			Ok(graph.clone())
+		}
 	}
 
 	// Search the graph for nodes matching a query
@@ -724,5 +788,66 @@ impl GraphBuilder {
 			*batches_processed = 0;
 		}
 		Ok(())
+	}
+
+	// Extract imports/exports using language-specific AST parsing
+	async fn extract_imports_exports_from_file(
+		&self,
+		file_path: &str,
+		language: &str,
+	) -> Result<(Vec<String>, Vec<String>)> {
+		use crate::indexer::languages;
+		use std::fs;
+		use tree_sitter::Parser;
+
+		// Get language implementation
+		let lang_impl = languages::get_language(language).ok_or_else(|| {
+			anyhow::anyhow!("Failed to get language implementation for: {}", language)
+		})?;
+
+		// Read file content
+		let contents = fs::read_to_string(file_path)?;
+
+		// Parse with tree-sitter
+		let mut parser = Parser::new();
+		parser.set_language(&lang_impl.get_ts_language())?;
+		let tree = parser
+			.parse(&contents, None)
+			.ok_or_else(|| anyhow::anyhow!("Failed to parse file"))?;
+
+		let mut all_imports = Vec::new();
+		let mut all_exports = Vec::new();
+
+		// Walk through all nodes and extract imports/exports
+		let cursor = tree.walk();
+		extract_imports_exports_recursive(
+			cursor.node(),
+			&contents,
+			lang_impl.as_ref(),
+			&mut all_imports,
+			&mut all_exports,
+		);
+
+		Ok((all_imports, all_exports))
+	}
+}
+
+// Recursively extract imports/exports from AST nodes
+fn extract_imports_exports_recursive(
+	node: tree_sitter::Node,
+	contents: &str,
+	lang_impl: &dyn crate::indexer::languages::Language,
+	all_imports: &mut Vec<String>,
+	all_exports: &mut Vec<String>,
+) {
+	// Extract imports/exports from current node
+	let (imports, exports) = lang_impl.extract_imports_exports(node, contents);
+	all_imports.extend(imports);
+	all_exports.extend(exports);
+
+	// Recursively process children
+	let mut cursor = node.walk();
+	for child in node.children(&mut cursor) {
+		extract_imports_exports_recursive(child, contents, lang_impl, all_imports, all_exports);
 	}
 }

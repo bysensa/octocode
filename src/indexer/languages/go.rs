@@ -32,10 +32,10 @@ impl Language for Go {
 		vec![
 			"function_declaration",
 			"method_declaration",
-			"type_declaration", // Keep for simple type aliases
-			                    // Removed: "struct_type" - can be large
-			                    // Removed: "interface_type" - can be large
-			                    // Individual struct fields and interface methods are less useful than the functions that use them
+			"type_declaration",
+			"const_declaration",
+			"var_declaration",
+			"import_declaration",
 		]
 	}
 
@@ -162,6 +162,46 @@ impl Language for Go {
 			"import_declaration" => "import statements",
 			_ => "declarations",
 		}
+	}
+
+	fn extract_imports_exports(&self, node: Node, contents: &str) -> (Vec<String>, Vec<String>) {
+		let mut imports = Vec::new();
+		let mut exports = Vec::new();
+
+		match node.kind() {
+			"import_declaration" => {
+				// Handle: import "package"
+				// Handle: import alias "package"
+				// Handle: import ( "package1"; "package2" )
+				if let Ok(import_text) = node.utf8_text(contents.as_bytes()) {
+					if let Some(imported_items) = parse_go_import_statement(import_text) {
+						imports.extend(imported_items);
+					}
+				}
+			}
+			"function_declaration"
+			| "method_declaration"
+			| "type_declaration"
+			| "const_declaration"
+			| "var_declaration" => {
+				// In Go, exported items start with uppercase letter
+				// Extract the name and check if it's exported
+				for child in node.children(&mut node.walk()) {
+					if child.kind() == "identifier" || child.kind() == "field_identifier" {
+						if let Ok(name) = child.utf8_text(contents.as_bytes()) {
+							// Go convention: exported names start with uppercase
+							if name.chars().next().is_some_and(|c| c.is_uppercase()) {
+								exports.push(name.to_string());
+							}
+							break;
+						}
+					}
+				}
+			}
+			_ => {}
+		}
+
+		(imports, exports)
 	}
 }
 
@@ -290,4 +330,61 @@ impl Go {
 			}
 		}
 	}
+}
+// Helper function for parsing Go import statements
+fn parse_go_import_statement(import_text: &str) -> Option<Vec<String>> {
+	let mut imports = Vec::new();
+	let cleaned = import_text.trim();
+
+	// Handle single import: import "package" or import alias "package"
+	if cleaned.starts_with("import ") && !cleaned.contains('(') {
+		let rest = &cleaned[7..].trim(); // Skip "import "
+
+		// Handle: import alias "package"
+		let parts: Vec<&str> = rest.split_whitespace().collect();
+		if parts.len() == 2 {
+			// Has alias
+			let alias = parts[0];
+			imports.push(alias.to_string());
+		} else if parts.len() == 1 {
+			// No alias, extract package name from path
+			let package_path = parts[0].trim_matches('"');
+			if let Some(package_name) = package_path.split('/').next_back() {
+				imports.push(package_name.to_string());
+			}
+		}
+		return Some(imports);
+	}
+
+	// Handle grouped imports: import ( ... )
+	if cleaned.contains('(') && cleaned.contains(')') {
+		if let Some(start) = cleaned.find('(') {
+			if let Some(end) = cleaned.rfind(')') {
+				let imports_block = &cleaned[start + 1..end];
+				for line in imports_block.lines() {
+					let line = line.trim();
+					if line.is_empty() || line.starts_with("//") {
+						continue;
+					}
+
+					// Handle: alias "package" or "package"
+					let parts: Vec<&str> = line.split_whitespace().collect();
+					if parts.len() == 2 {
+						// Has alias
+						let alias = parts[0];
+						imports.push(alias.to_string());
+					} else if parts.len() == 1 {
+						// No alias, extract package name from path
+						let package_path = parts[0].trim_matches('"');
+						if let Some(package_name) = package_path.split('/').next_back() {
+							imports.push(package_name.to_string());
+						}
+					}
+				}
+				return Some(imports);
+			}
+		}
+	}
+
+	None
 }

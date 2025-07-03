@@ -309,67 +309,23 @@ impl RelationshipDiscovery {
 	// Extract imports/exports efficiently based on language patterns and symbols
 	pub fn extract_imports_exports_efficient(
 		symbols: &[String],
-		language: &str,
+		_language: &str,
 		_relative_path: &str,
 	) -> (Vec<String>, Vec<String>) {
-		let mut imports = Vec::new();
+		// This function is now deprecated in favor of language-specific extraction
+		// during AST parsing. For backward compatibility, treat all symbols as exports
 		let mut exports = Vec::new();
 
-	// NOTE: Current limitation - symbols are identifiers, not import/export statements
-	// Real import/export extraction needs to parse actual code content for:
-	// Rust: "use crate::module;" and "pub fn/struct/enum/mod"
-	// For now, we assume all symbols are potential exports since they're defined in the file
-	
-	// Language-specific patterns based on available symbols
-	match language {
-		"rust" => {
-			// For Rust, all extracted symbols are potential exports
-			// since they represent defined items in the file
-			for symbol in symbols {
-				if !symbol.is_empty() {
-					exports.push(symbol.clone());
-				}
-			}
-			// Note: We can't extract "use" statements from symbols alone
-			// This would require parsing the actual code content
-		}
-			"javascript" | "typescript" => {
-				// For JS/TS, look for module patterns
-				for symbol in symbols {
-					if symbol.contains("require_") || symbol.contains("from_") {
-						imports.push(symbol.to_string());
-					}
-					if symbol.contains("module_exports") || symbol.contains("export_") {
-						exports.push(symbol.to_string());
-					}
-				}
-			}
-			"python" => {
-				// For Python, look for import patterns
-				for symbol in symbols {
-					if symbol.contains("import_") || symbol.contains("from_") {
-						imports.push(symbol.to_string());
-					}
-					// In Python, most top-level symbols are exports
-					if symbol.contains("function_") || symbol.contains("class_") {
-						exports.push(symbol.to_string());
-					}
-				}
-			}
-			_ => {
-				// Generic approach
+		for symbol in symbols {
+			if !symbol.is_empty() && !symbol.starts_with("IMPORT:") {
+				exports.push(symbol.clone());
 			}
 		}
 
-		// Deduplicate
-		imports.sort();
-		imports.dedup();
-		exports.sort();
-		exports.dedup();
-
-		(imports, exports)
+		// Return empty imports since real import extraction happens at AST level
+		(Vec::new(), exports)
 	}
-
+	// Determine file kind based on path patterns
 	// Determine file kind based on path patterns
 	pub fn determine_file_kind(relative_path: &str) -> String {
 		if relative_path.contains("/src/") || relative_path.contains("/lib/") {

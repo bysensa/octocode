@@ -35,6 +35,7 @@ impl Language for Cpp {
 			"struct_specifier",
 			"enum_specifier",
 			"namespace_definition",
+			"preproc_include", // For #include statements
 		]
 	}
 
@@ -177,6 +178,22 @@ impl Language for Cpp {
 			_ => "declarations",
 		}
 	}
+
+	fn extract_imports_exports(&self, node: Node, contents: &str) -> (Vec<String>, Vec<String>) {
+		let mut imports = Vec::new();
+		let exports = Vec::new(); // C++ doesn't have explicit exports like modules
+
+		// Look for preproc_include nodes
+		if node.kind() == "preproc_include" {
+			if let Ok(include_text) = node.utf8_text(contents.as_bytes()) {
+				if let Some(header) = Self::parse_cpp_include(include_text) {
+					imports.push(header);
+				}
+			}
+		}
+
+		(imports, exports)
+	}
 }
 
 impl Cpp {
@@ -305,5 +322,29 @@ impl Cpp {
 				}
 			}
 		}
+	}
+
+	// C++ has #include statements for imports
+
+	// Helper function to parse C++ include statements
+	fn parse_cpp_include(include_text: &str) -> Option<String> {
+		let trimmed = include_text.trim();
+
+		// Handle #include <header.h> or #include "header.h"
+		if trimmed.starts_with("#include") {
+			let include_part = trimmed.strip_prefix("#include").unwrap().trim(); // Remove "#include"
+
+			// Handle <header.h>
+			if include_part.starts_with('<') && include_part.ends_with('>') {
+				return Some(include_part[1..include_part.len() - 1].to_string());
+			}
+
+			// Handle "header.h"
+			if include_part.starts_with('"') && include_part.ends_with('"') {
+				return Some(include_part[1..include_part.len() - 1].to_string());
+			}
+		}
+
+		None
 	}
 }

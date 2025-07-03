@@ -64,4 +64,13 @@ impl Language for Markdown {
 	fn get_node_type_description(&self, _node_type: &str) -> &'static str {
 		"markdown headings"
 	}
+
+	// Markdown doesn't have traditional imports/exports
+	#[allow(dead_code)]
+	fn extract_imports_exports(&self, _node: Node, _contents: &str) -> (Vec<String>, Vec<String>) {
+		// Markdown files don't have imports or exports in the traditional sense
+		// Could potentially extract links to other markdown files, but that's not
+		// the same as code imports/exports
+		(Vec::new(), Vec::new())
+	}
 }

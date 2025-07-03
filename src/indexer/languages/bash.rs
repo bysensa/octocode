@@ -29,7 +29,7 @@ impl Language for Bash {
 	}
 
 	fn get_meaningful_kinds(&self) -> Vec<&'static str> {
-		vec!["function_definition"]
+		vec!["function_definition", "command"] // command for source/. statements
 	}
 
 	fn extract_symbols(&self, node: Node, contents: &str) -> Vec<String> {
@@ -121,6 +121,18 @@ impl Language for Bash {
 			_ => "declarations",
 		}
 	}
+
+	fn extract_imports_exports(&self, node: Node, contents: &str) -> (Vec<String>, Vec<String>) {
+		let mut imports = Vec::new();
+		let exports = Vec::new(); // Bash doesn't have explicit exports, only environment variables
+
+		if node.kind() == "function_definition" {
+			// Look for source or . commands in function body
+			Self::extract_bash_sources_from_node(node, contents, &mut imports);
+		}
+
+		(imports, exports)
+	}
 }
 
 impl Bash {
@@ -134,23 +146,62 @@ impl Bash {
 				if child.kind() == "variable_assignment" {
 					for var_child in child.children(&mut child.walk()) {
 						if var_child.kind() == "variable_name" {
-							if let Ok(name) = var_child.utf8_text(contents.as_bytes()) {
-								if !symbols.contains(&name.to_string()) {
-									symbols.push(name.to_string());
-								}
+							if let Ok(var_name) = var_child.utf8_text(contents.as_bytes()) {
+								symbols.push(var_name.to_string());
 							}
 							break;
 						}
 					}
 				}
 
-				// Continue traversing for nested assignments
-				self.extract_identifiers(child, contents, symbols);
+				if !cursor.goto_next_sibling() {
+					break;
+				}
+			}
+		}
+	}
+
+	// Helper function to extract source commands from bash
+	fn extract_bash_sources_from_node(node: Node, contents: &str, imports: &mut Vec<String>) {
+		let mut cursor = node.walk();
+		if cursor.goto_first_child() {
+			loop {
+				let child = cursor.node();
+
+				// Look for commands that might be source or .
+				if child.kind() == "command" {
+					if let Ok(command_text) = child.utf8_text(contents.as_bytes()) {
+						if let Some(source_file) = Self::parse_bash_source(command_text) {
+							imports.push(source_file);
+						}
+					}
+				}
+
+				// Recursively check child nodes
+				Self::extract_bash_sources_from_node(child, contents, imports);
 
 				if !cursor.goto_next_sibling() {
 					break;
 				}
 			}
 		}
+	}
+
+	// Helper function to parse bash source commands
+	fn parse_bash_source(command_text: &str) -> Option<String> {
+		let trimmed = command_text.trim();
+
+		// Handle "source file.sh" or ". file.sh"
+		if let Some(stripped) = trimmed.strip_prefix("source ") {
+			if let Some(filename) = stripped.split_whitespace().next() {
+				return Some(filename.trim_matches('"').trim_matches('\'').to_string());
+			}
+		} else if let Some(stripped) = trimmed.strip_prefix(". ") {
+			if let Some(filename) = stripped.split_whitespace().next() {
+				return Some(filename.trim_matches('"').trim_matches('\'').to_string());
+			}
+		}
+
+		None
 	}
 }

@@ -150,6 +150,21 @@ impl Language for Svelte {
 			_ => "declarations",
 		}
 	}
+
+	fn extract_imports_exports(&self, node: Node, contents: &str) -> (Vec<String>, Vec<String>) {
+		let mut imports = Vec::new();
+		let mut exports = Vec::new();
+
+		if node.kind() == "script_element" {
+			// Extract JavaScript imports/exports from script content
+			let script_content = self.get_script_text_content(node, contents);
+			let (script_imports, script_exports) = Self::parse_js_imports_exports(&script_content);
+			imports.extend(script_imports);
+			exports.extend(script_exports);
+		}
+
+		(imports, exports)
+	}
 }
 
 impl Svelte {
@@ -403,5 +418,74 @@ impl Svelte {
 				| "meta" | "link"
 				| "script" | "style"
 		)
+	}
+
+	// Svelte components can have imports in script blocks and exports
+
+	// Helper to extract text content from script element
+	fn get_script_text_content(&self, node: Node, contents: &str) -> String {
+		if let Ok(text) = node.utf8_text(contents.as_bytes()) {
+			// Remove <script> and </script> tags, return inner content
+			let text = text.trim();
+			if text.starts_with("<script") && text.ends_with("</script>") {
+				// Find the end of the opening tag
+				if let Some(tag_end) = text.find('>') {
+					let inner = &text[tag_end + 1..];
+					if let Some(closing_start) = inner.rfind("</script>") {
+						return inner[..closing_start].trim().to_string();
+					}
+				}
+			}
+			text.to_string()
+		} else {
+			String::new()
+		}
+	}
+
+	// Helper function to parse JavaScript imports/exports from script content
+	fn parse_js_imports_exports(content: &str) -> (Vec<String>, Vec<String>) {
+		let mut imports = Vec::new();
+		let mut exports = Vec::new();
+
+		// Simple regex-based parsing for import/export statements
+		for line in content.lines() {
+			let trimmed = line.trim();
+
+			// Handle import statements
+			if trimmed.starts_with("import ") {
+				if let Some(from_pos) = trimmed.find(" from ") {
+					let import_path = &trimmed[from_pos + 6..].trim();
+					if let Some(path) = Self::extract_quoted_string(import_path) {
+						imports.push(path);
+					}
+				}
+			}
+
+			// Handle export statements
+			if trimmed.starts_with("export ") {
+				if trimmed.contains("export default") {
+					exports.push("default".to_string());
+				} else if let Some(name_start) = trimmed.find("export ") {
+					let export_part = &trimmed[name_start + 7..].trim();
+					if let Some(name) = export_part.split_whitespace().next() {
+						exports.push(name.to_string());
+					}
+				}
+			}
+		}
+
+		(imports, exports)
+	}
+
+	// Helper to extract quoted strings
+	fn extract_quoted_string(text: &str) -> Option<String> {
+		let text = text.trim();
+		if (text.starts_with('"') && text.ends_with('"'))
+			|| (text.starts_with('\'') && text.ends_with('\''))
+		{
+			Some(text[1..text.len() - 1].to_string())
+		} else {
+			None
+		}
 	}
 }

@@ -151,4 +151,11 @@ impl Json {
 			}
 		}
 	}
+
+	// JSON doesn't have imports/exports
+	#[allow(dead_code)]
+	fn extract_imports_exports(&self, _node: Node, _contents: &str) -> (Vec<String>, Vec<String>) {
+		// JSON files are data files and don't have imports or exports
+		(Vec::new(), Vec::new())
+	}
 }

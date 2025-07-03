@@ -36,6 +36,8 @@ impl Language for TypeScript {
 			"arrow_function",
 			"interface_declaration",
 			"type_alias_declaration",
+			"import_statement",
+			"export_statement",
 		]
 	}
 
@@ -153,4 +155,151 @@ impl Language for TypeScript {
 			_ => "declarations",
 		}
 	}
+
+	fn extract_imports_exports(&self, node: Node, contents: &str) -> (Vec<String>, Vec<String>) {
+		let mut imports = Vec::new();
+		let mut exports = Vec::new();
+
+		match node.kind() {
+			"import_statement" => {
+				// TypeScript supports same import patterns as JavaScript plus type imports
+				// Handle: import type { Foo } from 'module'
+				// Handle: import { type Foo, Bar } from 'module'
+				if let Ok(import_text) = node.utf8_text(contents.as_bytes()) {
+					if let Some(imported_items) = parse_ts_import_statement(import_text) {
+						imports.extend(imported_items);
+					}
+				}
+			}
+			"export_statement" => {
+				// TypeScript supports same export patterns as JavaScript plus type exports
+				// Handle: export type { Foo }
+				// Handle: export { type Foo, Bar }
+				if let Ok(export_text) = node.utf8_text(contents.as_bytes()) {
+					if let Some(exported_items) = parse_ts_export_statement(export_text) {
+						exports.extend(exported_items);
+					}
+				}
+			}
+			"function_declaration"
+			| "method_definition"
+			| "arrow_function"
+			| "class_declaration"
+			| "interface_declaration"
+			| "type_alias_declaration" => {
+				// Check if this declaration is exported
+				let parent = node.parent();
+				if let Some(p) = parent {
+					if p.kind() == "export_statement" {
+						// Extract declaration name as export
+						for child in node.children(&mut node.walk()) {
+							if child.kind() == "identifier" || child.kind() == "type_identifier" {
+								if let Ok(name) = child.utf8_text(contents.as_bytes()) {
+									exports.push(name.to_string());
+									break;
+								}
+							}
+						}
+					}
+				}
+			}
+			_ => {}
+		}
+
+		(imports, exports)
+	}
 }
+
+// Helper functions for TypeScript import/export parsing
+fn parse_ts_import_statement(import_text: &str) -> Option<Vec<String>> {
+	let mut imports = Vec::new();
+	let cleaned = import_text.trim();
+
+	// Handle TypeScript type imports: import type { Foo } from 'module'
+	if let Some(type_import) = cleaned.strip_prefix("import type ") {
+		// Skip "import type "
+		if let Some(start) = type_import.find('{') {
+			if let Some(end) = type_import.find('}') {
+				let items = &type_import[start + 1..end];
+				for item in items.split(',') {
+					let item = item.trim();
+					if !item.is_empty() {
+						imports.push(item.to_string());
+					}
+				}
+				return Some(imports);
+			}
+		}
+	}
+
+	// Handle mixed imports: import { type Foo, Bar } from 'module'
+	if let Some(start) = cleaned.find('{') {
+		if let Some(end) = cleaned.find('}') {
+			let items = &cleaned[start + 1..end];
+			for item in items.split(',') {
+				let item = item.trim();
+				// Remove 'type' keyword if present
+				let name = if let Some(stripped) = item.strip_prefix("type ") {
+					stripped
+				} else {
+					item
+				};
+				// Handle: foo as bar -> extract 'foo'
+				let name = if let Some(as_pos) = name.find(" as ") {
+					&name[..as_pos]
+				} else {
+					name
+				};
+				if !name.is_empty() {
+					imports.push(name.to_string());
+				}
+			}
+			return Some(imports);
+		}
+	}
+
+	// Fall back to JavaScript parsing for regular imports
+	// Reuse JavaScript logic for standard cases
+	parse_js_import_statement(import_text)
+}
+
+fn parse_ts_export_statement(export_text: &str) -> Option<Vec<String>> {
+	let mut exports = Vec::new();
+	let cleaned = export_text.trim();
+
+	// Handle TypeScript type exports: export type { Foo }
+	if let Some(type_export) = cleaned.strip_prefix("export type ") {
+		// Skip "export type "
+		if let Some(start) = type_export.find('{') {
+			if let Some(end) = type_export.find('}') {
+				let items = &type_export[start + 1..end];
+				for item in items.split(',') {
+					let item = item.trim();
+					if !item.is_empty() {
+						exports.push(item.to_string());
+					}
+				}
+				return Some(exports);
+			}
+		}
+	}
+
+	// Handle: export interface Foo {} or export type Foo = ...
+	if let Some(rest) = cleaned.strip_prefix("export ") {
+		// Skip "export "
+		if rest.starts_with("interface ") || rest.starts_with("type ") {
+			let parts: Vec<&str> = rest.split_whitespace().collect();
+			if parts.len() >= 2 {
+				let name = parts[1].trim_end_matches('=').trim_end_matches('{');
+				exports.push(name.to_string());
+				return Some(exports);
+			}
+		}
+	}
+
+	// Fall back to JavaScript parsing for regular exports
+	parse_js_export_statement(export_text)
+}
+
+// Re-export JavaScript helper functions for TypeScript to use
+use super::javascript::{parse_js_export_statement, parse_js_import_statement};

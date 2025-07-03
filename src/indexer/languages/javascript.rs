@@ -35,6 +35,8 @@ impl Language for JavaScript {
 			"arrow_function",
 			// Removed: "class_declaration" - too large, not semantic
 			// Individual methods inside classes will be captured via method_definition
+			"import_statement",
+			"export_statement",
 		]
 	}
 
@@ -168,6 +170,37 @@ impl Language for JavaScript {
 			_ => "declarations",
 		}
 	}
+
+	fn extract_imports_exports(&self, node: Node, contents: &str) -> (Vec<String>, Vec<String>) {
+		let mut imports = Vec::new();
+		let mut exports = Vec::new();
+
+		match node.kind() {
+			"import_statement" => {
+				// Handle: import { foo, bar } from 'module'
+				// Handle: import foo from 'module'
+				// Handle: import * as foo from 'module'
+				if let Ok(import_text) = node.utf8_text(contents.as_bytes()) {
+					if let Some(imported_items) = parse_js_import_statement(import_text) {
+						imports.extend(imported_items);
+					}
+				}
+			}
+			"export_statement" => {
+				// Handle: export { foo, bar }
+				// Handle: export function foo() {}
+				// Handle: export default foo
+				if let Ok(export_text) = node.utf8_text(contents.as_bytes()) {
+					if let Some(exported_items) = parse_js_export_statement(export_text) {
+						exports.extend(exported_items);
+					}
+				}
+			}
+			_ => {}
+		}
+
+		(imports, exports)
+	}
 }
 
 impl JavaScript {
@@ -215,4 +248,99 @@ impl JavaScript {
 			}
 		}
 	}
+}
+
+// Helper functions for JavaScript import/export parsing
+pub fn parse_js_import_statement(import_text: &str) -> Option<Vec<String>> {
+	let mut imports = Vec::new();
+	let cleaned = import_text.trim();
+
+	// Handle: import { foo, bar } from 'module'
+	if let Some(start) = cleaned.find('{') {
+		if let Some(end) = cleaned.find('}') {
+			let items = &cleaned[start + 1..end];
+			for item in items.split(',') {
+				let item = item.trim();
+				// Handle: foo as bar -> extract 'foo'
+				let name = if let Some(as_pos) = item.find(" as ") {
+					&item[..as_pos]
+				} else {
+					item
+				};
+				if !name.is_empty() {
+					imports.push(name.to_string());
+				}
+			}
+			return Some(imports);
+		}
+	}
+
+	// Handle: import foo from 'module'
+	if cleaned.starts_with("import ") && cleaned.contains(" from ") {
+		if let Some(from_pos) = cleaned.find(" from ") {
+			let import_part = &cleaned[7..from_pos].trim(); // Skip "import "
+			if !import_part.starts_with('{') && !import_part.starts_with('*') {
+				imports.push(import_part.to_string());
+				return Some(imports);
+			}
+		}
+	}
+
+	// Handle: import * as foo from 'module'
+	if cleaned.contains("* as ") {
+		if let Some(as_pos) = cleaned.find("* as ") {
+			if let Some(from_pos) = cleaned.find(" from ") {
+				let alias = &cleaned[as_pos + 5..from_pos].trim();
+				imports.push(alias.to_string());
+				return Some(imports);
+			}
+		}
+	}
+
+	None
+}
+
+pub fn parse_js_export_statement(export_text: &str) -> Option<Vec<String>> {
+	let mut exports = Vec::new();
+	let cleaned = export_text.trim();
+
+	// Handle: export { foo, bar }
+	if let Some(start) = cleaned.find('{') {
+		if let Some(end) = cleaned.find('}') {
+			let items = &cleaned[start + 1..end];
+			for item in items.split(',') {
+				let item = item.trim();
+				// Handle: foo as bar -> extract 'foo'
+				let name = if let Some(as_pos) = item.find(" as ") {
+					&item[..as_pos]
+				} else {
+					item
+				};
+				if !name.is_empty() {
+					exports.push(name.to_string());
+				}
+			}
+			return Some(exports);
+		}
+	}
+
+	// Handle: export function foo() {} or export const foo = ...
+	if let Some(rest) = cleaned.strip_prefix("export ") {
+		// Skip "export "
+		if rest.starts_with("function ")
+			|| rest.starts_with("const ")
+			|| rest.starts_with("let ")
+			|| rest.starts_with("var ")
+		{
+			// Extract identifier after keyword
+			let parts: Vec<&str> = rest.split_whitespace().collect();
+			if parts.len() >= 2 {
+				let name = parts[1].trim_end_matches('(').trim_end_matches('=');
+				exports.push(name.to_string());
+				return Some(exports);
+			}
+		}
+	}
+
+	None
 }

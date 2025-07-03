@@ -286,63 +286,63 @@ pub async fn display_indexing_progress(state: Arc<RwLock<state::IndexState>>) {
 
 async fn show_graphrag_connections(store: &Store, file_path: &str) -> Result<(), anyhow::Error> {
 	use arrow::array::StringArray;
-	
+
 	// Search for nodes related to this file using vector search
 	// Use dummy embedding to get all nodes (we'll filter by file path)
 	let query_embedding = vec![0.0; store.get_code_vector_dim()];
-	
+
 	// Search for nodes that might be related to this file
 	let nodes_batch = store.search_graph_nodes(&query_embedding, 100).await?;
-	
+
 	if nodes_batch.num_rows() == 0 {
 		println!("No GraphRAG nodes found in database");
 		return Ok(());
 	}
-	
+
 	// Filter nodes by file path
 	let file_paths = nodes_batch
-		.column_by_name("path")  // Use "path" not "file_path" - matches actual schema
+		.column_by_name("path") // Use "path" not "file_path" - matches actual schema
 		.ok_or_else(|| anyhow::anyhow!("No path column in nodes"))?
 		.as_any()
 		.downcast_ref::<StringArray>()
 		.ok_or_else(|| anyhow::anyhow!("path column is not a StringArray"))?;
-	
+
 	let node_ids = nodes_batch
 		.column_by_name("id")
 		.ok_or_else(|| anyhow::anyhow!("No id column in nodes"))?
 		.as_any()
 		.downcast_ref::<StringArray>()
 		.ok_or_else(|| anyhow::anyhow!("id column is not a StringArray"))?;
-	
+
 	let node_types = nodes_batch
-		.column_by_name("kind")  // Use "kind" not "node_type" - matches actual schema
+		.column_by_name("kind") // Use "kind" not "node_type" - matches actual schema
 		.ok_or_else(|| anyhow::anyhow!("No kind column in nodes"))?
 		.as_any()
 		.downcast_ref::<StringArray>()
 		.ok_or_else(|| anyhow::anyhow!("kind column is not a StringArray"))?;
-	
+
 	let descriptions = nodes_batch
 		.column_by_name("description")
 		.ok_or_else(|| anyhow::anyhow!("No description column in nodes"))?
 		.as_any()
 		.downcast_ref::<StringArray>()
 		.ok_or_else(|| anyhow::anyhow!("description column is not a StringArray"))?;
-	
+
 	// Find nodes for this file
 	let mut file_nodes = Vec::new();
 	for i in 0..nodes_batch.num_rows() {
 		let stored_path = file_paths.value(i);
-		
+
 		// Try multiple matching strategies:
 		// 1. Exact match
 		// 2. Match after stripping "./" prefix from stored path
 		// 3. Match if user path starts with stored path
 		// 4. Match if stored path ends with user path
 		let matches = stored_path == file_path
-			|| stored_path.strip_prefix("./").map_or(false, |p| p == file_path)
+			|| (stored_path.strip_prefix("./") == Some(file_path))
 			|| stored_path.ends_with(file_path)
 			|| file_path.ends_with(stored_path);
-			
+
 		if matches {
 			file_nodes.push((
 				node_ids.value(i),
@@ -351,15 +351,15 @@ async fn show_graphrag_connections(store: &Store, file_path: &str) -> Result<(),
 			));
 		}
 	}
-	
+
 	if file_nodes.is_empty() {
 		println!("No GraphRAG nodes found for file: {}", file_path);
 		return Ok(());
 	}
-	
+
 	println!("GraphRAG connections for file: {}", file_path);
 	println!("{}", "=".repeat(60));
-	
+
 	// Show nodes in this file
 	println!("\n📁 Nodes in this file:");
 	for (node_id, node_type, description) in &file_nodes {
@@ -368,43 +368,43 @@ async fn show_graphrag_connections(store: &Store, file_path: &str) -> Result<(),
 			println!("    Description: {}", description);
 		}
 	}
-	
+
 	// Get all relationships
 	let relationships_batch = store.get_graph_relationships().await?;
-	
+
 	if relationships_batch.num_rows() == 0 {
 		println!("\n🔗 No relationships found in database");
 		return Ok(());
 	}
-	
+
 	let rel_sources = relationships_batch
 		.column_by_name("source")
 		.ok_or_else(|| anyhow::anyhow!("No source column in relationships"))?
 		.as_any()
 		.downcast_ref::<StringArray>()
 		.ok_or_else(|| anyhow::anyhow!("source column is not a StringArray"))?;
-	
+
 	let rel_targets = relationships_batch
 		.column_by_name("target")
 		.ok_or_else(|| anyhow::anyhow!("No target column in relationships"))?
 		.as_any()
 		.downcast_ref::<StringArray>()
 		.ok_or_else(|| anyhow::anyhow!("target column is not a StringArray"))?;
-	
+
 	let rel_types = relationships_batch
 		.column_by_name("relation_type")
 		.ok_or_else(|| anyhow::anyhow!("No relation_type column in relationships"))?
 		.as_any()
 		.downcast_ref::<StringArray>()
 		.ok_or_else(|| anyhow::anyhow!("relation_type column is not a StringArray"))?;
-	
+
 	let rel_descriptions = relationships_batch
 		.column_by_name("description")
 		.ok_or_else(|| anyhow::anyhow!("No description column in relationships"))?
 		.as_any()
 		.downcast_ref::<StringArray>()
 		.ok_or_else(|| anyhow::anyhow!("description column is not a StringArray"))?;
-	
+
 	// Show outgoing relationships
 	println!("\n🔗 Outgoing relationships:");
 	let mut found_outgoing = false;
@@ -412,9 +412,10 @@ async fn show_graphrag_connections(store: &Store, file_path: &str) -> Result<(),
 		for i in 0..relationships_batch.num_rows() {
 			if rel_sources.value(i) == *node_id {
 				found_outgoing = true;
-				println!("  {} → {} ({})", 
-					rel_sources.value(i), 
-					rel_targets.value(i), 
+				println!(
+					"  {} → {} ({})",
+					rel_sources.value(i),
+					rel_targets.value(i),
 					rel_types.value(i)
 				);
 				let desc = rel_descriptions.value(i);
@@ -427,7 +428,7 @@ async fn show_graphrag_connections(store: &Store, file_path: &str) -> Result<(),
 	if !found_outgoing {
 		println!("  (none)");
 	}
-	
+
 	// Show incoming relationships
 	println!("\n🔗 Incoming relationships:");
 	let mut found_incoming = false;
@@ -435,9 +436,10 @@ async fn show_graphrag_connections(store: &Store, file_path: &str) -> Result<(),
 		for i in 0..relationships_batch.num_rows() {
 			if rel_targets.value(i) == *node_id {
 				found_incoming = true;
-				println!("  {} → {} ({})", 
-					rel_sources.value(i), 
-					rel_targets.value(i), 
+				println!(
+					"  {} → {} ({})",
+					rel_sources.value(i),
+					rel_targets.value(i),
 					rel_types.value(i)
 				);
 				let desc = rel_descriptions.value(i);
@@ -450,6 +452,6 @@ async fn show_graphrag_connections(store: &Store, file_path: &str) -> Result<(),
 	if !found_incoming {
 		println!("  (none)");
 	}
-	
+
 	Ok(())
 }

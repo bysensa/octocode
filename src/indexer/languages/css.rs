@@ -159,6 +159,23 @@ impl Language for Css {
 			_ => "CSS declarations",
 		}
 	}
+
+	fn extract_imports_exports(&self, node: Node, contents: &str) -> (Vec<String>, Vec<String>) {
+		let mut imports = Vec::new();
+		let exports = Vec::new(); // CSS doesn't have exports
+
+		if node.kind() == "import_statement" {
+			// Extract @import "url" or @import url("path")
+			if let Ok(import_text) = node.utf8_text(contents.as_bytes()) {
+				// Parse @import "file.css" or @import url("file.css")
+				if let Some(url) = Self::parse_css_import(import_text) {
+					imports.push(url);
+				}
+			}
+		}
+
+		(imports, exports)
+	}
 }
 
 impl Css {
@@ -204,5 +221,29 @@ impl Css {
 				}
 			}
 		}
+	}
+
+	// CSS has @import statements but no exports in the traditional sense
+
+	// Helper function to parse CSS import statements
+	fn parse_css_import(import_text: &str) -> Option<String> {
+		// Handle @import "file.css"
+		if let Some(start) = import_text.find('"') {
+			if let Some(end) = import_text[start + 1..].find('"') {
+				return Some(import_text[start + 1..start + 1 + end].to_string());
+			}
+		}
+		// Handle @import url("file.css")
+		if let Some(start) = import_text.find("url(") {
+			let url_content = &import_text[start + 4..];
+			if let Some(quote_start) = url_content.find('"') {
+				if let Some(quote_end) = url_content[quote_start + 1..].find('"') {
+					return Some(
+						url_content[quote_start + 1..quote_start + 1 + quote_end].to_string(),
+					);
+				}
+			}
+		}
+		None
 	}
 }

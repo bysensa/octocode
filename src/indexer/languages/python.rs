@@ -31,6 +31,9 @@ impl Language for Python {
 	fn get_meaningful_kinds(&self) -> Vec<&'static str> {
 		vec![
 			"function_definition",
+			"class_definition",
+			"import_statement",
+			"import_from_statement",
 			// Removed: "class_definition" - too large, not semantic
 			// Individual methods inside classes will be extracted separately if needed
 		]
@@ -130,6 +133,52 @@ impl Language for Python {
 			_ => "declarations",
 		}
 	}
+
+	fn extract_imports_exports(&self, node: Node, contents: &str) -> (Vec<String>, Vec<String>) {
+		let mut imports = Vec::new();
+		let mut exports = Vec::new();
+
+		match node.kind() {
+			"import_statement" => {
+				// Handle: import module
+				// Handle: import module as alias
+				if let Ok(import_text) = node.utf8_text(contents.as_bytes()) {
+					if let Some(imported_items) = parse_python_import_statement(import_text) {
+						imports.extend(imported_items);
+					}
+				}
+			}
+			"import_from_statement" => {
+				// Handle: from module import item1, item2
+				// Handle: from module import *
+				if let Ok(import_text) = node.utf8_text(contents.as_bytes()) {
+					if let Some(imported_items) = parse_python_from_import_statement(import_text) {
+						imports.extend(imported_items);
+					}
+				}
+			}
+			"function_definition" | "class_definition" => {
+				// In Python, everything at module level is "exported" by default
+				// Check if this is at module level (parent is module)
+				if let Some(parent) = node.parent() {
+					if parent.kind() == "module" {
+						// Extract the name
+						for child in node.children(&mut node.walk()) {
+							if child.kind() == "identifier" {
+								if let Ok(name) = child.utf8_text(contents.as_bytes()) {
+									exports.push(name.to_string());
+									break;
+								}
+							}
+						}
+					}
+				}
+			}
+			_ => {}
+		}
+
+		(imports, exports)
+	}
 }
 
 impl Python {
@@ -199,4 +248,68 @@ impl Python {
 			}
 		}
 	}
+}
+
+// Helper functions for Python import/export parsing
+fn parse_python_import_statement(import_text: &str) -> Option<Vec<String>> {
+	let mut imports = Vec::new();
+	let cleaned = import_text.trim();
+
+	// Handle: import module
+	// Handle: import module as alias
+	if let Some(rest) = cleaned.strip_prefix("import ") {
+		// Skip "import "
+		for item in rest.split(',') {
+			let item = item.trim();
+			// Handle: module as alias -> extract 'module'
+			let name = if let Some(as_pos) = item.find(" as ") {
+				&item[..as_pos]
+			} else {
+				item
+			};
+			if !name.is_empty() {
+				imports.push(name.to_string());
+			}
+		}
+		return Some(imports);
+	}
+
+	None
+}
+
+fn parse_python_from_import_statement(import_text: &str) -> Option<Vec<String>> {
+	let mut imports = Vec::new();
+	let cleaned = import_text.trim();
+
+	// Handle: from module import item
+	// Handle: from module import item as alias
+	// Handle: from module import *
+	if cleaned.starts_with("from ") && cleaned.contains(" import ") {
+		if let Some(import_pos) = cleaned.find(" import ") {
+			let items_part = &cleaned[import_pos + 8..]; // Skip " import "
+
+			// Handle: from module import *
+			if items_part.trim() == "*" {
+				imports.push("*".to_string());
+				return Some(imports);
+			}
+
+			// Handle: from module import item1, item2
+			for item in items_part.split(',') {
+				let item = item.trim();
+				// Handle: item as alias -> extract 'item'
+				let name = if let Some(as_pos) = item.find(" as ") {
+					&item[..as_pos]
+				} else {
+					item
+				};
+				if !name.is_empty() {
+					imports.push(name.to_string());
+				}
+			}
+			return Some(imports);
+		}
+	}
+
+	None
 }

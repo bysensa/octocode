@@ -32,7 +32,9 @@ impl Language for Php {
 		vec![
 			"function_definition",
 			"method_declaration",
-			// Removed: "class_declaration" - too large, not semantic
+			"class_declaration",
+			"namespace_definition",
+			"namespace_use_declaration",
 			// Removed: "trait_declaration" - too large, not semantic
 			// Removed: "interface_declaration" - too large, not semantic
 		]
@@ -142,4 +144,67 @@ impl Language for Php {
 			_ => "declarations",
 		}
 	}
+
+	fn extract_imports_exports(&self, node: Node, contents: &str) -> (Vec<String>, Vec<String>) {
+		let mut imports = Vec::new();
+		let mut exports = Vec::new();
+
+		match node.kind() {
+			"namespace_use_declaration" => {
+				// Handle: use Namespace\Class;
+				// Handle: use Namespace\Class as Alias;
+				if let Ok(use_text) = node.utf8_text(contents.as_bytes()) {
+					if let Some(imported_items) = parse_php_use_statement(use_text) {
+						imports.extend(imported_items);
+					}
+				}
+			}
+			"function_definition"
+			| "method_declaration"
+			| "class_declaration"
+			| "namespace_definition" => {
+				// In PHP, all top-level items are potentially exportable
+				// Extract the name as a potential export
+				for child in node.children(&mut node.walk()) {
+					if child.kind() == "name" {
+						if let Ok(name) = child.utf8_text(contents.as_bytes()) {
+							exports.push(name.to_string());
+							break;
+						}
+					}
+				}
+			}
+			_ => {}
+		}
+
+		(imports, exports)
+	}
+}
+
+// Helper function for PHP use statement parsing
+fn parse_php_use_statement(use_text: &str) -> Option<Vec<String>> {
+	let mut imports = Vec::new();
+	let cleaned = use_text.trim();
+
+	// Handle: use Namespace\Class;
+	// Handle: use Namespace\Class as Alias;
+	if let Some(rest) = cleaned.strip_prefix("use ") {
+		let rest = rest.trim_end_matches(';'); // Skip trailing ";"
+
+		// Handle: use Namespace\Class as Alias;
+		if let Some(as_pos) = rest.find(" as ") {
+			let class_path = &rest[..as_pos];
+			if let Some(class_name) = class_path.split('\\').next_back() {
+				imports.push(class_name.to_string());
+			}
+		} else {
+			// Handle: use Namespace\Class;
+			if let Some(class_name) = rest.split('\\').next_back() {
+				imports.push(class_name.to_string());
+			}
+		}
+		return Some(imports);
+	}
+
+	None
 }

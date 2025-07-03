@@ -57,7 +57,11 @@ impl<'a> GraphRagOperations<'a> {
 
 		// Check if tables are empty
 		let nodes_table = self.db.open_table("graphrag_nodes").execute().await?;
-		let relationships_table = self.db.open_table("graphrag_relationships").execute().await?;
+		let relationships_table = self
+			.db
+			.open_table("graphrag_relationships")
+			.execute()
+			.await?;
 
 		let nodes_count = nodes_table.count_rows(None).await?;
 		let relationships_count = relationships_table.count_rows(None).await?;
@@ -122,7 +126,11 @@ impl<'a> GraphRagOperations<'a> {
 				// Create initial index
 				if let Err(e) = self
 					.table_ops
-					.create_vector_index_optimized("graphrag_nodes", "embedding", self.code_vector_dim)
+					.create_vector_index_optimized(
+						"graphrag_nodes",
+						"embedding",
+						self.code_vector_dim,
+					)
 					.await
 				{
 					tracing::warn!(
@@ -140,11 +148,11 @@ impl<'a> GraphRagOperations<'a> {
 					tracing::info!("Dataset growth detected, optimizing graphrag_nodes index");
 					if let Err(e) = self
 						.table_ops
-					.recreate_vector_index_optimized(
-						"graphrag_nodes",
-						"embedding",
-						self.code_vector_dim,
-					)
+						.recreate_vector_index_optimized(
+							"graphrag_nodes",
+							"embedding",
+							self.code_vector_dim,
+						)
 						.await
 					{
 						tracing::warn!(
@@ -187,20 +195,25 @@ impl<'a> GraphRagOperations<'a> {
 	/// Remove GraphRAG relationships associated with a specific file path
 	pub async fn remove_graph_relationships_by_path(&self, file_path: &str) -> Result<usize> {
 		// For relationships, we need to check both source_path and target_path
-		if !self.table_ops.table_exists("graphrag_relationships").await? {
+		if !self
+			.table_ops
+			.table_exists("graphrag_relationships")
+			.await?
+		{
 			return Ok(0);
 		}
 
-		let table = self.db.open_table("graphrag_relationships").execute().await?;
+		let table = self
+			.db
+			.open_table("graphrag_relationships")
+			.execute()
+			.await?;
 
 		// Count rows before deletion for reporting
 		let before_count = table.count_rows(None).await?;
 
 		// Delete rows where either source_path or target_path matches
-		let filter = format!(
-			"source = '{}' OR target = '{}'",
-			file_path, file_path
-		);
+		let filter = format!("source = '{}' OR target = '{}'", file_path, file_path);
 		table
 			.delete(&filter)
 			.await
@@ -311,7 +324,11 @@ impl<'a> GraphRagOperations<'a> {
 
 	/// Get all graph relationships
 	pub async fn get_graph_relationships(&self) -> Result<RecordBatch> {
-		if !self.table_ops.table_exists("graphrag_relationships").await? {
+		if !self
+			.table_ops
+			.table_exists("graphrag_relationships")
+			.await?
+		{
 			// Return empty batch with expected schema that matches the actual storage schema
 			let schema = Arc::new(Schema::new(vec![
 				Field::new("id", DataType::Utf8, false),
@@ -325,7 +342,11 @@ impl<'a> GraphRagOperations<'a> {
 			return Ok(RecordBatch::new_empty(schema));
 		}
 
-		let table = self.db.open_table("graphrag_relationships").execute().await?;
+		let table = self
+			.db
+			.open_table("graphrag_relationships")
+			.execute()
+			.await?;
 
 		// Get all relationships
 		let mut results = table.query().execute().await?;

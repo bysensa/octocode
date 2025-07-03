@@ -64,6 +64,13 @@ pub trait Language {
 	/// Extract identifiers from a node (helper method)
 	fn extract_identifiers(&self, node: Node, contents: &str, symbols: &mut Vec<String>);
 
+	/// Extract import/export information for GraphRAG (separate from symbols)
+	fn extract_imports_exports(&self, node: Node, contents: &str) -> (Vec<String>, Vec<String>) {
+		// Default implementation returns empty - languages can override
+		let _ = (node, contents);
+		(Vec::new(), Vec::new())
+	}
+
 	/// Check if two node types are semantically equivalent for grouping
 	/// This allows each language to define its own semantic relationships
 	fn are_node_types_equivalent(&self, type1: &str, type2: &str) -> bool {

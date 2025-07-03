@@ -29,7 +29,7 @@ impl Language for Ruby {
 	}
 
 	fn get_meaningful_kinds(&self) -> Vec<&'static str> {
-		vec!["method", "class", "module"]
+		vec!["method", "class", "module", "call"] // call for require/load statements
 	}
 
 	fn extract_symbols(&self, node: Node, contents: &str) -> Vec<String> {
@@ -129,6 +129,22 @@ impl Language for Ruby {
 			_ => "declarations",
 		}
 	}
+
+	fn extract_imports_exports(&self, node: Node, contents: &str) -> (Vec<String>, Vec<String>) {
+		let mut imports = Vec::new();
+		let exports = Vec::new(); // Ruby doesn't have explicit exports like ES6
+
+		// Look for method calls that might be require or load
+		if node.kind() == "call" {
+			if let Ok(call_text) = node.utf8_text(contents.as_bytes()) {
+				if let Some(required_file) = Self::parse_ruby_require(call_text) {
+					imports.push(required_file);
+				}
+			}
+		}
+
+		(imports, exports)
+	}
 }
 
 impl Ruby {
@@ -162,6 +178,43 @@ impl Ruby {
 					break;
 				}
 			}
+		}
+	}
+
+	// Ruby has require and load statements for imports
+
+	// Helper function to parse Ruby require/load statements
+	fn parse_ruby_require(call_text: &str) -> Option<String> {
+		let trimmed = call_text.trim();
+
+		// Handle require "file" or require 'file'
+		if trimmed.starts_with("require ") {
+			let require_part = trimmed.strip_prefix("require ").unwrap().trim(); // Remove "require "
+			if let Some(filename) = Self::extract_ruby_string_literal(require_part) {
+				return Some(filename);
+			}
+		}
+
+		// Handle load "file" or load 'file'
+		if trimmed.starts_with("load ") {
+			let load_part = trimmed.strip_prefix("load ").unwrap().trim(); // Remove "load "
+			if let Some(filename) = Self::extract_ruby_string_literal(load_part) {
+				return Some(filename);
+			}
+		}
+
+		None
+	}
+
+	// Helper to extract Ruby string literals
+	fn extract_ruby_string_literal(text: &str) -> Option<String> {
+		let text = text.trim();
+		if (text.starts_with('"') && text.ends_with('"'))
+			|| (text.starts_with('\'') && text.ends_with('\''))
+		{
+			Some(text[1..text.len() - 1].to_string())
+		} else {
+			None
 		}
 	}
 }

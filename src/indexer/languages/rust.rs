@@ -67,6 +67,7 @@ impl Language for Rust {
 					}
 				}
 			}
+
 			_ => self.extract_identifiers(node, contents, &mut symbols),
 		}
 
@@ -149,5 +150,83 @@ impl Language for Rust {
 			"macro_definition" | "macro_rules" => "macro definitions",
 			_ => "declarations",
 		}
+	}
+
+	fn extract_imports_exports(&self, node: Node, contents: &str) -> (Vec<String>, Vec<String>) {
+		let mut imports = Vec::new();
+		let mut exports = Vec::new();
+
+		match node.kind() {
+			"use_declaration" => {
+				// Extract use statement for GraphRAG import detection
+				if let Ok(use_text) = node.utf8_text(contents.as_bytes()) {
+					if let Some(imported_item) = parse_rust_use_statement(use_text) {
+						imports.push(imported_item);
+					}
+				}
+			}
+			"function_item" | "struct_item" | "enum_item" | "trait_item" | "mod_item"
+			| "const_item" | "macro_definition" => {
+				// Check if this item is public (exported)
+				let mut cursor = node.walk();
+				for child in node.children(&mut cursor) {
+					if child.kind() == "visibility_modifier" {
+						if let Ok(vis_text) = child.utf8_text(contents.as_bytes()) {
+							if vis_text.contains("pub") {
+								// Extract the item name as an export
+								for name_child in node.children(&mut node.walk()) {
+									if name_child.kind() == "identifier" {
+										if let Ok(name) = name_child.utf8_text(contents.as_bytes())
+										{
+											exports.push(name.to_string());
+											break;
+										}
+									}
+								}
+							}
+						}
+						break;
+					}
+				}
+			}
+			_ => {}
+		}
+
+		(imports, exports)
+	}
+}
+
+// Helper function to parse Rust use statements
+fn parse_rust_use_statement(use_text: &str) -> Option<String> {
+	// Remove "use " prefix and trailing semicolon
+	let cleaned = use_text
+		.trim()
+		.strip_prefix("use ")?
+		.trim_end_matches(';')
+		.trim();
+
+	// Handle different use patterns:
+	// use std::collections::HashMap; -> HashMap
+	// use crate::module::Item; -> Item
+	// use super::Item; -> Item
+	// use self::Item; -> Item
+	// use crate::module::{Item1, Item2}; -> Item1 (first item for simplicity)
+
+	if cleaned.contains('{') {
+		// Handle grouped imports: use module::{Item1, Item2};
+		if let Some(brace_start) = cleaned.find('{') {
+			if let Some(brace_end) = cleaned.find('}') {
+				let items = &cleaned[brace_start + 1..brace_end];
+				// Take first item for simplicity
+				return items.split(',').next().map(|s| s.trim().to_string());
+			}
+		}
+	}
+
+	// Handle simple imports: use module::Item;
+	if let Some(last_part) = cleaned.split("::").last() {
+		Some(last_part.trim().to_string())
+	} else {
+		Some(cleaned.to_string())
 	}
 }

@@ -132,7 +132,7 @@ impl AIEnhancements {
 		source_nodes: &[&CodeNode],
 		all_nodes: &[CodeNode],
 	) -> Result<Vec<CodeRelationship>> {
-		let mut batch_prompt = String::from(
+		let system_prompt = String::from(
 			"You are an expert software architect. Analyze these code files and identify ARCHITECTURAL relationships.\n\
 				Focus on design patterns, dependency injection, factory patterns, observer patterns, etc.\n\
 				Look for relationships that go beyond simple imports - identify architectural significance.\n\n\
@@ -143,6 +143,7 @@ impl AIEnhancements {
 				- description: brief explanation of the architectural relationship\n\
 				- confidence: 0.0-1.0 confidence score\n\n"
 		);
+		let mut batch_prompt = String::from("");
 
 		// Add source nodes context
 		batch_prompt.push_str("SOURCE FILES TO ANALYZE:\n");
@@ -193,7 +194,12 @@ impl AIEnhancements {
 
 		// Call AI with architectural analysis
 		match self
-			.call_llm(&self.config.graphrag.relationship_model, batch_prompt, None)
+			.call_llm(
+				&self.config.graphrag.relationship_model,
+				system_prompt,
+				batch_prompt,
+				None,
+			)
 			.await
 		{
 			Ok(response) => {
@@ -263,39 +269,29 @@ impl AIEnhancements {
 		lines: u32,
 		language: &str,
 	) -> bool {
-		// Use AI for files that are likely to benefit from better understanding
-		let function_count = symbols
-			.iter()
-			.filter(|s| s.contains("function_") || s.contains("method_"))
-			.count();
-		let class_count = symbols
-			.iter()
-			.filter(|s| s.contains("class_") || s.contains("struct_"))
-			.count();
-		let interface_count = symbols
-			.iter()
-			.filter(|s| s.contains("interface_") || s.contains("trait_"))
-			.count();
+		// FIXED: Count actual symbols, not prefixed ones
+		let function_count = symbols.len(); // All extracted symbols are meaningful
+		let has_substantial_content = lines > 20; // Lower threshold for testing
+											// FIXED: Use dynamic language detection instead of hardcoded list
+		let is_important_language = crate::indexer::languages::get_language(language).is_some();
 
-		// AI is beneficial for:
-		// 1. Large files (>100 lines) with complex structure
-		// 2. Files with many functions/classes (>5 symbols)
-		// 3. Configuration files that benefit from context understanding
-		// 4. Core library/framework files
-		// 5. Files with interfaces/traits (architectural significance)
+		// For debugging: always use AI for substantial files in important languages
+		let should_use = has_substantial_content && is_important_language && function_count > 0;
 
-		let is_large_complex = lines > 100 && (function_count + class_count) > 5;
-		let is_config_file = symbols
-			.iter()
-			.any(|s| s.contains("config") || s.contains("setting"));
-		let is_core_file = symbols
-			.iter()
-			.any(|s| s.contains("main") || s.contains("lib") || s.contains("core"));
-		let has_architecture = interface_count > 0 || class_count > 3;
-		let is_important_language = matches!(language, "rust" | "typescript" | "python" | "go");
+		if !self.quiet {
+			eprintln!(
+				"🤖 AI Decision: file={} lines, symbols={}, language={}, use_ai={}",
+				lines,
+				symbols.len(),
+				language,
+				should_use
+			);
+			if should_use && !symbols.is_empty() {
+				eprintln!("🔍 Symbols found: {:?}", &symbols[..symbols.len().min(5)]);
+			}
+		}
 
-		(is_large_complex || is_config_file || is_core_file || has_architecture)
-			&& is_important_language
+		should_use
 	}
 
 	// Build a meaningful content sample for AI analysis (not full file content)
@@ -375,7 +371,8 @@ impl AIEnhancements {
 			.call_llm(
 				&self.config.graphrag.description_model,
 				self.config.graphrag.description_system_prompt.clone(),
-				Some(serde_json::Value::String(user_message)),
+				user_message.clone(),
+				None,
 			)
 			.await
 		{
@@ -400,6 +397,7 @@ impl AIEnhancements {
 	async fn call_llm(
 		&self,
 		model_name: &str,
+		system: String,
 		prompt: String,
 		json_schema: Option<serde_json::Value>,
 	) -> Result<String> {
@@ -412,7 +410,10 @@ impl AIEnhancements {
 		// Prepare request body
 		let mut request_body = json!({
 			"model": model_name,
-			"messages": [{
+		"messages": [{
+			"role": "system",
+			"content": system
+		}, {
 			"role": "user",
 			"content": prompt
 		}],
