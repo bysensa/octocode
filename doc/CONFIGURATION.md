@@ -168,18 +168,29 @@ Core embedding configuration.
 - `text_model`: Model for text/documentation embedding
 
 ### [graphrag]
+
 Knowledge graph generation settings.
 
 - `enabled`: Enable/disable GraphRAG features
 - `use_llm`: Enable AI-powered relationship discovery and file descriptions
+
+### [graphrag.llm]
+
+LLM-specific configuration for GraphRAG AI features.
+
 - `description_model`: Model for generating file descriptions
 - `relationship_model`: Model for extracting relationships
-- `ai_batch_size`: Number of files to analyze per AI call (default: 3)
+- `ai_batch_size`: Number of files to analyze per AI call for cost optimization (default: 8)
+- `max_batch_tokens`: Maximum tokens per batch request to avoid model limits (default: 16384)
+- `batch_timeout_seconds`: Timeout for batch AI requests in seconds (default: 60)
+- `fallback_to_individual`: Whether to fallback to individual AI calls if batch fails (default: true)
 - `max_sample_tokens`: Maximum content sample size sent to AI (default: 1500)
 - `confidence_threshold`: Confidence threshold for AI relationships (default: 0.8)
 - `architectural_weight`: Weight for AI-discovered relationships (default: 0.9)
 - `relationship_system_prompt`: System prompt for relationship discovery
 - `description_system_prompt`: System prompt for file descriptions
+
+**Performance Note**: Increasing `ai_batch_size` reduces API costs by processing multiple files per request, but may increase latency. Adjust `max_batch_tokens` to stay within model context limits.
 
 ### [search]
 Search behavior configuration.

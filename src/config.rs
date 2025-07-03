@@ -35,17 +35,34 @@ use crate::embedding::types::EmbeddingConfig;
 use crate::storage;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphRAGConfig {
-	pub enabled: bool,
-	pub use_llm: bool,
+pub struct LLMConfig {
 	pub description_model: String,
 	pub relationship_model: String,
 	pub ai_batch_size: usize,
+	pub max_batch_tokens: usize,
+	pub batch_timeout_seconds: u64,
+	pub fallback_to_individual: bool,
 	pub max_sample_tokens: usize,
 	pub confidence_threshold: f32,
 	pub architectural_weight: f32,
 	pub relationship_system_prompt: String,
 	pub description_system_prompt: String,
+}
+
+// NOTE: This Default implementation should NEVER be used in practice
+// All LLM values must come from the config template file
+// This exists only to satisfy serde's requirements for deserialization
+impl Default for LLMConfig {
+	fn default() -> Self {
+		panic!("LLM config must be loaded from template file - defaults not allowed")
+	}
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphRAGConfig {
+	pub enabled: bool,
+	pub use_llm: bool,
+	pub llm: LLMConfig,
 }
 
 // NOTE: This Default implementation should NEVER be used in practice
@@ -285,18 +302,26 @@ mod tests {
 		// Test new GraphRAG configuration structure
 		assert!(!config.graphrag.enabled);
 		assert!(!config.graphrag.use_llm);
-		assert_eq!(config.graphrag.description_model, "openai/gpt-4.1-mini");
-		assert_eq!(config.graphrag.relationship_model, "openai/gpt-4.1-mini");
-		assert_eq!(config.graphrag.ai_batch_size, 3);
-		assert_eq!(config.graphrag.max_sample_tokens, 1500);
-		assert_eq!(config.graphrag.confidence_threshold, 0.8);
-		assert_eq!(config.graphrag.architectural_weight, 0.9);
+		assert_eq!(config.graphrag.llm.description_model, "openai/gpt-4.1-mini");
+		assert_eq!(
+			config.graphrag.llm.relationship_model,
+			"openai/gpt-4.1-mini"
+		);
+		assert_eq!(config.graphrag.llm.ai_batch_size, 8);
+		assert_eq!(config.graphrag.llm.max_batch_tokens, 16384);
+		assert_eq!(config.graphrag.llm.batch_timeout_seconds, 60);
+		assert!(config.graphrag.llm.fallback_to_individual);
+		assert_eq!(config.graphrag.llm.max_sample_tokens, 1500);
+		assert_eq!(config.graphrag.llm.confidence_threshold, 0.8);
+		assert_eq!(config.graphrag.llm.architectural_weight, 0.9);
 		assert!(config
 			.graphrag
+			.llm
 			.relationship_system_prompt
 			.contains("expert software architect"));
 		assert!(config
 			.graphrag
+			.llm
 			.description_system_prompt
 			.contains("ROLE and PURPOSE"));
 	}
@@ -316,18 +341,26 @@ mod tests {
 		// Test new GraphRAG configuration structure from template
 		assert!(!config.graphrag.enabled);
 		assert!(!config.graphrag.use_llm);
-		assert_eq!(config.graphrag.description_model, "openai/gpt-4.1-mini");
-		assert_eq!(config.graphrag.relationship_model, "openai/gpt-4.1-mini");
-		assert_eq!(config.graphrag.ai_batch_size, 3);
-		assert_eq!(config.graphrag.max_sample_tokens, 1500);
-		assert_eq!(config.graphrag.confidence_threshold, 0.8);
-		assert_eq!(config.graphrag.architectural_weight, 0.9);
+		assert_eq!(config.graphrag.llm.description_model, "openai/gpt-4.1-mini");
+		assert_eq!(
+			config.graphrag.llm.relationship_model,
+			"openai/gpt-4.1-mini"
+		);
+		assert_eq!(config.graphrag.llm.ai_batch_size, 8);
+		assert_eq!(config.graphrag.llm.max_batch_tokens, 16384);
+		assert_eq!(config.graphrag.llm.batch_timeout_seconds, 60);
+		assert!(config.graphrag.llm.fallback_to_individual);
+		assert_eq!(config.graphrag.llm.max_sample_tokens, 1500);
+		assert_eq!(config.graphrag.llm.confidence_threshold, 0.8);
+		assert_eq!(config.graphrag.llm.architectural_weight, 0.9);
 		assert!(config
 			.graphrag
+			.llm
 			.relationship_system_prompt
 			.contains("expert software architect"));
 		assert!(config
 			.graphrag
+			.llm
 			.description_system_prompt
 			.contains("ROLE and PURPOSE"));
 	}

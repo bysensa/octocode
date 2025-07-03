@@ -120,6 +120,8 @@ impl GraphBuilder {
 	) -> Result<()> {
 		let mut new_nodes = Vec::new();
 		let mut pending_embeddings = Vec::new(); // For batch embedding generation
+		let mut ai_batch_queue: Vec<crate::indexer::graphrag::ai::FileForAI> = Vec::new(); // For batch AI processing
+		let mut ai_descriptions: HashMap<String, String> = HashMap::new(); // Store AI descriptions by file_path
 		let mut processed_count = 0;
 		let mut skipped_count = 0;
 		let mut batches_processed = 0;
@@ -244,33 +246,50 @@ impl GraphBuilder {
 					}
 				}
 
-				// Generate description - use AI for complex files when enabled
+				// Generate description - collect for batch AI processing when enabled
 				let description = if self.llm_enabled()
 					&& self.should_use_ai_for_description(&symbols, total_lines as u32, &language)
 				{
 					if !self.quiet {
 						eprintln!(
-							"🤖 Using AI for description: {} ({} lines, {} symbols)",
+							"🤖 Collecting for AI batch: {} ({} lines, {} symbols)",
 							relative_path,
 							total_lines,
 							symbols.len()
 						);
 					}
-					// Collect a meaningful content sample for AI analysis
+
+					// Collect file for batch processing
 					let content_sample = self.build_content_sample_for_ai(&file_blocks);
-					self.extract_ai_description(&content_sample, &file_path, &language, &symbols)
-						.await
-						.unwrap_or_else(|e| {
-							if !self.quiet {
-								eprintln!("⚠️  AI description failed for {}: {}", relative_path, e);
-							}
-							RelationshipDiscovery::generate_simple_description(
-								&file_name,
-								&language,
-								&symbols,
-								total_lines as u32,
-							)
-						})
+					let file_for_ai = crate::indexer::graphrag::ai::FileForAI {
+						file_id: file_path.clone(),
+						file_path: file_path.clone(),
+						language: language.clone(),
+						symbols: symbols.clone(),
+						content_sample,
+						function_count: symbols
+							.iter()
+							.filter(|s| {
+								s.contains("fn ") || s.contains("function ") || s.contains("def ")
+							})
+							.count(),
+						class_count: symbols
+							.iter()
+							.filter(|s| {
+								s.contains("class ")
+									|| s.contains("struct ") || s.contains("interface ")
+							})
+							.count(),
+					};
+					ai_batch_queue.push(file_for_ai);
+
+					// For now, use simple description - will be replaced after batch processing
+					RelationshipDiscovery::generate_simple_description(
+						&file_name,
+						&language,
+						&symbols,
+						total_lines as u32,
+					)
 				} else {
 					if !self.quiet && self.llm_enabled() {
 						eprintln!(
@@ -327,6 +346,42 @@ impl GraphBuilder {
 						&mut batches_processed,
 					)
 					.await?;
+				}
+			}
+		}
+
+		// Process any remaining AI batch queue
+		if !ai_batch_queue.is_empty() {
+			if !self.quiet {
+				eprintln!(
+					"🚀 Processing final AI batch: {} files",
+					ai_batch_queue.len()
+				);
+			}
+
+			// Call batch AI extraction through AI enhancements
+			if let Some(ref ai_enhancements) = self.ai_enhancements {
+				match ai_enhancements
+					.extract_ai_descriptions_batch(&ai_batch_queue)
+					.await
+				{
+					Ok(batch_descriptions) => {
+						// Store all descriptions from batch
+						for (file_path, description) in batch_descriptions {
+							ai_descriptions.insert(file_path, description);
+						}
+						if !self.quiet {
+							eprintln!(
+								"✅ Final batch AI processing completed: {} descriptions",
+								ai_descriptions.len()
+							);
+						}
+					}
+					Err(e) => {
+						if !self.quiet {
+							eprintln!("⚠️  Final batch AI processing failed: {}", e);
+						}
+					}
 				}
 			}
 		}
@@ -478,22 +533,6 @@ impl GraphBuilder {
 			ai.build_content_sample_for_ai(file_blocks)
 		} else {
 			String::new()
-		}
-	}
-
-	// Extract AI-powered description for complex files
-	async fn extract_ai_description(
-		&self,
-		content_sample: &str,
-		file_path: &str,
-		language: &str,
-		symbols: &[String],
-	) -> Result<String> {
-		if let Some(ref ai) = self.ai_enhancements {
-			ai.extract_ai_description(content_sample, file_path, language, symbols)
-				.await
-		} else {
-			Err(anyhow::anyhow!("AI enhancements not available"))
 		}
 	}
 

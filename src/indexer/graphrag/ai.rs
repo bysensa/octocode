@@ -20,11 +20,36 @@ use anyhow::Result;
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::json;
+use std::collections::HashMap;
 
 pub struct AIEnhancements {
 	config: Config,
 	client: Client,
 	quiet: bool,
+}
+
+// Structure for collecting files that need AI descriptions
+#[derive(Debug, Clone)]
+pub struct FileForAI {
+	pub file_id: String,
+	pub file_path: String,
+	pub language: String,
+	pub symbols: Vec<String>,
+	pub content_sample: String,
+	pub function_count: usize,
+	pub class_count: usize,
+}
+
+// Response structure for batch AI descriptions
+#[derive(Debug, Deserialize)]
+struct BatchDescriptionResponse {
+	descriptions: Vec<FileDescription>,
+}
+
+#[derive(Debug, Deserialize)]
+struct FileDescription {
+	file_id: String,
+	description: String,
 }
 
 impl AIEnhancements {
@@ -90,7 +115,7 @@ impl AIEnhancements {
 		}
 
 		// Process in small batches to avoid overwhelming the AI
-		let ai_batch_size = self.config.graphrag.ai_batch_size;
+		let ai_batch_size = self.config.graphrag.llm.ai_batch_size;
 		for batch in complex_files.chunks(ai_batch_size) {
 			if let Ok(batch_relationships) = self
 				.analyze_architectural_relationships_batch(batch, all_nodes)
@@ -195,7 +220,7 @@ impl AIEnhancements {
 		// Call AI with architectural analysis
 		match self
 			.call_llm(
-				&self.config.graphrag.relationship_model,
+				&self.config.graphrag.llm.relationship_model,
 				system_prompt,
 				batch_prompt,
 				None,
@@ -208,10 +233,12 @@ impl AIEnhancements {
 					// Filter and validate relationships
 					let valid_relationships: Vec<CodeRelationship> = ai_relationships
 						.into_iter()
-						.filter(|rel| rel.confidence > self.config.graphrag.confidence_threshold) // Only high-confidence architectural relationships
+						.filter(|rel| {
+							rel.confidence > self.config.graphrag.llm.confidence_threshold
+						}) // Only high-confidence architectural relationships
 						.filter(|rel| all_nodes.iter().any(|n| n.path == rel.target)) // Ensure target exists
 						.map(|mut rel| {
-							rel.weight = self.config.graphrag.architectural_weight; // High weight for architectural relationships
+							rel.weight = self.config.graphrag.llm.architectural_weight; // High weight for architectural relationships
 							rel
 						})
 						.collect();
@@ -298,7 +325,7 @@ impl AIEnhancements {
 	pub fn build_content_sample_for_ai(&self, file_blocks: &[&crate::store::CodeBlock]) -> String {
 		let mut sample = String::new();
 		let mut total_tokens = 0;
-		let max_tokens = self.config.graphrag.max_sample_tokens;
+		let max_tokens = self.config.graphrag.llm.max_sample_tokens;
 
 		// Prioritize blocks with more symbols (more important code)
 		let mut sorted_blocks: Vec<&crate::store::CodeBlock> = file_blocks.to_vec();
@@ -339,58 +366,193 @@ impl AIEnhancements {
 		sample
 	}
 
-	// Extract AI-powered description for complex files
-	pub async fn extract_ai_description(
+	// Extract AI-powered descriptions for multiple files in a single batch call
+	pub async fn extract_ai_descriptions_batch(
 		&self,
-		content_sample: &str,
-		file_path: &str,
-		language: &str,
-		symbols: &[String],
-	) -> Result<String> {
-		let function_count = symbols
-			.iter()
-			.filter(|s| s.contains("function_") || s.contains("method_"))
-			.count();
-		let class_count = symbols
-			.iter()
-			.filter(|s| s.contains("class_") || s.contains("struct_"))
-			.count();
+		files: &[FileForAI],
+	) -> Result<HashMap<String, String>> {
+		if files.is_empty() {
+			return Ok(HashMap::new());
+		}
 
-		// Separate system prompt from file data for better LLM handling
-		let user_message = format!(
-			"File: {}\nLanguage: {}\nStats: {} functions, {} classes/structs\nKey symbols: {}\n\nCode sample:\n{}",
-			std::path::Path::new(file_path).file_name().and_then(|s| s.to_str()).unwrap_or("unknown"),
-			language,
-			function_count,
-			class_count,
-			symbols.iter().take(5).cloned().collect::<Vec<_>>().join(", "),
-			content_sample
-		);
+		// Build batch user message with all files
+		let user_message = self.build_batch_user_message(files);
 
+		// Create JSON schema for structured response
+		let json_schema = self.create_batch_response_schema();
+
+		// Single API call for multiple files
 		match self
 			.call_llm(
-				&self.config.graphrag.description_model,
-				self.config.graphrag.description_system_prompt.clone(),
-				user_message.clone(),
-				None,
+				&self.config.graphrag.llm.description_model,
+				self.config.graphrag.llm.description_system_prompt.clone(),
+				user_message,
+				Some(json_schema),
 			)
 			.await
 		{
-			Ok(description) => {
-				let cleaned = description.trim();
-				if cleaned.len() > 300 {
-					Ok(format!("{}...", &cleaned[0..297]))
-				} else {
-					Ok(cleaned.to_string())
-				}
-			}
+			Ok(response) => self.parse_batch_response(&response, files),
 			Err(e) => {
 				if !self.quiet {
-					eprintln!("Warning: AI description failed for {}: {}", file_path, e);
+					eprintln!(
+						"⚠️  Batch AI description failed for {} files: {}",
+						files.len(),
+						e
+					);
 				}
-				Err(e)
+
+				// Fallback to individual calls if batch fails
+				if self.config.graphrag.llm.ai_batch_size > 1 {
+					if !self.quiet {
+						eprintln!("🔄 Falling back to individual AI calls...");
+					}
+					self.fallback_to_individual_calls(files).await
+				} else {
+					Err(e)
+				}
 			}
 		}
+	}
+
+	// Build user message for batch processing
+	fn build_batch_user_message(&self, files: &[FileForAI]) -> String {
+		let mut message = format!(
+			"Analyze the following {} files and provide architectural descriptions:\n\n",
+			files.len()
+		);
+
+		for (index, file) in files.iter().enumerate() {
+			message.push_str(&format!("=== FILE {} ===\n", index + 1));
+			message.push_str(&format!("ID: {}\n", file.file_id));
+			message.push_str(&format!("Language: {}\n", file.language));
+			message.push_str(&format!(
+				"Stats: {} functions, {} classes/structs\n",
+				file.function_count, file.class_count
+			));
+			message.push_str(&format!(
+				"Key symbols: {}\n",
+				file.symbols
+					.iter()
+					.take(5)
+					.cloned()
+					.collect::<Vec<_>>()
+					.join(", ")
+			));
+			message.push_str(&format!("Code sample:\n{}\n\n", file.content_sample));
+		}
+
+		message.push_str("Provide a JSON response with descriptions for each file.");
+		message
+	}
+
+	// Create JSON schema for batch response
+	fn create_batch_response_schema(&self) -> serde_json::Value {
+		json!({
+			"type": "object",
+			"properties": {
+				"descriptions": {
+					"type": "array",
+					"items": {
+						"type": "object",
+						"properties": {
+							"file_id": {
+								"type": "string",
+								"description": "The file ID exactly as provided in the request"
+							},
+							"description": {
+								"type": "string",
+								"description": "Architectural description of the file (max 300 chars)"
+							}
+						},
+						"required": ["file_id", "description"],
+						"additionalProperties": false
+					}
+				}
+			},
+			"required": ["descriptions"],
+			"additionalProperties": false
+		})
+	}
+
+	// Parse batch response back to individual file descriptions
+	fn parse_batch_response(
+		&self,
+		response: &str,
+		files: &[FileForAI],
+	) -> Result<HashMap<String, String>> {
+		let parsed: BatchDescriptionResponse = serde_json::from_str(response)
+			.map_err(|e| anyhow::anyhow!("Failed to parse batch response: {}", e))?;
+
+		let mut results = HashMap::new();
+
+		for desc in parsed.descriptions {
+			// Validate that file_id exists in our request
+			if files.iter().any(|f| f.file_id == desc.file_id) {
+				let cleaned_desc = if desc.description.len() > 300 {
+					format!("{}...", &desc.description[0..297])
+				} else {
+					desc.description
+				};
+				results.insert(desc.file_id, cleaned_desc);
+			} else if !self.quiet {
+				eprintln!(
+					"⚠️  Received description for unknown file: {}",
+					desc.file_id
+				);
+			}
+		}
+
+		// Check if we got descriptions for all files
+		let missing_files: Vec<&str> = files
+			.iter()
+			.filter(|f| !results.contains_key(&f.file_id))
+			.map(|f| f.file_id.as_str())
+			.collect();
+
+		if !missing_files.is_empty() && !self.quiet {
+			eprintln!(
+				"⚠️  Missing descriptions for {} files: {:?}",
+				missing_files.len(),
+				missing_files
+			);
+		}
+
+		Ok(results)
+	}
+
+	// Fallback to individual calls when batch fails
+	async fn fallback_to_individual_calls(
+		&self,
+		files: &[FileForAI],
+	) -> Result<HashMap<String, String>> {
+		let mut results = HashMap::new();
+
+		for file in files {
+			match self
+				.extract_ai_description(
+					&file.content_sample,
+					&file.file_path,
+					&file.language,
+					&file.symbols,
+				)
+				.await
+			{
+				Ok(description) => {
+					results.insert(file.file_id.clone(), description);
+				}
+				Err(e) => {
+					if !self.quiet {
+						eprintln!(
+							"⚠️  Individual AI description failed for {}: {}",
+							file.file_id, e
+						);
+					}
+					// Continue with other files even if one fails
+				}
+			}
+		}
+
+		Ok(results)
 	}
 
 	// Call LLM API
@@ -465,6 +627,60 @@ impl AIEnhancements {
 				"Failed to get response content: {:?}",
 				response_json
 			))
+		}
+	}
+
+	// Extract AI-powered description for complex files (legacy single-file method)
+	pub async fn extract_ai_description(
+		&self,
+		content_sample: &str,
+		file_path: &str,
+		language: &str,
+		symbols: &[String],
+	) -> Result<String> {
+		let function_count = symbols
+			.iter()
+			.filter(|s| s.contains("function_") || s.contains("method_"))
+			.count();
+		let class_count = symbols
+			.iter()
+			.filter(|s| s.contains("class_") || s.contains("struct_"))
+			.count();
+
+		// Separate system prompt from file data for better LLM handling
+		let user_message = format!(
+			"File: {}\nLanguage: {}\nStats: {} functions, {} classes/structs\nKey symbols: {}\n\nCode sample:\n{}",
+			std::path::Path::new(file_path).file_name().and_then(|s| s.to_str()).unwrap_or("unknown"),
+			language,
+			function_count,
+			class_count,
+			symbols.iter().take(5).cloned().collect::<Vec<_>>().join(", "),
+			content_sample
+		);
+
+		match self
+			.call_llm(
+				&self.config.graphrag.llm.description_model,
+				self.config.graphrag.llm.description_system_prompt.clone(),
+				user_message,
+				None,
+			)
+			.await
+		{
+			Ok(description) => {
+				let cleaned = description.trim();
+				if cleaned.len() > 300 {
+					Ok(format!("{}...", &cleaned[0..297]))
+				} else {
+					Ok(cleaned.to_string())
+				}
+			}
+			Err(e) => {
+				if !self.quiet {
+					eprintln!("Warning: AI description failed for {}: {}", file_path, e);
+				}
+				Err(e)
+			}
 		}
 	}
 }

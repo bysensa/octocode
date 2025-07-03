@@ -36,12 +36,26 @@ text_model = "voyage:voyage-3.5-lite"
 [graphrag]
 enabled = false
 use_llm = false
+
+[graphrag.llm]
 description_model = "openai/gpt-4.1-mini"
 relationship_model = "openai/gpt-4.1-mini"
 
 # AI processing batch size - how many files to analyze per AI call
 # Smaller values reduce API costs and token usage, larger values improve efficiency
-ai_batch_size = 3
+ai_batch_size = 8
+
+# Maximum tokens per batch request to avoid exceeding model limits
+# Controls the total token count across all files in a single batch
+max_batch_tokens = 16384
+
+# Timeout for batch AI requests in seconds
+# Longer timeouts accommodate larger batches but may delay processing
+batch_timeout_seconds = 60
+
+# Whether to fallback to individual AI calls if batch processing fails
+# Recommended: true for reliability, false for strict batch-only processing
+fallback_to_individual = true
 
 # Maximum content sample size sent to AI for analysis (in tokens)
 # Controls token usage and context window management using existing token estimation

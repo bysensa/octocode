@@ -211,11 +211,11 @@ pub fn execute(args: &ConfigArgs, mut config: Config) -> Result<()> {
 			println!("🕸️  GraphRAG Configuration:");
 			println!(
 				"   Description model: {}",
-				config.graphrag.description_model
+				config.graphrag.llm.description_model
 			);
 			println!(
 				"   Relationship model: {}",
-				config.graphrag.relationship_model
+				config.graphrag.llm.relationship_model
 			);
 		}
 

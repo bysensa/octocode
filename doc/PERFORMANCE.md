@@ -111,12 +111,20 @@ octocode config --code-embedding-model "fastembed:all-MiniLM-L6-v2"
 octocode clear && octocode index  # Index all at once vs incremental
 ```
 
-#### API Rate Limiting
+#### API Rate Limiting & LLM Batching
 ```toml
 [embedding]
 # Adjust batch sizes for API limits
 embeddings_batch_size = 16       # Smaller batches for cloud APIs
+
+[graphrag.llm]
+# Optimize AI call costs and rate limits
+ai_batch_size = 8               # Process multiple files per AI call
+max_batch_tokens = 16384        # Stay within model context limits
+fallback_to_individual = true   # Reliability if batch processing fails
 ```
+
+**LLM Cost Optimization**: The `ai_batch_size` parameter significantly reduces API costs by processing multiple files in a single request. With the default value of 8, you get ~87% fewer API calls compared to individual processing. Increase for more savings, decrease if hitting rate limits.
 
 ## Performance Monitoring
 
