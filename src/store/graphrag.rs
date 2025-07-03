@@ -107,29 +107,10 @@ impl<'a> GraphRagOperations<'a> {
 
 	/// Store graph nodes in the database
 	pub async fn store_graph_nodes(&self, node_batch: RecordBatch) -> Result<()> {
-		// Open or create the table
-		if self.table_ops.table_exists("graph_nodes").await? {
-			// Table exists, append data
-			let table = self.db.open_table("graph_nodes").execute().await?;
-
-			// Use RecordBatchIterator instead of Vec<RecordBatch>
-			use std::iter::once;
-			let batches = once(Ok(node_batch.clone()));
-			let batch_reader =
-				arrow::record_batch::RecordBatchIterator::new(batches, node_batch.schema());
-			table.add(batch_reader).execute().await?;
-		} else {
-			// Table doesn't exist, create it with the batch
-			use std::iter::once;
-			let batches = once(Ok(node_batch.clone()));
-			let batch_reader =
-				arrow::record_batch::RecordBatchIterator::new(batches, node_batch.schema());
-			let _table = self
-				.db
-				.create_table("graph_nodes", batch_reader)
-				.execute()
-				.await?;
-		}
+		// Use the same proven pattern as code_blocks, text_blocks, document_blocks
+		self.table_ops
+			.store_batch("graph_nodes", node_batch)
+			.await?;
 
 		// Create or optimize vector index based on dataset growth
 		if let Ok(table) = self.db.open_table("graph_nodes").execute().await {
