@@ -137,12 +137,25 @@ impl RelationshipDiscovery {
 		Ok(relationships)
 	}
 
-	// Discover language-specific relationships
+	// Discover language-specific relationships with import resolution
 	fn discover_language_specific_relationships(
 		source_file: &CodeNode,
 		all_nodes: &[CodeNode],
 		relationships: &mut Vec<CodeRelationship>,
 	) {
+		// Create import resolver with all available files
+		let all_file_paths: Vec<String> = all_nodes.iter().map(|n| n.path.clone()).collect();
+		let mut import_resolver = super::import_resolver::ImportResolver::new(&all_file_paths);
+
+		// First, resolve imports to create semantic relationships
+		Self::discover_import_relationships(
+			source_file,
+			all_nodes,
+			&mut import_resolver,
+			relationships,
+		);
+
+		// Then add language-specific patterns as fallback
 		match source_file.language.as_str() {
 			"rust" => {
 				Self::discover_rust_relationships(source_file, all_nodes, relationships);
@@ -153,8 +166,67 @@ impl RelationshipDiscovery {
 			"python" => {
 				Self::discover_python_relationships(source_file, all_nodes, relationships);
 			}
+			"go" => {
+				Self::discover_go_relationships(source_file, all_nodes, relationships);
+			}
+			"php" => {
+				Self::discover_php_relationships(source_file, all_nodes, relationships);
+			}
 			_ => {
 				// Generic patterns for other languages
+			}
+		}
+	}
+
+	// Discover semantic relationships through import resolution
+	fn discover_import_relationships(
+		source_file: &CodeNode,
+		all_nodes: &[CodeNode],
+		import_resolver: &mut super::import_resolver::ImportResolver,
+		relationships: &mut Vec<CodeRelationship>,
+	) {
+		// Create a map for quick file lookup by path
+		let file_map: std::collections::HashMap<String, &CodeNode> = all_nodes
+			.iter()
+			.map(|node| (node.path.clone(), node))
+			.collect();
+
+		// Resolve each import to create direct relationships
+		for import_path in &source_file.imports {
+			if let Some(resolved_path) = import_resolver.resolve_import(
+				import_path,
+				&source_file.path,
+				&source_file.language,
+			) {
+				// Find the target node
+				if let Some(target_node) = file_map.get(&resolved_path) {
+					// Create semantic import relationship
+					relationships.push(CodeRelationship {
+						source: source_file.id.clone(),
+						target: target_node.id.clone(),
+						relation_type: "imports_direct".to_string(),
+						description: format!("Direct import: {} -> {}", import_path, resolved_path),
+						confidence: 0.95, // High confidence for resolved imports
+						weight: 1.0,
+					});
+
+					// Create reverse export relationship if target exports to source
+					for export_item in &target_node.exports {
+						if import_path.contains(export_item) || export_item == "*" {
+							relationships.push(CodeRelationship {
+								source: target_node.id.clone(),
+								target: source_file.id.clone(),
+								relation_type: "exports_to".to_string(),
+								description: format!(
+									"Exports {} to {}",
+									export_item, source_file.path
+								),
+								confidence: 0.9,
+								weight: 0.8,
+							});
+						}
+					}
+				}
 			}
 		}
 	}
@@ -267,6 +339,83 @@ impl RelationshipDiscovery {
 					});
 				}
 			}
+		}
+	}
+	// Go-specific relationship patterns
+	fn discover_go_relationships(
+		source_file: &CodeNode,
+		all_nodes: &[CodeNode],
+		relationships: &mut Vec<CodeRelationship>,
+	) {
+		for other_file in all_nodes {
+			if other_file.id == source_file.id || other_file.language != "go" {
+				continue;
+			}
+
+			// Check for package relationships
+			let source_package = Self::extract_go_package(&source_file.path);
+			let other_package = Self::extract_go_package(&other_file.path);
+
+			if source_package == other_package && !source_package.is_empty() {
+				relationships.push(CodeRelationship {
+					source: source_file.id.clone(),
+					target: other_file.id.clone(),
+					relation_type: "same_package".to_string(),
+					description: format!("Go package relationship: {}", source_package),
+					confidence: 0.8,
+					weight: 0.7,
+				});
+			}
+		}
+	}
+
+	// PHP-specific relationship patterns
+	fn discover_php_relationships(
+		source_file: &CodeNode,
+		all_nodes: &[CodeNode],
+		relationships: &mut Vec<CodeRelationship>,
+	) {
+		for other_file in all_nodes {
+			if other_file.id == source_file.id || other_file.language != "php" {
+				continue;
+			}
+
+			// Check for namespace relationships
+			let source_namespace = Self::extract_php_namespace(&source_file.path);
+			let other_namespace = Self::extract_php_namespace(&other_file.path);
+
+			if source_namespace == other_namespace && !source_namespace.is_empty() {
+				relationships.push(CodeRelationship {
+					source: source_file.id.clone(),
+					target: other_file.id.clone(),
+					relation_type: "same_namespace".to_string(),
+					description: format!("PHP namespace relationship: {}", source_namespace),
+					confidence: 0.8,
+					weight: 0.7,
+				});
+			}
+		}
+	}
+
+	// Helper methods for language-specific patterns
+
+	fn extract_go_package(file_path: &str) -> String {
+		if let Some(parent) = Path::new(file_path).parent() {
+			if let Some(package_name) = parent.file_name() {
+				return package_name.to_string_lossy().to_string();
+			}
+		}
+		String::new()
+	}
+
+	fn extract_php_namespace(file_path: &str) -> String {
+		// Extract namespace from file path structure
+		let path = Path::new(file_path);
+		if let Some(parent) = path.parent() {
+			// Convert path to namespace-like structure
+			parent.to_string_lossy().replace('/', "\\")
+		} else {
+			String::new()
 		}
 	}
 

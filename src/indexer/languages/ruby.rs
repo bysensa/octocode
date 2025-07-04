@@ -195,6 +195,14 @@ impl Ruby {
 			}
 		}
 
+		// Handle require_relative "file" or require_relative 'file'
+		if trimmed.starts_with("require_relative ") {
+			let require_part = trimmed.strip_prefix("require_relative ").unwrap().trim(); // Remove "require_relative "
+			if let Some(filename) = Self::extract_ruby_string_literal(require_part) {
+				return Some(format!("relative:{}", filename)); // Mark as relative import
+			}
+		}
+
 		// Handle load "file" or load 'file'
 		if trimmed.starts_with("load ") {
 			let load_part = trimmed.strip_prefix("load ").unwrap().trim(); // Remove "load "
