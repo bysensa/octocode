@@ -73,4 +73,20 @@ impl Language for Markdown {
 		// the same as code imports/exports
 		(Vec::new(), Vec::new())
 	}
+
+	fn resolve_import(
+		&self,
+		_import_path: &str,
+		_source_file: &str,
+		_all_files: &[String],
+	) -> Option<String> {
+		// Markdown doesn't have imports
+		None
+	}
+
+	fn get_file_extensions(&self) -> Vec<&'static str> {
+		vec!["md", "markdown"]
+	}
 }
+
+impl Markdown {}

@@ -133,6 +133,29 @@ impl Language for Bash {
 
 		(imports, exports)
 	}
+
+	fn resolve_import(
+		&self,
+		import_path: &str,
+		source_file: &str,
+		all_files: &[String],
+	) -> Option<String> {
+		use super::resolution_utils::FileRegistry;
+
+		let registry = FileRegistry::new(all_files);
+
+		if import_path.starts_with("./") || import_path.starts_with("../") {
+			// Relative source
+			self.resolve_relative_source(import_path, source_file, &registry)
+		} else {
+			// Absolute source
+			registry.find_exact_file(import_path)
+		}
+	}
+
+	fn get_file_extensions(&self) -> Vec<&'static str> {
+		vec!["sh", "bash"]
+	}
 }
 
 impl Bash {
@@ -203,5 +226,18 @@ impl Bash {
 		}
 
 		None
+	}
+
+	/// Resolve relative source statements
+	fn resolve_relative_source(
+		&self,
+		import_path: &str,
+		source_file: &str,
+		registry: &super::resolution_utils::FileRegistry,
+	) -> Option<String> {
+		use super::resolution_utils::resolve_relative_path;
+
+		let relative_path = resolve_relative_path(source_file, import_path)?;
+		registry.find_exact_file(&relative_path.to_string_lossy())
 	}
 }

@@ -203,6 +203,30 @@ impl Language for Go {
 
 		(imports, exports)
 	}
+
+	fn resolve_import(
+		&self,
+		import_path: &str,
+		source_file: &str,
+		all_files: &[String],
+	) -> Option<String> {
+		use super::resolution_utils::FileRegistry;
+
+		let registry = FileRegistry::new(all_files);
+		let go_files = registry.get_files_with_extensions(&self.get_file_extensions());
+
+		if import_path.starts_with("./") || import_path.starts_with("../") {
+			// Relative import
+			self.resolve_relative_import(import_path, source_file, &go_files)
+		} else {
+			// Absolute import - look for package directory
+			self.resolve_package_import(import_path, &go_files)
+		}
+	}
+
+	fn get_file_extensions(&self) -> Vec<&'static str> {
+		vec!["go"]
+	}
 }
 
 impl Go {
@@ -387,4 +411,47 @@ fn parse_go_import_statement(import_text: &str) -> Option<Vec<String>> {
 	}
 
 	None
+}
+
+impl Go {
+	/// Resolve relative imports in Go
+	fn resolve_relative_import(
+		&self,
+		import_path: &str,
+		source_file: &str,
+		go_files: &[String],
+	) -> Option<String> {
+		use super::resolution_utils::resolve_relative_path;
+
+		let relative_path = resolve_relative_path(source_file, import_path)?;
+
+		// Look for any .go file in the target directory
+		for go_file in go_files {
+			let file_path = std::path::Path::new(go_file);
+			if let Some(file_dir) = file_path.parent() {
+				if file_dir == relative_path {
+					return Some(go_file.clone());
+				}
+			}
+		}
+
+		None
+	}
+
+	/// Resolve package imports by name
+	fn resolve_package_import(&self, package_name: &str, go_files: &[String]) -> Option<String> {
+		// Look for package directory by name
+		for go_file in go_files {
+			let file_path = std::path::Path::new(go_file);
+			if let Some(file_dir) = file_path.parent() {
+				if let Some(dir_name) = file_dir.file_name() {
+					if dir_name.to_string_lossy() == package_name {
+						return Some(go_file.clone());
+					}
+				}
+			}
+		}
+
+		None
+	}
 }

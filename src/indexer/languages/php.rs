@@ -179,6 +179,27 @@ impl Language for Php {
 
 		(imports, exports)
 	}
+
+	fn resolve_import(
+		&self,
+		import_path: &str,
+		source_file: &str,
+		all_files: &[String],
+	) -> Option<String> {
+		use super::resolution_utils::FileRegistry;
+
+		let registry = FileRegistry::new(all_files);
+
+		// Convert namespace to file path
+		let file_path = import_path.replace("\\", "/");
+
+		// Try different common PHP patterns
+		self.resolve_namespace_import(&file_path, source_file, &registry)
+	}
+
+	fn get_file_extensions(&self) -> Vec<&'static str> {
+		vec!["php"]
+	}
 }
 
 // Helper function for PHP use statement parsing
@@ -207,4 +228,42 @@ fn parse_php_use_statement(use_text: &str) -> Option<Vec<String>> {
 	}
 
 	None
+}
+
+impl Php {
+	/// Resolve namespace imports to file paths
+	fn resolve_namespace_import(
+		&self,
+		file_path: &str,
+		source_file: &str,
+		registry: &super::resolution_utils::FileRegistry,
+	) -> Option<String> {
+		let source_path = std::path::Path::new(source_file);
+		let source_dir = source_path.parent()?;
+
+		// Try different common PHP patterns
+		let candidates = vec![
+			format!("{}.php", file_path),
+			format!("{}/index.php", file_path),
+			format!("src/{}.php", file_path),
+			format!("lib/{}.php", file_path),
+		];
+
+		for candidate in &candidates {
+			if let Some(found) = registry.find_exact_file(candidate) {
+				return Some(found);
+			}
+		}
+
+		// Try relative to source directory
+		for candidate in &candidates {
+			let relative_path = source_dir.join(candidate);
+			let relative_path_str = relative_path.to_string_lossy().to_string();
+			if let Some(found) = registry.find_exact_file(&relative_path_str) {
+				return Some(found);
+			}
+		}
+
+		None
+	}
 }

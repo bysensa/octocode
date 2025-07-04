@@ -145,6 +145,33 @@ impl Language for Ruby {
 
 		(imports, exports)
 	}
+
+	fn resolve_import(
+		&self,
+		import_path: &str,
+		source_file: &str,
+		all_files: &[String],
+	) -> Option<String> {
+		use super::resolution_utils::FileRegistry;
+
+		let registry = FileRegistry::new(all_files);
+
+		if import_path.starts_with("relative:") {
+			// require_relative import
+			let relative_path = import_path.strip_prefix("relative:")?;
+			self.resolve_relative_require(relative_path, source_file, &registry)
+		} else if import_path.starts_with("./") || import_path.starts_with("../") {
+			// Relative require
+			self.resolve_relative_require(import_path, source_file, &registry)
+		} else {
+			// Absolute require
+			self.resolve_absolute_require(import_path, &registry)
+		}
+	}
+
+	fn get_file_extensions(&self) -> Vec<&'static str> {
+		vec!["rb"]
+	}
 }
 
 impl Ruby {
@@ -224,5 +251,30 @@ impl Ruby {
 		} else {
 			None
 		}
+	}
+}
+
+impl Ruby {
+	/// Resolve relative require statements
+	fn resolve_relative_require(
+		&self,
+		import_path: &str,
+		source_file: &str,
+		registry: &super::resolution_utils::FileRegistry,
+	) -> Option<String> {
+		use super::resolution_utils::resolve_relative_path;
+
+		let relative_path = resolve_relative_path(source_file, import_path)?;
+		registry.find_file_with_extensions(&relative_path, &self.get_file_extensions())
+	}
+
+	/// Resolve absolute require statements
+	fn resolve_absolute_require(
+		&self,
+		import_path: &str,
+		registry: &super::resolution_utils::FileRegistry,
+	) -> Option<String> {
+		let path = std::path::Path::new(import_path);
+		registry.find_file_with_extensions(path, &self.get_file_extensions())
 	}
 }

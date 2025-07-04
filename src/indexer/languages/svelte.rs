@@ -165,6 +165,21 @@ impl Language for Svelte {
 
 		(imports, exports)
 	}
+
+	fn resolve_import(
+		&self,
+		import_path: &str,
+		source_file: &str,
+		all_files: &[String],
+	) -> Option<String> {
+		// Svelte uses JavaScript import resolution
+		let js = super::javascript::JavaScript {};
+		js.resolve_import(import_path, source_file, all_files)
+	}
+
+	fn get_file_extensions(&self) -> Vec<&'static str> {
+		vec!["svelte"]
+	}
 }
 
 impl Svelte {

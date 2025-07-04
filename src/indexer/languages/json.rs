@@ -117,6 +117,20 @@ impl Language for Json {
 			_ => "JSON structures",
 		}
 	}
+
+	fn resolve_import(
+		&self,
+		_import_path: &str,
+		_source_file: &str,
+		_all_files: &[String],
+	) -> Option<String> {
+		// JSON doesn't have imports
+		None
+	}
+
+	fn get_file_extensions(&self) -> Vec<&'static str> {
+		vec!["json"]
+	}
 }
 
 impl Json {
@@ -150,12 +164,5 @@ impl Json {
 				}
 			}
 		}
-	}
-
-	// JSON doesn't have imports/exports
-	#[allow(dead_code)]
-	fn extract_imports_exports(&self, _node: Node, _contents: &str) -> (Vec<String>, Vec<String>) {
-		// JSON files are data files and don't have imports or exports
-		(Vec::new(), Vec::new())
 	}
 }

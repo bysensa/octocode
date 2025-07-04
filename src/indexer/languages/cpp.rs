@@ -194,6 +194,30 @@ impl Language for Cpp {
 
 		(imports, exports)
 	}
+
+	fn resolve_import(
+		&self,
+		import_path: &str,
+		source_file: &str,
+		all_files: &[String],
+	) -> Option<String> {
+		use super::resolution_utils::FileRegistry;
+
+		let registry = FileRegistry::new(all_files);
+
+		if import_path.starts_with('"') && import_path.ends_with('"') {
+			// Local include: #include "header.h"
+			let header_name = &import_path[1..import_path.len() - 1];
+			self.resolve_local_include(header_name, source_file, &registry)
+		} else {
+			// System include or direct path - try to find in project
+			registry.find_exact_file(import_path)
+		}
+	}
+
+	fn get_file_extensions(&self) -> Vec<&'static str> {
+		vec!["cpp", "cc", "cxx", "c++", "c", "h", "hpp"]
+	}
 }
 
 impl Cpp {
@@ -346,5 +370,21 @@ impl Cpp {
 		}
 
 		None
+	}
+}
+
+impl Cpp {
+	/// Resolve local includes relative to source file
+	fn resolve_local_include(
+		&self,
+		header_name: &str,
+		source_file: &str,
+		registry: &super::resolution_utils::FileRegistry,
+	) -> Option<String> {
+		let source_path = std::path::Path::new(source_file);
+		let source_dir = source_path.parent()?;
+		let header_path = source_dir.join(header_name);
+
+		registry.find_exact_file(&header_path.to_string_lossy())
 	}
 }

@@ -179,6 +179,29 @@ impl Language for Python {
 
 		(imports, exports)
 	}
+
+	fn resolve_import(
+		&self,
+		import_path: &str,
+		source_file: &str,
+		all_files: &[String],
+	) -> Option<String> {
+		use super::resolution_utils::FileRegistry;
+
+		let registry = FileRegistry::new(all_files);
+
+		if import_path.starts_with('.') {
+			// Relative import: .module or ..module
+			self.resolve_relative_import(import_path, source_file, &registry)
+		} else {
+			// Absolute import - look from project root or in same package
+			self.resolve_absolute_import(import_path, source_file, &registry)
+		}
+	}
+
+	fn get_file_extensions(&self) -> Vec<&'static str> {
+		vec!["py"]
+	}
 }
 
 impl Python {
@@ -312,4 +335,81 @@ fn parse_python_from_import_statement(import_text: &str) -> Option<Vec<String>> 
 	}
 
 	None
+}
+
+impl Python {
+	/// Resolve relative imports like .module or ..module
+	fn resolve_relative_import(
+		&self,
+		import_path: &str,
+		source_file: &str,
+		registry: &super::resolution_utils::FileRegistry,
+	) -> Option<String> {
+		let dots = import_path.chars().take_while(|&c| c == '.').count();
+		let module_name = &import_path[dots..];
+
+		let source_path = std::path::Path::new(source_file);
+		let mut target_dir = source_path.parent()?;
+
+		// Move up directories based on number of dots
+		for _ in 1..dots {
+			target_dir = target_dir.parent()?;
+		}
+
+		self.find_python_module(module_name, target_dir, registry)
+	}
+
+	/// Resolve absolute imports
+	fn resolve_absolute_import(
+		&self,
+		import_path: &str,
+		source_file: &str,
+		registry: &super::resolution_utils::FileRegistry,
+	) -> Option<String> {
+		let source_path = std::path::Path::new(source_file);
+		let source_dir = source_path.parent()?;
+
+		// Try from same package first
+		if let Some(result) = self.find_python_module(import_path, source_dir, registry) {
+			return Some(result);
+		}
+
+		// Try from project root
+		if let Some(project_root) = super::resolution_utils::find_project_root(source_file) {
+			let root_path = std::path::Path::new(&project_root);
+			self.find_python_module(import_path, root_path, registry)
+		} else {
+			None
+		}
+	}
+
+	/// Find a Python module by name in a directory
+	fn find_python_module(
+		&self,
+		module_name: &str,
+		base_dir: &std::path::Path,
+		registry: &super::resolution_utils::FileRegistry,
+	) -> Option<String> {
+		let module_parts: Vec<&str> = module_name.split('.').collect();
+		let mut current_path = base_dir.to_path_buf();
+
+		for (i, part) in module_parts.iter().enumerate() {
+			if i == module_parts.len() - 1 {
+				// Last part - look for .py file or __init__.py in directory
+				let file_path = current_path.join(format!("{}.py", part));
+				if let Some(found) = registry.find_exact_file(&file_path.to_string_lossy()) {
+					return Some(found);
+				}
+
+				let init_path = current_path.join(part).join("__init__.py");
+				if let Some(found) = registry.find_exact_file(&init_path.to_string_lossy()) {
+					return Some(found);
+				}
+			} else {
+				current_path = current_path.join(part);
+			}
+		}
+
+		None
+	}
 }

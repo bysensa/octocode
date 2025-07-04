@@ -27,6 +27,7 @@ mod json;
 mod markdown;
 mod php;
 mod python;
+pub mod resolution_utils;
 mod ruby;
 mod rust;
 mod svelte;
@@ -100,6 +101,18 @@ pub trait Language {
 			_ => "declarations",
 		}
 	}
+
+	/// Resolve import paths to actual file paths
+	/// Returns the resolved file path if found, None otherwise
+	fn resolve_import(
+		&self,
+		import_path: &str,
+		source_file: &str,
+		all_files: &[String],
+	) -> Option<String>;
+
+	/// Get file extensions supported by this language
+	fn get_file_extensions(&self) -> Vec<&'static str>;
 }
 
 /// Gets a language implementation by its name

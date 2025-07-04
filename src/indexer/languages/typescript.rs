@@ -208,6 +208,21 @@ impl Language for TypeScript {
 
 		(imports, exports)
 	}
+
+	fn resolve_import(
+		&self,
+		import_path: &str,
+		source_file: &str,
+		all_files: &[String],
+	) -> Option<String> {
+		// TypeScript uses same import resolution as JavaScript
+		let js = JavaScript {};
+		js.resolve_import(import_path, source_file, all_files)
+	}
+
+	fn get_file_extensions(&self) -> Vec<&'static str> {
+		vec!["ts", "tsx"]
+	}
 }
 
 // Helper functions for TypeScript import/export parsing
@@ -298,8 +313,13 @@ fn parse_ts_export_statement(export_text: &str) -> Option<Vec<String>> {
 	}
 
 	// Fall back to JavaScript parsing for regular exports
-	parse_js_export_statement(export_text)
+	if let Some(js_exports) = parse_js_export_statement(export_text) {
+		exports.extend(js_exports);
+	}
+
+	Some(exports)
 }
 
+// Helper functions for TypeScript import/export parsing
 // Re-export JavaScript helper functions for TypeScript to use
 use super::javascript::{parse_js_export_statement, parse_js_import_statement};

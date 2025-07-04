@@ -194,6 +194,43 @@ impl Language for Rust {
 
 		(imports, exports)
 	}
+
+	fn resolve_import(
+		&self,
+		import_path: &str,
+		source_file: &str,
+		all_files: &[String],
+	) -> Option<String> {
+		use super::resolution_utils::FileRegistry;
+
+		let registry = FileRegistry::new(all_files);
+		let rust_files = registry.get_files_with_extensions(&self.get_file_extensions());
+
+		// Handle different Rust import patterns
+		if import_path.starts_with("crate::") {
+			// Absolute crate path: crate::module::Item
+			let module_path = import_path.strip_prefix("crate::")?;
+			self.resolve_crate_import(module_path, source_file, &rust_files)
+		} else if import_path.starts_with("super::") {
+			// Parent module: super::module::Item
+			let module_path = import_path.strip_prefix("super::")?;
+			self.resolve_super_import(module_path, source_file, &rust_files)
+		} else if import_path.starts_with("self::") {
+			// Current module: self::module::Item
+			let module_path = import_path.strip_prefix("self::")?;
+			self.resolve_self_import(module_path, source_file, &rust_files)
+		} else if import_path.contains("::") {
+			// External crate or absolute path
+			self.resolve_crate_import(import_path, source_file, &rust_files)
+		} else {
+			// Simple import - look for file in same directory
+			self.resolve_simple_import(import_path, source_file, &rust_files)
+		}
+	}
+
+	fn get_file_extensions(&self) -> Vec<&'static str> {
+		vec!["rs"]
+	}
 }
 
 // Helper function to parse Rust use statements
@@ -228,5 +265,145 @@ fn parse_rust_use_statement(use_text: &str) -> Option<String> {
 		Some(last_part.trim().to_string())
 	} else {
 		Some(cleaned.to_string())
+	}
+}
+
+impl Rust {
+	/// Resolve crate-relative imports like crate::module::Item
+	fn resolve_crate_import(
+		&self,
+		module_path: &str,
+		source_file: &str,
+		rust_files: &[String],
+	) -> Option<String> {
+		let parts: Vec<&str> = module_path.split("::").collect();
+		if parts.is_empty() {
+			return None;
+		}
+
+		// Find crate root
+		let crate_root = self.find_crate_root(source_file, rust_files)?;
+		let crate_dir = std::path::Path::new(&crate_root).parent()?;
+
+		// Build path from module parts
+		let mut current_path = crate_dir.to_path_buf();
+		for (i, part) in parts.iter().enumerate() {
+			if i == parts.len() - 1 {
+				// Last part could be a file or module
+				let file_path = current_path.join(format!("{}.rs", part));
+				let file_path_str = file_path.to_string_lossy().to_string();
+				if rust_files.iter().any(|f| f == &file_path_str) {
+					return Some(file_path_str);
+				}
+
+				let mod_path = current_path.join(part).join("mod.rs");
+				let mod_path_str = mod_path.to_string_lossy().to_string();
+				if rust_files.iter().any(|f| f == &mod_path_str) {
+					return Some(mod_path_str);
+				}
+			} else {
+				current_path = current_path.join(part);
+			}
+		}
+
+		None
+	}
+
+	/// Resolve super:: imports (parent module)
+	fn resolve_super_import(
+		&self,
+		module_path: &str,
+		source_file: &str,
+		rust_files: &[String],
+	) -> Option<String> {
+		let source_path = std::path::Path::new(source_file);
+		let parent_dir = source_path.parent()?.parent()?;
+
+		self.resolve_relative_import(module_path, parent_dir, rust_files)
+	}
+
+	/// Resolve self:: imports (current module)
+	fn resolve_self_import(
+		&self,
+		module_path: &str,
+		source_file: &str,
+		rust_files: &[String],
+	) -> Option<String> {
+		let source_path = std::path::Path::new(source_file);
+		let current_dir = source_path.parent()?;
+
+		self.resolve_relative_import(module_path, current_dir, rust_files)
+	}
+
+	/// Resolve simple imports in same directory
+	fn resolve_simple_import(
+		&self,
+		import_path: &str,
+		source_file: &str,
+		rust_files: &[String],
+	) -> Option<String> {
+		let source_path = std::path::Path::new(source_file);
+		let source_dir = source_path.parent()?;
+		let target_file = source_dir.join(format!("{}.rs", import_path));
+		let target_str = target_file.to_string_lossy().to_string();
+
+		if rust_files.iter().any(|f| f == &target_str) {
+			Some(target_str)
+		} else {
+			None
+		}
+	}
+
+	/// Resolve relative imports from a base directory
+	fn resolve_relative_import(
+		&self,
+		module_path: &str,
+		base_dir: &std::path::Path,
+		rust_files: &[String],
+	) -> Option<String> {
+		let parts: Vec<&str> = module_path.split("::").collect();
+		if parts.is_empty() {
+			return None;
+		}
+
+		let mut current_path = base_dir.to_path_buf();
+		for (i, part) in parts.iter().enumerate() {
+			if i == parts.len() - 1 {
+				// Last part - look for file
+				let file_path = current_path.join(format!("{}.rs", part));
+				let file_path_str = file_path.to_string_lossy().to_string();
+				if rust_files.iter().any(|f| f == &file_path_str) {
+					return Some(file_path_str);
+				}
+			} else {
+				current_path = current_path.join(part);
+			}
+		}
+
+		None
+	}
+
+	/// Find the crate root (lib.rs or main.rs)
+	fn find_crate_root(&self, source_file: &str, rust_files: &[String]) -> Option<String> {
+		let source_path = std::path::Path::new(source_file);
+		let mut current_dir = source_path.parent()?;
+
+		loop {
+			// Look for lib.rs or main.rs
+			let lib_path = current_dir.join("lib.rs");
+			let lib_path_str = lib_path.to_string_lossy().to_string();
+			if rust_files.iter().any(|f| f == &lib_path_str) {
+				return Some(lib_path_str);
+			}
+
+			let main_path = current_dir.join("main.rs");
+			let main_path_str = main_path.to_string_lossy().to_string();
+			if rust_files.iter().any(|f| f == &main_path_str) {
+				return Some(main_path_str);
+			}
+
+			// Move up one directory
+			current_dir = current_dir.parent()?;
+		}
 	}
 }

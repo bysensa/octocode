@@ -176,6 +176,21 @@ impl Language for Css {
 
 		(imports, exports)
 	}
+
+	fn resolve_import(
+		&self,
+		_import_path: &str,
+		_source_file: &str,
+		_all_files: &[String],
+	) -> Option<String> {
+		// CSS doesn't have traditional imports in the same way
+		// Could implement @import resolution in the future
+		None
+	}
+
+	fn get_file_extensions(&self) -> Vec<&'static str> {
+		vec!["css", "scss", "sass"]
+	}
 }
 
 impl Css {

@@ -201,6 +201,32 @@ impl Language for JavaScript {
 
 		(imports, exports)
 	}
+
+	fn resolve_import(
+		&self,
+		import_path: &str,
+		source_file: &str,
+		all_files: &[String],
+	) -> Option<String> {
+		use super::resolution_utils::FileRegistry;
+
+		let registry = FileRegistry::new(all_files);
+
+		if import_path.starts_with("./") || import_path.starts_with("../") {
+			// Relative import
+			self.resolve_relative_import(import_path, source_file, &registry)
+		} else if import_path.starts_with('/') {
+			// Absolute import from project root
+			self.resolve_absolute_import(import_path, &registry)
+		} else {
+			// Module import - look in node_modules or as relative
+			self.resolve_module_import(import_path, source_file, &registry)
+		}
+	}
+
+	fn get_file_extensions(&self) -> Vec<&'static str> {
+		vec!["js", "jsx", "mjs"]
+	}
 }
 
 impl JavaScript {
@@ -343,4 +369,53 @@ pub fn parse_js_export_statement(export_text: &str) -> Option<Vec<String>> {
 	}
 
 	None
+}
+
+impl JavaScript {
+	/// Resolve relative imports like ./utils or ../components/Button
+	fn resolve_relative_import(
+		&self,
+		import_path: &str,
+		source_file: &str,
+		registry: &super::resolution_utils::FileRegistry,
+	) -> Option<String> {
+		use super::resolution_utils::resolve_relative_path;
+
+		let relative_path = resolve_relative_path(source_file, import_path)?;
+		registry
+			.find_file_with_extensions(&relative_path, &self.get_file_extensions())
+			.or_else(|| {
+				// Try with index.js in directory
+				let index_path = relative_path.join("index");
+				registry.find_file_with_extensions(&index_path, &self.get_file_extensions())
+			})
+	}
+
+	/// Resolve absolute imports from project root
+	fn resolve_absolute_import(
+		&self,
+		import_path: &str,
+		registry: &super::resolution_utils::FileRegistry,
+	) -> Option<String> {
+		let path = std::path::Path::new(import_path);
+		registry
+			.find_file_with_extensions(path, &self.get_file_extensions())
+			.or_else(|| {
+				// Try with index.js in directory
+				let index_path = path.join("index");
+				registry.find_file_with_extensions(&index_path, &self.get_file_extensions())
+			})
+	}
+
+	/// Resolve module imports (could be node_modules or relative)
+	fn resolve_module_import(
+		&self,
+		import_path: &str,
+		source_file: &str,
+		registry: &super::resolution_utils::FileRegistry,
+	) -> Option<String> {
+		// For now, treat as relative import from current directory
+		let relative_import = format!("./{}", import_path);
+		self.resolve_relative_import(&relative_import, source_file, registry)
+	}
 }

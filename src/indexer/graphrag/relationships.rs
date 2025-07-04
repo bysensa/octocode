@@ -143,17 +143,8 @@ impl RelationshipDiscovery {
 		all_nodes: &[CodeNode],
 		relationships: &mut Vec<CodeRelationship>,
 	) {
-		// Create import resolver with all available files
-		let all_file_paths: Vec<String> = all_nodes.iter().map(|n| n.path.clone()).collect();
-		let mut import_resolver = super::import_resolver::ImportResolver::new(&all_file_paths);
-
 		// First, resolve imports to create semantic relationships
-		Self::discover_import_relationships(
-			source_file,
-			all_nodes,
-			&mut import_resolver,
-			relationships,
-		);
+		Self::discover_import_relationships(source_file, all_nodes, relationships);
 
 		// Then add language-specific patterns as fallback
 		match source_file.language.as_str() {
@@ -182,7 +173,6 @@ impl RelationshipDiscovery {
 	fn discover_import_relationships(
 		source_file: &CodeNode,
 		all_nodes: &[CodeNode],
-		import_resolver: &mut super::import_resolver::ImportResolver,
 		relationships: &mut Vec<CodeRelationship>,
 	) {
 		// Create a map for quick file lookup by path
@@ -191,39 +181,46 @@ impl RelationshipDiscovery {
 			.map(|node| (node.path.clone(), node))
 			.collect();
 
-		// Resolve each import to create direct relationships
-		for import_path in &source_file.imports {
-			if let Some(resolved_path) = import_resolver.resolve_import(
-				import_path,
-				&source_file.path,
-				&source_file.language,
-			) {
-				// Find the target node
-				if let Some(target_node) = file_map.get(&resolved_path) {
-					// Create semantic import relationship
-					relationships.push(CodeRelationship {
-						source: source_file.id.clone(),
-						target: target_node.id.clone(),
-						relation_type: "imports_direct".to_string(),
-						description: format!("Direct import: {} -> {}", import_path, resolved_path),
-						confidence: 0.95, // High confidence for resolved imports
-						weight: 1.0,
-					});
+		// Get all file paths for resolution
+		let all_files: Vec<String> = all_nodes.iter().map(|node| node.path.clone()).collect();
 
-					// Create reverse export relationship if target exports to source
-					for export_item in &target_node.exports {
-						if import_path.contains(export_item) || export_item == "*" {
-							relationships.push(CodeRelationship {
-								source: target_node.id.clone(),
-								target: source_file.id.clone(),
-								relation_type: "exports_to".to_string(),
-								description: format!(
-									"Exports {} to {}",
-									export_item, source_file.path
-								),
-								confidence: 0.9,
-								weight: 0.8,
-							});
+		// Get language implementation for import resolution
+		if let Some(lang_impl) = crate::indexer::languages::get_language(&source_file.language) {
+			// Resolve each import to create direct relationships
+			for import_path in &source_file.imports {
+				if let Some(resolved_path) =
+					lang_impl.resolve_import(import_path, &source_file.path, &all_files)
+				{
+					// Find the target node
+					if let Some(target_node) = file_map.get(&resolved_path) {
+						// Create semantic import relationship
+						relationships.push(CodeRelationship {
+							source: source_file.id.clone(),
+							target: target_node.id.clone(),
+							relation_type: "imports_direct".to_string(),
+							description: format!(
+								"Direct import: {} -> {}",
+								import_path, resolved_path
+							),
+							confidence: 0.95, // High confidence for resolved imports
+							weight: 1.0,
+						});
+
+						// Create reverse export relationship if target exports to source
+						for export_item in &target_node.exports {
+							if import_path.contains(export_item) || export_item == "*" {
+								relationships.push(CodeRelationship {
+									source: target_node.id.clone(),
+									target: source_file.id.clone(),
+									relation_type: "exports_to".to_string(),
+									description: format!(
+										"Exports {} to {}",
+										export_item, source_file.path
+									),
+									confidence: 0.9,
+									weight: 0.8,
+								});
+							}
 						}
 					}
 				}
