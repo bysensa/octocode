@@ -118,7 +118,7 @@ impl GraphBuilder {
 		code_blocks: &[CodeBlock],
 		state: Option<SharedState>,
 	) -> Result<()> {
-		let mut new_nodes = Vec::new();
+		let mut new_nodes: Vec<CodeNode> = Vec::new();
 		let mut pending_embeddings = Vec::new(); // For batch embedding generation
 		let mut ai_batch_queue: Vec<crate::indexer::graphrag::ai::FileForAI> = Vec::new(); // For batch AI processing
 		let mut ai_descriptions: HashMap<String, String> = HashMap::new(); // Store AI descriptions by file_path
@@ -283,6 +283,62 @@ impl GraphBuilder {
 					};
 					ai_batch_queue.push(file_for_ai);
 
+					// Process AI batch when it reaches configured size
+					if ai_batch_queue.len() >= self.config.graphrag.llm.ai_batch_size {
+						if !self.quiet {
+							eprintln!("🚀 Processing AI batch: {} files", ai_batch_queue.len());
+						}
+
+						// Call batch AI extraction through AI enhancements
+						if let Some(ref ai_enhancements) = self.ai_enhancements {
+							match ai_enhancements
+								.extract_ai_descriptions_batch(&ai_batch_queue)
+								.await
+							{
+								Ok(batch_descriptions) => {
+									// Store all descriptions from batch
+									for (file_path, description) in batch_descriptions {
+										ai_descriptions.insert(file_path, description);
+									}
+									if !self.quiet {
+										eprintln!(
+											"✅ AI batch processing completed: {} descriptions",
+											ai_descriptions.len()
+										);
+									}
+								}
+								Err(e) => {
+									if !self.quiet {
+										eprintln!("⚠️  AI batch processing failed: {}", e);
+									}
+								}
+							}
+						}
+
+						// Clear the processed batch
+						ai_batch_queue.clear();
+
+						// Update node descriptions immediately with newly generated AI descriptions
+						if !ai_descriptions.is_empty() {
+							// Update nodes in the graph with AI descriptions
+							{
+								let mut graph = self.graph.write().await;
+								for (file_path, ai_description) in &ai_descriptions {
+									if let Some(node) = graph.nodes.get_mut(file_path) {
+										node.description = ai_description.clone();
+									}
+								}
+							}
+
+							// Also update any pending nodes that haven't been added to graph yet
+							for node in &mut new_nodes {
+								if let Some(ai_description) = ai_descriptions.get(&node.id) {
+									node.description = ai_description.clone();
+								}
+							}
+						}
+					}
+
 					// For now, use simple description - will be replaced after batch processing
 					RelationshipDiscovery::generate_simple_description(
 						&file_name,
@@ -383,6 +439,43 @@ impl GraphBuilder {
 						}
 					}
 				}
+			}
+		}
+
+		// CRITICAL FIX: Update node descriptions with AI-generated descriptions
+		if !ai_descriptions.is_empty() {
+			if !self.quiet {
+				eprintln!(
+					"🔄 Updating {} nodes with AI-generated descriptions",
+					ai_descriptions.len()
+				);
+			}
+
+			// Update nodes in the graph with AI descriptions
+			{
+				let mut graph = self.graph.write().await;
+				for (file_path, ai_description) in &ai_descriptions {
+					if let Some(node) = graph.nodes.get_mut(file_path) {
+						node.description = ai_description.clone();
+						if !self.quiet {
+							eprintln!("✅ Updated description for: {}", file_path);
+						}
+					}
+				}
+			}
+
+			// Also update any pending nodes that haven't been added to graph yet
+			for node in &mut new_nodes {
+				if let Some(ai_description) = ai_descriptions.get(&node.id) {
+					node.description = ai_description.clone();
+					if !self.quiet {
+						eprintln!("✅ Updated pending node description for: {}", node.id);
+					}
+				}
+			}
+
+			if !self.quiet {
+				eprintln!("🎉 AI description updates complete!");
 			}
 		}
 
