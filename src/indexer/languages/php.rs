@@ -186,15 +186,52 @@ impl Language for Php {
 		source_file: &str,
 		all_files: &[String],
 	) -> Option<String> {
-		use super::resolution_utils::FileRegistry;
+		use super::resolution_utils::{resolve_relative_path, FileRegistry};
 
 		let registry = FileRegistry::new(all_files);
 
-		// Convert namespace to file path
-		let file_path = import_path.replace("\\", "/");
+		if import_path.starts_with("./") || import_path.starts_with("../") {
+			// Relative path - resolve directly
+			if let Some(relative_path) = resolve_relative_path(source_file, import_path) {
+				let relative_path_str = relative_path.to_string_lossy().to_string();
+				// Check exact match first
+				if registry
+					.get_all_files()
+					.iter()
+					.any(|f| f == &relative_path_str)
+				{
+					return Some(relative_path_str);
+				}
+				// Try without extension and add .php
+				let without_ext = relative_path.with_extension("");
+				return registry
+					.find_file_with_extensions(&without_ext, &self.get_file_extensions());
+			}
+		} else if import_path.ends_with(".php") || !import_path.contains("/") {
+			// Simple filename like "Config.php" - look in same directory as source
+			let source_path = std::path::Path::new(source_file);
+			if let Some(source_dir) = source_path.parent() {
+				let target_path = source_dir.join(import_path);
+				let target_path_str = target_path.to_string_lossy().to_string();
+				if registry
+					.get_all_files()
+					.iter()
+					.any(|f| f == &target_path_str)
+				{
+					return Some(target_path_str);
+				}
+			}
+			// Also try namespace resolution as fallback
+			let file_path = import_path.replace("\\", "/");
+			return self.resolve_namespace_import(&file_path, source_file, &registry);
+		} else {
+			// Convert namespace to file path
+			let file_path = import_path.replace("\\", "/");
+			// Try different common PHP patterns
+			return self.resolve_namespace_import(&file_path, source_file, &registry);
+		}
 
-		// Try different common PHP patterns
-		self.resolve_namespace_import(&file_path, source_file, &registry)
+		None
 	}
 
 	fn get_file_extensions(&self) -> Vec<&'static str> {

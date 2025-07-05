@@ -861,7 +861,7 @@ impl GraphBuilder {
 	}
 
 	// Extract imports/exports using language-specific AST parsing
-	async fn extract_imports_exports_from_file(
+	pub async fn extract_imports_exports_from_file(
 		&self,
 		file_path: &str,
 		language: &str,

@@ -170,7 +170,7 @@ impl RelationshipDiscovery {
 	}
 
 	// Discover semantic relationships through import resolution
-	fn discover_import_relationships(
+	pub fn discover_import_relationships(
 		source_file: &CodeNode,
 		all_nodes: &[CodeNode],
 		relationships: &mut Vec<CodeRelationship>,

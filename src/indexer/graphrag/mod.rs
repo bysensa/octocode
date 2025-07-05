@@ -21,6 +21,9 @@ pub mod relationships;
 pub mod types;
 pub mod utils;
 
+#[cfg(test)]
+mod tests;
+
 // Re-export the main types and interfaces for backward compatibility
 pub use builder::GraphBuilder;
 pub use types::{CodeGraph, CodeNode, CodeRelationship, FunctionInfo};

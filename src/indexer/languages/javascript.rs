@@ -181,8 +181,8 @@ impl Language for JavaScript {
 				// Handle: import foo from 'module'
 				// Handle: import * as foo from 'module'
 				if let Ok(import_text) = node.utf8_text(contents.as_bytes()) {
-					if let Some(imported_items) = parse_js_import_statement(import_text) {
-						imports.extend(imported_items);
+					if let Some(imported_paths) = parse_js_import_statement_full_path(import_text) {
+						imports.extend(imported_paths);
 					}
 				}
 			}
@@ -277,6 +277,37 @@ impl JavaScript {
 }
 
 // Helper functions for JavaScript import/export parsing
+
+// Extract full import paths for GraphRAG (not just imported item names)
+pub fn parse_js_import_statement_full_path(import_text: &str) -> Option<Vec<String>> {
+	let mut imports = Vec::new();
+	let cleaned = import_text.trim();
+
+	// Extract the module path from 'from' clause
+	if cleaned.contains(" from ") {
+		if let Some(from_pos) = cleaned.find(" from ") {
+			let module_part = &cleaned[from_pos + 6..]; // Skip " from "
+											   // Remove all quotes and semicolon around module path
+			let module_path = module_part
+				.trim()
+				.trim_start_matches('\'')
+				.trim_start_matches('"')
+				.trim_end_matches(';')
+				.trim_end_matches('\'')
+				.trim_end_matches('"');
+			if !module_path.is_empty() {
+				imports.push(module_path.to_string());
+			}
+		}
+	}
+
+	if !imports.is_empty() {
+		Some(imports)
+	} else {
+		None
+	}
+}
+
 pub fn parse_js_import_statement(import_text: &str) -> Option<Vec<String>> {
 	let mut imports = Vec::new();
 	let cleaned = import_text.trim();
@@ -330,10 +361,13 @@ pub fn parse_js_export_statement(export_text: &str) -> Option<Vec<String>> {
 	let mut exports = Vec::new();
 	let cleaned = export_text.trim();
 
+	// Get the first line for parsing (export statements are usually on the first line)
+	let first_line = cleaned.lines().next().unwrap_or(cleaned);
+
 	// Handle: export { foo, bar }
-	if let Some(start) = cleaned.find('{') {
-		if let Some(end) = cleaned.find('}') {
-			let items = &cleaned[start + 1..end];
+	if let Some(start) = first_line.find('{') {
+		if let Some(end) = first_line.find('}') {
+			let items = &first_line[start + 1..end];
 			for item in items.split(',') {
 				let item = item.trim();
 				// Handle: foo as bar -> extract 'foo'
@@ -351,7 +385,7 @@ pub fn parse_js_export_statement(export_text: &str) -> Option<Vec<String>> {
 	}
 
 	// Handle: export function foo() {} or export const foo = ...
-	if let Some(rest) = cleaned.strip_prefix("export ") {
+	if let Some(rest) = first_line.strip_prefix("export ") {
 		// Skip "export "
 		if rest.starts_with("function ")
 			|| rest.starts_with("const ")
@@ -362,6 +396,26 @@ pub fn parse_js_export_statement(export_text: &str) -> Option<Vec<String>> {
 			let parts: Vec<&str> = rest.split_whitespace().collect();
 			if parts.len() >= 2 {
 				let name = parts[1].trim_end_matches('(').trim_end_matches('=');
+				exports.push(name.to_string());
+				return Some(exports);
+			}
+		}
+
+		// Handle: export default class ClassName
+		if rest.starts_with("default class ") {
+			let parts: Vec<&str> = rest.split_whitespace().collect();
+			if parts.len() >= 3 {
+				let name = parts[2].trim_end_matches('{');
+				exports.push(name.to_string());
+				return Some(exports);
+			}
+		}
+
+		// Handle: export class ClassName
+		if rest.starts_with("class ") {
+			let parts: Vec<&str> = rest.split_whitespace().collect();
+			if parts.len() >= 2 {
+				let name = parts[1].trim_end_matches('{');
 				exports.push(name.to_string());
 				return Some(exports);
 			}
@@ -382,6 +436,19 @@ impl JavaScript {
 		use super::resolution_utils::resolve_relative_path;
 
 		let relative_path = resolve_relative_path(source_file, import_path)?;
+		let relative_path_str = relative_path.to_string_lossy().to_string();
+
+		// For JavaScript, imports often include the extension already
+		// First try exact match, then try with extensions
+		if registry
+			.get_all_files()
+			.iter()
+			.any(|f| f == &relative_path_str)
+		{
+			return Some(relative_path_str);
+		}
+
+		// Try with extensions if exact match fails
 		registry
 			.find_file_with_extensions(&relative_path, &self.get_file_extensions())
 			.or_else(|| {

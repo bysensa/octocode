@@ -143,8 +143,10 @@ impl Language for Python {
 				// Handle: import module
 				// Handle: import module as alias
 				if let Ok(import_text) = node.utf8_text(contents.as_bytes()) {
-					if let Some(imported_items) = parse_python_import_statement(import_text) {
-						imports.extend(imported_items);
+					if let Some(imported_paths) =
+						parse_python_import_statement_full_path(import_text)
+					{
+						imports.extend(imported_paths);
 					}
 				}
 			}
@@ -152,8 +154,10 @@ impl Language for Python {
 				// Handle: from module import item1, item2
 				// Handle: from module import *
 				if let Ok(import_text) = node.utf8_text(contents.as_bytes()) {
-					if let Some(imported_items) = parse_python_from_import_statement(import_text) {
-						imports.extend(imported_items);
+					if let Some(imported_paths) =
+						parse_python_from_import_statement_full_path(import_text)
+					{
+						imports.extend(imported_paths);
 					}
 				}
 			}
@@ -274,24 +278,25 @@ impl Python {
 }
 
 // Helper functions for Python import/export parsing
-fn parse_python_import_statement(import_text: &str) -> Option<Vec<String>> {
+
+// Extract full import paths for GraphRAG (not just imported item names)
+fn parse_python_import_statement_full_path(import_text: &str) -> Option<Vec<String>> {
 	let mut imports = Vec::new();
 	let cleaned = import_text.trim();
 
 	// Handle: import module
 	// Handle: import module as alias
 	if let Some(rest) = cleaned.strip_prefix("import ") {
-		// Skip "import "
+		// Extract the module name (before any 'as' clause)
 		for item in rest.split(',') {
 			let item = item.trim();
-			// Handle: module as alias -> extract 'module'
-			let name = if let Some(as_pos) = item.find(" as ") {
+			let module_name = if let Some(as_pos) = item.find(" as ") {
 				&item[..as_pos]
 			} else {
 				item
 			};
-			if !name.is_empty() {
-				imports.push(name.to_string());
+			if !module_name.is_empty() {
+				imports.push(module_name.to_string());
 			}
 		}
 		return Some(imports);
@@ -300,38 +305,20 @@ fn parse_python_import_statement(import_text: &str) -> Option<Vec<String>> {
 	None
 }
 
-fn parse_python_from_import_statement(import_text: &str) -> Option<Vec<String>> {
+fn parse_python_from_import_statement_full_path(import_text: &str) -> Option<Vec<String>> {
 	let mut imports = Vec::new();
 	let cleaned = import_text.trim();
 
 	// Handle: from module import item
-	// Handle: from module import item as alias
-	// Handle: from module import *
+	// Extract the module name from 'from' clause
 	if cleaned.starts_with("from ") && cleaned.contains(" import ") {
 		if let Some(import_pos) = cleaned.find(" import ") {
-			let items_part = &cleaned[import_pos + 8..]; // Skip " import "
-
-			// Handle: from module import *
-			if items_part.trim() == "*" {
-				imports.push("*".to_string());
-				return Some(imports);
+			let module_part = &cleaned[5..import_pos]; // Skip "from " and take until " import"
+			if !module_part.is_empty() {
+				imports.push(module_part.to_string());
 			}
-
-			// Handle: from module import item1, item2
-			for item in items_part.split(',') {
-				let item = item.trim();
-				// Handle: item as alias -> extract 'item'
-				let name = if let Some(as_pos) = item.find(" as ") {
-					&item[..as_pos]
-				} else {
-					item
-				};
-				if !name.is_empty() {
-					imports.push(name.to_string());
-				}
-			}
-			return Some(imports);
 		}
+		return Some(imports);
 	}
 
 	None

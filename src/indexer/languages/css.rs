@@ -179,12 +179,49 @@ impl Language for Css {
 
 	fn resolve_import(
 		&self,
-		_import_path: &str,
-		_source_file: &str,
-		_all_files: &[String],
+		import_path: &str,
+		source_file: &str,
+		all_files: &[String],
 	) -> Option<String> {
-		// CSS doesn't have traditional imports in the same way
-		// Could implement @import resolution in the future
+		use super::resolution_utils::{resolve_relative_path, FileRegistry};
+
+		let registry = FileRegistry::new(all_files);
+
+		if import_path.starts_with("./") || import_path.starts_with("../") {
+			// Relative CSS import
+			if let Some(relative_path) = resolve_relative_path(source_file, import_path) {
+				let relative_path_str = relative_path.to_string_lossy().to_string();
+				// Check exact match first
+				if registry
+					.get_all_files()
+					.iter()
+					.any(|f| f == &relative_path_str)
+				{
+					return Some(relative_path_str);
+				}
+				// Try without extension and add CSS extensions
+				let without_ext = relative_path.with_extension("");
+				return registry
+					.find_file_with_extensions(&without_ext, &self.get_file_extensions());
+			}
+		} else {
+			// Simple filename like "base.css" - look in same directory as source
+			let source_path = std::path::Path::new(source_file);
+			if let Some(source_dir) = source_path.parent() {
+				let target_path = source_dir.join(import_path);
+				let target_path_str = target_path.to_string_lossy().to_string();
+				if registry
+					.get_all_files()
+					.iter()
+					.any(|f| f == &target_path_str)
+				{
+					return Some(target_path_str);
+				}
+			}
+			// Try exact match in project
+			return registry.find_exact_file(import_path);
+		}
+
 		None
 	}
 

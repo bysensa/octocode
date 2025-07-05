@@ -160,8 +160,8 @@ impl Language for Rust {
 			"use_declaration" => {
 				// Extract use statement for GraphRAG import detection
 				if let Ok(use_text) = node.utf8_text(contents.as_bytes()) {
-					if let Some(imported_item) = parse_rust_use_statement(use_text) {
-						imports.push(imported_item);
+					if let Some(import_path) = parse_rust_use_statement_full_path(use_text) {
+						imports.push(import_path);
 					}
 				}
 			}
@@ -233,8 +233,8 @@ impl Language for Rust {
 	}
 }
 
-// Helper function to parse Rust use statements
-fn parse_rust_use_statement(use_text: &str) -> Option<String> {
+// Helper function to parse Rust use statements and return the full import path
+fn parse_rust_use_statement_full_path(use_text: &str) -> Option<String> {
 	// Remove "use " prefix and trailing semicolon
 	let cleaned = use_text
 		.trim()
@@ -242,30 +242,9 @@ fn parse_rust_use_statement(use_text: &str) -> Option<String> {
 		.trim_end_matches(';')
 		.trim();
 
-	// Handle different use patterns:
-	// use std::collections::HashMap; -> HashMap
-	// use crate::module::Item; -> Item
-	// use super::Item; -> Item
-	// use self::Item; -> Item
-	// use crate::module::{Item1, Item2}; -> Item1 (first item for simplicity)
-
-	if cleaned.contains('{') {
-		// Handle grouped imports: use module::{Item1, Item2};
-		if let Some(brace_start) = cleaned.find('{') {
-			if let Some(brace_end) = cleaned.find('}') {
-				let items = &cleaned[brace_start + 1..brace_end];
-				// Take first item for simplicity
-				return items.split(',').next().map(|s| s.trim().to_string());
-			}
-		}
-	}
-
-	// Handle simple imports: use module::Item;
-	if let Some(last_part) = cleaned.split("::").last() {
-		Some(last_part.trim().to_string())
-	} else {
-		Some(cleaned.to_string())
-	}
+	// For GraphRAG, we want the full import path, not just the imported item
+	// This allows us to resolve the import to the correct file
+	Some(cleaned.to_string())
 }
 
 impl Rust {
@@ -285,24 +264,27 @@ impl Rust {
 		let crate_root = self.find_crate_root(source_file, rust_files)?;
 		let crate_dir = std::path::Path::new(&crate_root).parent()?;
 
-		// Build path from module parts
-		let mut current_path = crate_dir.to_path_buf();
-		for (i, part) in parts.iter().enumerate() {
-			if i == parts.len() - 1 {
-				// Last part could be a file or module
-				let file_path = current_path.join(format!("{}.rs", part));
-				let file_path_str = file_path.to_string_lossy().to_string();
-				if rust_files.iter().any(|f| f == &file_path_str) {
-					return Some(file_path_str);
-				}
+		// SMART RESOLUTION: Try all possible module path combinations
+		// For crate::config::features::TechnicalIndicatorsConfig, try:
+		// 1. src/config/features.rs (most common)
+		// 2. src/config/features/mod.rs (module directory)
+		// 3. src/config.rs (parent module)
+		// Work backwards from longest to shortest path
+		for end_idx in (1..=parts.len()).rev() {
+			let module_parts = &parts[0..end_idx];
 
-				let mod_path = current_path.join(part).join("mod.rs");
-				let mod_path_str = mod_path.to_string_lossy().to_string();
-				if rust_files.iter().any(|f| f == &mod_path_str) {
-					return Some(mod_path_str);
-				}
-			} else {
-				current_path = current_path.join(part);
+			// Try as nested file path: config/features → src/config/features.rs
+			let file_path = crate_dir.join(module_parts.join("/") + ".rs");
+			let file_path_str = file_path.to_string_lossy().to_string();
+			if rust_files.iter().any(|f| f == &file_path_str) {
+				return Some(file_path_str);
+			}
+
+			// Try as module directory: config/features → src/config/features/mod.rs
+			let mod_path = crate_dir.join(module_parts.join("/")).join("mod.rs");
+			let mod_path_str = mod_path.to_string_lossy().to_string();
+			if rust_files.iter().any(|f| f == &mod_path_str) {
+				return Some(mod_path_str);
 			}
 		}
 
@@ -317,22 +299,28 @@ impl Rust {
 		rust_files: &[String],
 	) -> Option<String> {
 		let source_path = std::path::Path::new(source_file);
-		let parent_dir = source_path.parent()?.parent()?;
+		let source_dir = source_path.parent()?;
 
-		self.resolve_relative_import(module_path, parent_dir, rust_files)
+		// For super::, we look in the same directory as the source file
+		// This is because in Rust, super:: refers to the parent module,
+		// which is typically in the same directory for flat module structures
+		self.resolve_relative_import(module_path, source_dir, rust_files)
 	}
 
 	/// Resolve self:: imports (current module)
 	fn resolve_self_import(
 		&self,
-		module_path: &str,
+		_module_path: &str,
 		source_file: &str,
 		rust_files: &[String],
 	) -> Option<String> {
-		let source_path = std::path::Path::new(source_file);
-		let current_dir = source_path.parent()?;
-
-		self.resolve_relative_import(module_path, current_dir, rust_files)
+		// For self::item, we want to resolve to the current file
+		// since self:: refers to the current module
+		if rust_files.iter().any(|f| f == source_file) {
+			Some(source_file.to_string())
+		} else {
+			None
+		}
 	}
 
 	/// Resolve simple imports in same directory
@@ -366,17 +354,31 @@ impl Rust {
 			return None;
 		}
 
-		let mut current_path = base_dir.to_path_buf();
-		for (i, part) in parts.iter().enumerate() {
-			if i == parts.len() - 1 {
-				// Last part - look for file
-				let file_path = current_path.join(format!("{}.rs", part));
-				let file_path_str = file_path.to_string_lossy().to_string();
-				if rust_files.iter().any(|f| f == &file_path_str) {
-					return Some(file_path_str);
+		// For GraphRAG, we want to resolve to the file containing the import
+		// Try different combinations of parts to find the actual file
+		for end_idx in (1..=parts.len()).rev() {
+			let module_parts = &parts[0..end_idx];
+			let mut current_path = base_dir.to_path_buf();
+
+			// Build path from module parts
+			for (i, part) in module_parts.iter().enumerate() {
+				if i == module_parts.len() - 1 {
+					// Last part - try as file
+					let file_path = current_path.join(format!("{}.rs", part));
+					let file_path_str = file_path.to_string_lossy().to_string();
+					if rust_files.iter().any(|f| f == &file_path_str) {
+						return Some(file_path_str);
+					}
+
+					// Try as module directory with mod.rs
+					let mod_path = current_path.join(part).join("mod.rs");
+					let mod_path_str = mod_path.to_string_lossy().to_string();
+					if rust_files.iter().any(|f| f == &mod_path_str) {
+						return Some(mod_path_str);
+					}
+				} else {
+					current_path = current_path.join(part);
 				}
-			} else {
-				current_path = current_path.join(part);
 			}
 		}
 

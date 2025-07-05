@@ -215,9 +215,35 @@ impl Language for TypeScript {
 		source_file: &str,
 		all_files: &[String],
 	) -> Option<String> {
-		// TypeScript uses same import resolution as JavaScript
-		let js = JavaScript {};
-		js.resolve_import(import_path, source_file, all_files)
+		use super::resolution_utils::{resolve_relative_path, FileRegistry};
+
+		let registry = FileRegistry::new(all_files);
+
+		if import_path.starts_with("./") || import_path.starts_with("../") {
+			// Relative import - handle TypeScript-specific extensions
+			if let Some(relative_path) = resolve_relative_path(source_file, import_path) {
+				let relative_path_str = relative_path.to_string_lossy().to_string();
+
+				// Check exact match first
+				if registry
+					.get_all_files()
+					.iter()
+					.any(|f| f == &relative_path_str)
+				{
+					return Some(relative_path_str);
+				}
+
+				// Try with TypeScript extensions
+				let without_ext = relative_path.with_extension("");
+				return registry.find_file_with_extensions(&without_ext, &["ts", "tsx", "d.ts"]);
+			}
+		} else {
+			// Use JavaScript resolution for absolute/module imports
+			let js = JavaScript {};
+			return js.resolve_import(import_path, source_file, all_files);
+		}
+
+		None
 	}
 
 	fn get_file_extensions(&self) -> Vec<&'static str> {
