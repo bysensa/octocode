@@ -27,6 +27,9 @@ default = ["fastembed", "huggingface"]
 fastembed = ["dep:fastembed"]
 huggingface = ["dep:candle-core", "dep:candle-nn", "dep:candle-transformers", "dep:tokenizers", "dep:hf-hub"]
 
+
+# Cross-compilation configuration is in .cargo/config.toml
+
 # Optimized release profile for static linking
 [profile.release]
 lto = true              # Enable Link Time Optimization
@@ -36,65 +39,6 @@ strip = true            # Strip symbols from binary
 opt-level = "z"         # Optimize for size
 overflow-checks = false # Disable overflow checks in release mode
 
-# Cross-compilation configuration is in .cargo/config.toml
-
-[dependencies]
-tokio = { version = "1.45.1", features = ["rt-multi-thread", "macros", "time", "sync", "io-util", "io-std", "process"] }
-ignore = "0.4.23"
-parking_lot = "0.12.4"
-lance-table = { version = "0.30.0", default-features = false, features = ["lazy_static"] }
-lance = { version = "0.30.0", default-features = false, features = [] }
-lancedb = { version = "0.21.0", default-features = false }
-arrow = { version = "55.2.0", default-features = false, features = ["prettyprint"] }
-serde = { version = "1.0.219", features = ["derive"] }
-chrono = { version = "0.4", default-features = false, features = ["serde", "clock"] }
-async-trait = "0.1"
-tree-sitter = "0.25.6"
-tree-sitter-php = "0.23.11"
-tree-sitter-rust = "0.23.2"
-tree-sitter-python = "0.23.6"
-tree-sitter-javascript = "0.23.1"
-tree-sitter-json = "0.24.8"
-tree-sitter-go = "0.23.4"
-tree-sitter-cpp = "0.23.4"
-tree-sitter-bash = "0.25.0"
-tree-sitter-css = "0.23.2"
-
-uuid = { version = "1.17.0", default-features = false, features = ["v4"] }
-tree-sitter-typescript = "0.23.2"
-tree-sitter-ruby = "0.23.1"
-tree-sitter-svelte-ng = "1.0.2"
-reqwest = { version = "0.12.20", features = ["json", "rustls-tls"], default-features = false }
-anyhow = "1.0.98"
-serde_json = "1.0.140"
-sha2 = "0.10.9"
-clap = { version = "4.5.40", features = ["derive"] }
-clap_complete = "4.5.54"
-notify = { version = "8.0.0", default-features = false, features = ["crossbeam-channel", "macos_fsevent"] }
-notify-debouncer-mini = "0.6.0"
-fastembed = { version = "4.9.1", optional = true }
-toml = "0.8.23"
-lazy_static = "1.5.0"
-futures = { version = "0.3.31", default-features = false, features = ["std"] }
-globset = { version = "0.4.16", default-features = false }
-regex = { version = "1.11.1", default-features = false, features = ["std"] }
-dirs = "6.0.0"
-# Candle dependencies for HuggingFace support (optional)
-candle-core = { version = "0.9.1", optional = true }
-candle-nn = { version = "0.9.1", optional = true }
-candle-transformers = { version = "0.9.1", optional = true }
-tokenizers = { version = "0.21.2", optional = true }
-hf-hub = { version = "0.3.2", features = ["tokio"], optional = true }
-# EditorConfig parsing and formatting
-ec4rs = "1.2.0"
-tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
-tracing-appender = "0.2.3"
-tiktoken-rs = "0.7.0"
-# LSP integration dependencies
-lsp-types = "0.97.0"
-url = "2.5.4"
-dotenvy = "0.15"
 
 [profile.dev]
 opt-level = 1          # Basic optimizations without slowing compilation too much
@@ -105,3 +49,81 @@ lto = false            # Disable Link Time Optimization to speed up builds
 codegen-units = 256    # Use more codegen units for faster parallel compilation
 incremental = true     # Enable incremental compilation
 rpath = false          # Disable runtime search path
+
+
+[dependencies]
+# Common
+tokio = { version = "1.45.1", features = ["rt-multi-thread", "macros", "time", "sync", "io-util", "io-std", "process"] }
+async-trait = "0.1"
+anyhow = "1.0.98"
+lazy_static = "1.5.0"
+serde = { version = "1.0.219", features = ["derive"] }
+futures = { version = "0.3.31", default-features = false, features = ["std"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
+tracing-appender = "0.2.3"
+bon = "3.4.0"
+
+# Types
+chrono = { version = "0.4", default-features = false, features = ["serde", "clock"] }
+url = "2.5.4"
+uuid = { version = "1.17.0", default-features = false, features = ["v4"] }
+
+# Tree-Sitter
+tree-sitter = "0.25.6"
+tree-sitter-php = "0.23.11"
+tree-sitter-rust = "0.23.2"
+tree-sitter-python = "0.23.6"
+tree-sitter-javascript = "0.23.1"
+tree-sitter-json = "0.24.8"
+tree-sitter-go = "0.23.4"
+tree-sitter-cpp = "0.23.4"
+tree-sitter-bash = "0.25.0"
+tree-sitter-css = "0.23.2"
+tree-sitter-typescript = "0.23.2"
+tree-sitter-ruby = "0.23.1"
+tree-sitter-svelte-ng = "1.0.2"
+
+ignore = "0.4.23"
+parking_lot = "0.12.4"
+
+reqwest = { version = "0.12.20", features = ["json", "rustls-tls"], default-features = false }
+serde_json = "1.0.140"
+sha2 = "0.10.9"
+clap = { version = "4.5.40", features = ["derive"] }
+clap_complete = "4.5.54"
+notify = { version = "8.0.0", default-features = false, features = ["crossbeam-channel", "macos_fsevent"] }
+notify-debouncer-mini = "0.6.0"
+toml = "0.8.23"
+globset = { version = "0.4.16", default-features = false }
+regex = { version = "1.11.1", default-features = false, features = ["std"] }
+dirs = "6.0.0"
+# EditorConfig parsing and formatting
+ec4rs = "1.2.0"
+# LSP integration dependencies
+lsp-types = "0.97.0"
+dotenvy = "0.15"
+
+# AI
+tiktoken-rs = "0.7.0"
+tokenizers = { version = "0.21.2", optional = true }
+hf-hub = { version = "0.4.2", features = ["tokio"], optional = true }
+fastembed = { version = "4.9.1", optional = true }
+# Candle dependencies for HuggingFace support (optional)
+candle-core = { version = "0.9.1", optional = true }
+candle-nn = { version = "0.9.1", optional = true }
+candle-transformers = { version = "0.9.1", optional = true }
+simsimd = "6.4.9"
+# Tei
+tei_backend = { package = "text-embeddings-backend", git = "https://github.com/bysensa/text-embeddings-inference.git", features = [
+    "candle", "metal", "clap"
+] }
+tei_backend_core = { package = "text-embeddings-backend-core", git = "https://github.com/bysensa/text-embeddings-inference.git", version = "1.7.2" }
+tei_core = { package = "text-embeddings-core", git = "https://github.com/bysensa/text-embeddings-inference.git", version = "1.7.2" }
+
+# Storage
+lance-table = { version = "0.30.0", default-features = false, features = ["lazy_static"] }
+lance = { version = "0.30.0", default-features = false, features = [] }
+lancedb = { version = "0.21.0", default-features = false }
+arrow = { version = "55.2.0", default-features = false, features = ["prettyprint"] }
+num_cpus = "1.17.0"

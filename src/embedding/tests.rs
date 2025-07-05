@@ -25,14 +25,14 @@ mod embedding_tests {
 	#[cfg(any(feature = "huggingface", feature = "fastembed"))]
 	use crate::embedding::create_embedding_provider_from_parts;
 
-	#[test]
+	#[tokio::test]
 	#[cfg(feature = "huggingface")]
-	fn test_sentence_transformer_provider_creation() {
+	async fn test_sentence_transformer_provider_creation() {
 		// Test that we can create a SentenceTransformer provider
 		let provider_type = EmbeddingProviderType::HuggingFace;
 		let model = "sentence-transformers/all-MiniLM-L6-v2";
 
-		let result = create_embedding_provider_from_parts(&provider_type, model);
+		let result = create_embedding_provider_from_parts(&provider_type, model).await;
 		if let Err(e) = &result {
 			eprintln!("Error creating HuggingFace provider: {}", e);
 		}
@@ -122,9 +122,9 @@ mod embedding_tests {
 		assert_eq!(text_provider, EmbeddingProviderType::Voyage);
 	}
 
-	#[test]
+	#[tokio::test]
 	#[cfg(feature = "huggingface")]
-	fn test_embedding_config_methods() {
+	async fn test_embedding_config_methods() {
 		let config = EmbeddingConfig {
 			code_model: "huggingface:microsoft/codebert-base".to_string(),
 			text_model: "huggingface:sentence-transformers/all-mpnet-base-v2".to_string(),
@@ -135,16 +135,20 @@ mod embedding_tests {
 		assert_eq!(active_provider, EmbeddingProviderType::HuggingFace);
 
 		// Test vector dimensions
-		let dim = config.get_vector_dimension(
-			&EmbeddingProviderType::HuggingFace,
-			"jinaai/jina-embeddings-v2-base-code",
-		);
+		let dim = config
+			.get_vector_dimension(
+				&EmbeddingProviderType::HuggingFace,
+				"jinaai/jina-embeddings-v2-base-code",
+			)
+			.await;
 		assert_eq!(dim, 768);
 
-		let dim2 = config.get_vector_dimension(
-			&EmbeddingProviderType::HuggingFace,
-			"sentence-transformers/all-MiniLM-L6-v2",
-		);
+		let dim2 = config
+			.get_vector_dimension(
+				&EmbeddingProviderType::HuggingFace,
+				"sentence-transformers/all-MiniLM-L6-v2",
+			)
+			.await;
 		assert_eq!(dim2, 384);
 	}
 

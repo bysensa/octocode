@@ -70,6 +70,7 @@ pub enum EmbeddingProviderType {
 	Google,
 	HuggingFace,
 	OpenAI,
+	Tei,
 }
 
 impl Default for EmbeddingProviderType {
@@ -120,6 +121,7 @@ impl Default for EmbeddingConfig {
 pub fn parse_provider_model(input: &str) -> (EmbeddingProviderType, String) {
 	if let Some((provider_str, model)) = input.split_once(':') {
 		let provider = match provider_str.to_lowercase().as_str() {
+			"tei" => EmbeddingProviderType::Tei,
 			"fastembed" => EmbeddingProviderType::FastEmbed,
 			"jinaai" | "jina" => EmbeddingProviderType::Jina,
 			"voyageai" | "voyage" => EmbeddingProviderType::Voyage,
@@ -170,9 +172,15 @@ impl EmbeddingConfig {
 	}
 
 	/// Get vector dimension by creating a provider instance
-	pub fn get_vector_dimension(&self, provider: &EmbeddingProviderType, model: &str) -> usize {
+	pub async fn get_vector_dimension(
+		&self,
+		provider: &EmbeddingProviderType,
+		model: &str,
+	) -> usize {
 		// Try to create provider and get dimension
-		match crate::embedding::provider::create_embedding_provider_from_parts(provider, model) {
+		match crate::embedding::provider::create_embedding_provider_from_parts(provider, model)
+			.await
+		{
 			Ok(provider_impl) => provider_impl.get_dimension(),
 			Err(e) => {
 				panic!(
@@ -184,9 +192,14 @@ impl EmbeddingConfig {
 	}
 
 	/// Validate model by trying to create provider
-	pub fn validate_model(&self, provider: &EmbeddingProviderType, model: &str) -> Result<()> {
+	pub async fn validate_model(
+		&self,
+		provider: &EmbeddingProviderType,
+		model: &str,
+	) -> Result<()> {
 		let provider_impl =
-			crate::embedding::provider::create_embedding_provider_from_parts(provider, model)?;
+			crate::embedding::provider::create_embedding_provider_from_parts(provider, model)
+				.await?;
 		if !provider_impl.is_model_supported() {
 			return Err(anyhow::anyhow!(
 				"Model {} is not supported by provider {:?}",

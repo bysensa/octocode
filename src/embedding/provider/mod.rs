@@ -45,6 +45,7 @@ pub mod huggingface;
 pub mod google;
 pub mod jina;
 pub mod openai;
+pub mod tei;
 pub mod voyage;
 
 // Re-export providers
@@ -54,6 +55,7 @@ pub use fastembed::{FastEmbedProvider, FastEmbedProviderImpl};
 pub use huggingface::{HuggingFaceProvider, HuggingFaceProviderImpl};
 
 // Always available provider re-exports
+use crate::embedding::provider::tei::Tei;
 pub use google::{GoogleProvider, GoogleProviderImpl};
 pub use jina::{JinaProvider, JinaProviderImpl};
 pub use openai::{OpenAIProvider, OpenAIProviderImpl};
@@ -79,7 +81,7 @@ pub trait EmbeddingProvider: Send + Sync {
 }
 
 /// Create an embedding provider from provider type and model
-pub fn create_embedding_provider_from_parts(
+pub async fn create_embedding_provider_from_parts(
 	provider: &EmbeddingProviderType,
 	model: &str,
 ) -> Result<Box<dyn EmbeddingProvider>> {
@@ -94,6 +96,7 @@ pub fn create_embedding_provider_from_parts(
 				Err(anyhow::anyhow!("FastEmbed support is not compiled in. Please rebuild with --features fastembed"))
 			}
 		}
+		EmbeddingProviderType::Tei => Ok(Box::new(Tei::from_model(model).await?)),
 		EmbeddingProviderType::Jina => Ok(Box::new(JinaProviderImpl::new(model)?)),
 		EmbeddingProviderType::Voyage => Ok(Box::new(VoyageProviderImpl::new(model)?)),
 		EmbeddingProviderType::Google => Ok(Box::new(GoogleProviderImpl::new(model)?)),

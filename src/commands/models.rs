@@ -81,6 +81,14 @@ async fn list_models(provider_filter: Option<String>) -> Result<()> {
 		println!("\n--- {:?} Provider ---", provider);
 
 		match provider {
+			EmbeddingProviderType::Tei => {
+				#[cfg(feature = "huggingface")]
+				{
+					println!("Found dynamic models:");
+					println!("  HuggingFace: Dynamic discovery via Hub API");
+					println!("  Use 'info' command with specific model names");
+				}
+			}
 			EmbeddingProviderType::FastEmbed => {
 				#[cfg(feature = "fastembed")]
 				{
@@ -181,7 +189,7 @@ async fn get_model_info(model_spec: &str) -> Result<()> {
 	println!("Model: {}", model_name);
 
 	// Create provider instance to test validation
-	match create_embedding_provider_from_parts(&provider, &model_name) {
+	match create_embedding_provider_from_parts(&provider, &model_name).await {
 		Ok(provider_impl) => {
 			let supported = provider_impl.is_model_supported();
 
