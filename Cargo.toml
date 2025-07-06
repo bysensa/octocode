@@ -36,6 +36,16 @@ strip = true            # Strip symbols from binary
 opt-level = "z"         # Optimize for size
 overflow-checks = false # Disable overflow checks in release mode
 
+[profile.dev]
+opt-level = 1          # Basic optimizations without slowing compilation too much
+debug = true           # Keep debug symbols for backtraces
+debug-assertions = true # Keep runtime checks
+overflow-checks = true  # Keep overflow checks
+lto = false            # Disable Link Time Optimization to speed up builds
+codegen-units = 256    # Use more codegen units for faster parallel compilation
+incremental = true     # Enable incremental compilation
+rpath = false          # Disable runtime search path
+
 # Cross-compilation configuration is in .cargo/config.toml
 
 [dependencies]
@@ -95,13 +105,3 @@ tiktoken-rs = "0.7.0"
 lsp-types = "0.97.0"
 url = "2.5.4"
 dotenvy = "0.15"
-
-[profile.dev]
-opt-level = 1          # Basic optimizations without slowing compilation too much
-debug = true           # Keep debug symbols for backtraces
-debug-assertions = true # Keep runtime checks
-overflow-checks = true  # Keep overflow checks
-lto = false            # Disable Link Time Optimization to speed up builds
-codegen-units = 256    # Use more codegen units for faster parallel compilation
-incremental = true     # Enable incremental compilation
-rpath = false          # Disable runtime search path
